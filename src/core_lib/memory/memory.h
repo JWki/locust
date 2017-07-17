@@ -134,6 +134,8 @@ namespace lc
         void MemoryArena<Allocator, ThreadPolicy, BoundsCheckingPolicy, MemoryTrackingPolicy, MemoryTaggingPolicy>::Free(void* ptr)
         {
             m_threadGuard.Enter();
+            
+            if (ptr == nullptr) { return; }
 
             char* memory = static_cast<char*>(ptr) - BoundsCheckingPolicy::FRONT_PADDING;
             const size_t allocationSize = m_allocator->GetAllocationSize(memory);
