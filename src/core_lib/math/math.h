@@ -8,15 +8,39 @@ Vector(const Vector& other) = default; \
 Vector& operator = (const Vector& other) = default; \
 TElement& operator [] (size_t index) { return elements[index]; } \
 TElement operator [] (size_t index) const { return elements[index]; } \
-Vector operator += (const Vector& other) { return *this + other; } \
-Vector operator -= (const Vector& other) { return *this - other; } \
-Vector operator *= (const Vector& other) { return *this * other; } \
-Vector operator /= (const Vector& other) { return *this / other; } 
+Vector& operator += (const Vector& other) { return *this = (*this + other); } \
+Vector& operator -= (const Vector& other) { return *this = (*this - other); } \
+Vector& operator *= (const Vector& other) { return *this = (*this * other); } \
+Vector& operator /= (const Vector& other) { return *this = (*this / other); } \
+Vector& operator += (TElement v) { return *this = (*this + v); } \
+Vector& operator -= (TElement v) { return *this = (*this - v); } \
+Vector& operator *= (TElement v) { return *this = (*this * v); } \
+Vector& operator /= (TElement v) { return *this = (*this / v); } \
+
+#include <math.h>
 
 namespace lc
 {
     namespace math
     {
+
+        template <class TNumber>
+        TNumber Sqrt(TNumber n)
+        {
+            static_assert(false, "TNumber doesn't support Sqrt()");
+        }
+
+        template <>
+        float Sqrt(float n)
+        {
+            return sqrtf(n);
+        }
+
+        template <>
+        double Sqrt(double n)
+        {
+            return sqrt(n);
+        }
     
         template <class TElement, size_t ELEMENT_COUNT>
         struct Vector
@@ -108,9 +132,42 @@ namespace lc
             return result;
         }
 
+        template<class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> Add(const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            Vector<TElement, ELEMENT_COUNT> result(a);
+            for (size_t i = 0; i < ELEMENT_COUNT; ++i) { result[i] += v; };
+            return result;
+        }
+
+        template<class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> Subtract(const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            Vector<TElement, ELEMENT_COUNT> result(a);
+            for (size_t i = 0; i < ELEMENT_COUNT; ++i) { result[i] -= v; };
+            return result;
+        }
+
+        template<class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> Multiply(const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            Vector<TElement, ELEMENT_COUNT> result(a);
+            for (size_t i = 0; i < ELEMENT_COUNT; ++i) { result[i] *= v; };
+            return result;
+        }
+
+        template<class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> Divide(const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            Vector<TElement, ELEMENT_COUNT> result(a);
+            for (size_t i = 0; i < ELEMENT_COUNT; ++i) { result[i] /= v; };
+            return result;
+        }
+
         
         template <class TElement, size_t ELEMENT_COUNT>   // @TODO static_assert is ugly solution, really needs concepts or whatever
         TElement Dot(const Vector<TElement, ELEMENT_COUNT>& a, const Vector<TElement, ELEMENT_COUNT>& b) { static_assert(false, "Only float and double supported as element types") }
+
 
         template <size_t ELEMENT_COUNT>
         float Dot(const Vector<float, ELEMENT_COUNT>& a, const Vector<float, ELEMENT_COUNT>& b)
@@ -128,6 +185,21 @@ namespace lc
             return result;
         }
 
+        template <class TElement, size_t ELEMENT_COUNT>
+        TElement Length(const Vector<TElement, ELEMENT_COUNT>& v)
+        {
+            return Sqrt(Dot(v, v));
+        }
+
+        template <class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> Normalize(const Vector<TElement, ELEMENT_COUNT>& v)
+        {
+            Vector<TElement, ELEMENT_COUNT> result(v);
+            result /= Length(v);
+            return result;
+        }
+       
+        
         template <class TElement, size_t ELEMENT_COUNT>
         Vector<TElement, ELEMENT_COUNT> operator + (const Vector<TElement, ELEMENT_COUNT>& a, const Vector<TElement, ELEMENT_COUNT>& b)
         {
@@ -151,6 +223,31 @@ namespace lc
         {
             return Divide(a, b);
         }
+
+        template <class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> operator + (const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            return Add(a, v);
+        }
+
+        template <class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> operator - (const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            return Substract(a, v);
+        }
+
+        template <class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> operator * (const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            return Multiply(a, v);
+        }
+
+        template <class TElement, size_t ELEMENT_COUNT>
+        Vector<TElement, ELEMENT_COUNT> operator / (const Vector<TElement, ELEMENT_COUNT>& a, TElement v)
+        {
+            return Divide(a, v);
+        }
+
 
         typedef Vector<float, 2> float2;
         typedef Vector<float, 3> float3;
