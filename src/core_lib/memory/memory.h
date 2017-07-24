@@ -3,24 +3,16 @@
 //
 //  Thanks to Stefan Reinalter and his blog @ blog.molecular-matters.com
 
-#define LC_SOURCE_INFO {__LINE__, __FILE__}
+
 #ifdef _MSC_VER
-#define LC_FORCE_INLINE __forceinline
+#define GT_FORCE_INLINE __forceinline
 #else
-#define LC_FORCE_INLINE inline
+#define GT_FORCE_INLINE inline
 #endif
 
 namespace lc 
 { 
-    struct SourceInfo
-    {
-        size_t      line = 0;
-        const char* file = "";
-        //const char* function = "";
-
-        SourceInfo() = default;
-        SourceInfo(size_t l, const char* f) : line(l), file(f) {}
-    };
+   
     
     namespace pointerUtil
     {
@@ -83,8 +75,8 @@ namespace lc
         class EmptyThreadPolicy
         {
         public:
-            LC_FORCE_INLINE void Enter() {};
-            LC_FORCE_INLINE void Exit() {};
+            GT_FORCE_INLINE void Enter() {};
+            GT_FORCE_INLINE void Exit() {};
         };
         
         class EmptyBoundsCheckingPolicy
@@ -93,25 +85,25 @@ namespace lc
             static const size_t FRONT_PADDING = 0;
             static const size_t BACK_PADDING = 0;
 
-            LC_FORCE_INLINE void WriteFrontGuard(void* memory) {}
-            LC_FORCE_INLINE void WriteBackGuard(void* memory) {}
+            GT_FORCE_INLINE void WriteFrontGuard(void* memory) {}
+            GT_FORCE_INLINE void WriteBackGuard(void* memory) {}
 
-            LC_FORCE_INLINE void CheckFrontGuard(void* memory) {}
-            LC_FORCE_INLINE void CheckBackGuard(void* memory) {}
+            GT_FORCE_INLINE void CheckFrontGuard(void* memory) {}
+            GT_FORCE_INLINE void CheckBackGuard(void* memory) {}
         };
 
         class EmptyMemoryTrackingPolicy
         {
         public:
-            LC_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignment, SourceInfo scInfo) {}
-            LC_FORCE_INLINE void UntrackAllocation(void* memory, size_t size) {}
+            GT_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignment, SourceInfo scInfo) {}
+            GT_FORCE_INLINE void UntrackAllocation(void* memory, size_t size) {}
         };
 
         class EmptyMemoryTaggingPolicy
         {
         public:
-            LC_FORCE_INLINE void TagAllocation(void* memory, size_t size) {}
-            LC_FORCE_INLINE void TagDeallocation(void* memory, size_t size) {}
+            GT_FORCE_INLINE void TagAllocation(void* memory, size_t size) {}
+            GT_FORCE_INLINE void TagDeallocation(void* memory, size_t size) {}
         };
 
         template <class TAllocator>
@@ -191,7 +183,7 @@ namespace lc {
 inline void* operator new(size_t, lc::internal::PlacementNewDummy, void* ptr) { return ptr; }
 inline void operator delete(void*, lc::internal::PlacementNewDummy, void*) {}
 
-#define LC_PLACEMENT_NEW(ptr) new(lc::internal::PlacementNewDummy(), ptr)
+#define GT_PLACEMENT_NEW(ptr) new(lc::internal::PlacementNewDummy(), ptr)
 
 namespace lc {
     namespace internal {
@@ -245,7 +237,7 @@ namespace lc {
             *(as_size_t) = count;
             as_char += padding;
             for (size_t i = 0; i < count; ++i) {
-                LC_PLACEMENT_NEW(as_t + i) T();
+                GT_PLACEMENT_NEW(as_t + i) T();
             }
             return reinterpret_cast<T*>(as_t);
         }
@@ -278,14 +270,14 @@ namespace lc {
 
 
 
-#define LC_NEW(Type, arenaAsPtr) \
-LC_PLACEMENT_NEW (arenaAsPtr->Allocate(sizeof(Type), alignof(Type), LC_SOURCE_INFO)) Type
+#define GT_NEW(Type, arenaAsPtr) \
+GT_PLACEMENT_NEW (arenaAsPtr->Allocate(sizeof(Type), alignof(Type), GT_SOURCE_INFO)) Type
 
-#define LC_NEW_ARRAY(ArrayType, count, arenaAsPtr) \
-lc::internal::NewArray<ArrayType, lc::internal::RemovePointer<decltype(arenaAsPtr)>::Type>(count, arenaAsPtr, LC_SOURCE_INFO)
+#define GT_NEW_ARRAY(ArrayType, count, arenaAsPtr) \
+lc::internal::NewArray<ArrayType, lc::internal::RemovePointer<decltype(arenaAsPtr)>::Type>(count, arenaAsPtr, GT_SOURCE_INFO)
 
-#define LC_DELETE(objectAsPtr, arenaAsPtr) \
+#define GT_DELETE(objectAsPtr, arenaAsPtr) \
 lc::internal::Delete(objectAsPtr, arenaAsPtr)
 
-#define LC_DELETE_ARRAY(array, arenaAsPtr) \
+#define GT_DELETE_ARRAY(array, arenaAsPtr) \
 lc::internal::DeleteArray(array, arenaAsPtr) 

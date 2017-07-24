@@ -1,6 +1,6 @@
 #pragma once
 
-#define LC_COMMON_VECTOR_OP(TElement, ELEMENT_COUNT) \
+#define GT_COMMON_VECTOR_OP(TElement, ELEMENT_COUNT) \
 Vector() { memset(elements, 0x0, sizeof(TElement) * ELEMENT_COUNT); } \
 explicit Vector(TElement v) { for(size_t i = 0; i < ELEMENT_COUNT; ++i) { elements[i] = v; } } \
 explicit operator TElement* () { return elements; } \
@@ -47,7 +47,7 @@ namespace lc
         {
             TElement elements[ELEMENT_COUNT];
 
-            LC_COMMON_VECTOR_OP(TElement, ELEMENT_COUNT)
+            GT_COMMON_VECTOR_OP(TElement, ELEMENT_COUNT)
         };
 
 
@@ -59,7 +59,7 @@ namespace lc
                 struct { TElement x; TElement y; };
                 struct { TElement r; TElement g; };
             };
-            LC_COMMON_VECTOR_OP(TElement, 2)
+            GT_COMMON_VECTOR_OP(TElement, 2)
 
             Vector(TElement a, TElement b) : x(a), y(b) {}
         };
@@ -75,7 +75,7 @@ namespace lc
                 Vector<TElement, 2> rg; 
             };
 
-            LC_COMMON_VECTOR_OP(TElement, 3)
+            GT_COMMON_VECTOR_OP(TElement, 3)
 
             Vector(Vector<TElement, 2> ab, TElement c) : xy(ab), z(c) {}
             Vector(TElement a, TElement b, TElement c) : x(a), y(b), z(c) {}
@@ -93,7 +93,7 @@ namespace lc
                 Vector<TElement, 3> rgb;
                 Vector<TElement, 2> rg;
             };
-            LC_COMMON_VECTOR_OP(TElement, 4)
+            GT_COMMON_VECTOR_OP(TElement, 4)
 
             Vector(Vector<TElement, 3> abc, TElement d) : xyz(abc), w(d) {}
             Vector(TElement a, TElement b, TElement c, TElement d) : x(a), y(b), z(c), w(d) {}

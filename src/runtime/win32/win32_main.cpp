@@ -1,3 +1,7 @@
+#ifdef LC_DEVELOPMENT
+#define GT_DEVELOPMENT
+#endif
+
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -15,6 +19,7 @@
 #include <core_lib/int_types.h>
 #include <core_lib/memory/memory.h>
 #include <core_lib/memory/allocators.h>
+#include <core_lib/logging/logging.h>
 
 #include <core_lib/math/math.h>
 
@@ -35,16 +40,16 @@ public:
     ~SimpleMemoryTracker()
     {
         if (m_usedMemory > 0) {
-            printf("NOOOO\n");
+            GT_INFO("Memory", "Too much memory used!");
         }
     }
 
-    LC_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignemnt, lc::SourceInfo scInfo) 
+    GT_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignemnt, lc::SourceInfo scInfo) 
     {
         m_usedMemory += size;
     }
 
-    LC_FORCE_INLINE void UntrackAllocation(void* memory, size_t size) 
+    GT_FORCE_INLINE void UntrackAllocation(void* memory, size_t size) 
     {
         m_usedMemory -= size;
     }
@@ -118,9 +123,7 @@ public:
             char buf[512] = "";
             if (m_allocations[i].ptr != nullptr) {
                 auto& info = m_allocations[i];
-                snprintf(buf, 512, "%s(%lli): this allocation leaks\n", info.info.file, info.info.line);
-                OutputDebugStringA(buf);
-                printf("%lli bytes leaked @ %lli from %s(%lli)\n", info.size, (uintptr_t)info.ptr, info.info.file, info.info.line);
+                GT_WARNING("Memory", "Leaky allocation, %lli bytes leaked, allocated from\n%s(%lli)", info.size, info.info.file, info.info.line);
             }
         }
     }
@@ -135,17 +138,17 @@ public:
 
     inline ExtendedMemoryTracker* GetNext() { return m_next; }
     
-    LC_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignment, lc::SourceInfo scInfo)
+    GT_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignment, lc::SourceInfo scInfo)
     {
         if (!m_allocations || m_numAllocations == m_capacity) {
             if (!m_arena) { return; }
             if (m_allocations) {
-                LC_DELETE_ARRAY(m_allocations, m_arena);
+                GT_DELETE_ARRAY(m_allocations, m_arena);
             }
             using Type = AllocInfo;
             auto arenaAsPtr = m_arena;
             auto count = m_capacity + 1024;
-            m_allocations = LC_NEW_ARRAY(AllocInfo, m_capacity + 1024, m_arena);
+            m_allocations = GT_NEW_ARRAY(AllocInfo, m_capacity + 1024, m_arena);
         }
         AllocInfo info;
         info.alignment = alignment;
@@ -155,7 +158,7 @@ public:
         m_allocations[m_numAllocations++] = info;
     }
 
-    LC_FORCE_INLINE void UntrackAllocation(void* memory, size_t size)
+    GT_FORCE_INLINE void UntrackAllocation(void* memory, size_t size)
     {
         for (int i = 0; i < m_numAllocations; ++i) {
             if (m_allocations[i].ptr == memory) {
@@ -177,13 +180,67 @@ public:
 };
 
 
-#ifdef LC_DEVELOPMENT
+#ifdef GT_DEVELOPMENT
 typedef lc::memory::SimpleTrackingArena<lc::memory::TLSFAllocator, ExtendedMemoryTracker> HeapArena;
 typedef lc::memory::SimpleTrackingArena<lc::memory::LinearAllocator, ExtendedMemoryTracker> LinearArena;
 #else
 typedef lc::memory::SimpleMemoryArena<lc::memory::TLSFAllocator>    HeapArena;
 typedef lc::memory::SimpleMemoryArena<lc::memory::LinearAllocator>  LinearArena;
 #endif
+
+class SimpleFilterPolicy
+{
+public:
+    bool Filter(lc::logging::LogCriteria criteria)
+    {
+        return true;
+    }
+};
+
+class SimpleFormatPolicy
+{
+public:
+    void Format(char* buf, size_t bufSize, lc::logging::LogCriteria criteria, const char* format, va_list args)
+    {
+        size_t offset = snprintf(buf, bufSize, "[%s]    ", criteria.channel.str);
+        vsnprintf(buf + offset, bufSize - offset, format, args);
+    }
+};
+
+
+class IDEConsoleFormatter
+{
+public:
+    void Format(char* buf, size_t bufSize, lc::logging::LogCriteria criteria, const char* format, va_list args)
+    {
+        size_t offset = snprintf(buf, bufSize, "%s(%lli): [%s]    ", criteria.scInfo.file, criteria.scInfo.line, criteria.channel.str);
+        vsnprintf(buf + offset, bufSize - offset, format, args);
+    }
+};
+
+class IDEConsoleWriter
+{
+public:
+    void Write(const char* msg)
+    {
+#ifdef _MSC_VER
+        OutputDebugStringA(msg);
+        OutputDebugStringA("\n");
+#endif
+    }
+};
+
+class PrintfWriter
+{
+public:
+    void Write(const char* msg)
+    {
+        printf("%s\n", msg);
+    }
+};
+
+typedef lc::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, PrintfWriter> SimpleLogger;
+typedef lc::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
 
 #define GIGABYTES(n) (MEGABYTES(n) * (size_t)1024)
 #define MEGABYTES(n) (KILOBYTES(n) * 1024)
@@ -346,7 +403,7 @@ void StartCounter()
 {
     LARGE_INTEGER li;
     if (!QueryPerformanceFrequency(&li)) {
-        printf("Fuck\n");
+        GT_INFO("Timing", "Shit");
     }
 
     PCFreq = double(li.QuadPart);
@@ -447,7 +504,7 @@ void* LoadFileContents(const char* path, lc::memory::MemoryArenaBase* memoryAren
         return nullptr;
     }
     DWORD size = GetFileSize(handle, NULL);
-    void* buffer = memoryArena->Allocate(size, 16, LC_SOURCE_INFO);
+    void* buffer = memoryArena->Allocate(size, 16, GT_SOURCE_INFO);
     DWORD bytesRead = 0;
     auto res = ReadFile(handle, buffer, size, &bytesRead, NULL);
     if (res == FALSE || bytesRead != size) {
@@ -463,8 +520,13 @@ void* LoadFileContents(const char* path, lc::memory::MemoryArenaBase* memoryAren
 int main(int argc, char* argv[])
 {
     using namespace lc;
-   
-#ifdef LC_DEVELOPMENT
+
+    SimpleLogger logger;
+    IDEConsoleLogger ideLogger;
+
+    GT_INFO("Generic", "Some message %f %d %s", 3.141f, 42, "Hello World");
+
+#ifdef GT_DEVELOPMENT
     const size_t debugHeapSize = MEGABYTES(500);
     memory::TLSFAllocator debugAllocator(malloc(debugHeapSize), debugHeapSize);
     HeapArena debugArena(&debugAllocator);
@@ -477,17 +539,17 @@ int main(int argc, char* argv[])
 
     memory::LinearAllocator applicationAllocator(reservedMemory, reservedMemorySize);
     LinearArena applicationArena(&applicationAllocator);
-#ifdef LC_DEVELOPMENT
+#ifdef GT_DEVELOPMENT
     applicationArena.GetTrackingPolicy()->SetName("Application Stack");
     applicationArena.GetTrackingPolicy()->SetArena(&debugArena);
 #endif
 
     static const size_t sandboxedHeapSize = MEGABYTES(500);     // 0.5 gigs of memory for free form allocations @TODO subdivide further for individual 3rd party libs etc
-    void* sandboxedHeap = applicationArena.Allocate(sandboxedHeapSize, 4, LC_SOURCE_INFO);
+    void* sandboxedHeap = applicationArena.Allocate(sandboxedHeapSize, 4, GT_SOURCE_INFO);
 
     memory::TLSFAllocator sandboxAllocator(sandboxedHeap, sandboxedHeapSize);
     HeapArena sandboxArena(&sandboxAllocator);
-#ifdef LC_DEVELOPMENT
+#ifdef GT_DEVELOPMENT
     sandboxArena.GetTrackingPolicy()->SetName("Sandbox Heap");
     sandboxArena.GetTrackingPolicy()->SetArena(&debugArena);
 #endif
@@ -517,7 +579,7 @@ int main(int argc, char* argv[])
     ImGui::GetIO().UserData = &sandboxArena;
     ImGui::GetIO().MemAllocFn = [](size_t size) -> void* {
         auto arena = static_cast<HeapArena*>(ImGui::GetIO().UserData);
-        return arena->Allocate(size, 4, LC_SOURCE_INFO);
+        return arena->Allocate(size, 4, GT_SOURCE_INFO);
     };
     ImGui::GetIO().MemFreeFn = [](void* ptr) -> void {
         auto arena = static_cast<HeapArena*>(ImGui::GetIO().UserData);
@@ -539,7 +601,7 @@ int main(int argc, char* argv[])
     inits.malloc = [](size_t size) -> void* {   
         // @TODO: this probably shouldn't access the HeapArena via ImGui::GetIO()
         auto arena = static_cast<HeapArena*>(ImGui::GetIO().UserData);
-        return arena->Allocate(size, 4, LC_SOURCE_INFO);
+        return arena->Allocate(size, 4, GT_SOURCE_INFO);
     };
     inits.free = [](void* ptr) -> void {
         // @TODO: this probably shouldn't access the HeapArena via ImGui::GetIO()
@@ -667,7 +729,7 @@ int main(int argc, char* argv[])
 
             ImGui_ImplDX11_NewFrame();
 
-#ifdef LC_DEVELOPMENT
+#ifdef GT_DEVELOPMENT
             if (ImGui::Begin("Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 
                 size_t totalSize = 0;
