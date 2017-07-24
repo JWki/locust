@@ -55,6 +55,15 @@ public:
     }
 };
 
+class ExtendedMemoryTracker;
+
+namespace {
+    static ExtendedMemoryTracker* g_memTrackListHead = nullptr;
+    static ExtendedMemoryTracker* g_memTrackListTail = nullptr;
+}
+
+static ExtendedMemoryTracker* GetMemTrackerListHead() { return g_memTrackListHead; }
+
 class ExtendedMemoryTracker
 {
     struct AllocInfo
@@ -68,10 +77,43 @@ class ExtendedMemoryTracker
     size_t m_numAllocations = 0;
     size_t m_capacity = 0;
     lc::memory::MemoryArenaBase* m_arena = nullptr;
+
+    const char* m_name = "";
+
+    ExtendedMemoryTracker* m_next = nullptr;
+    ExtendedMemoryTracker* m_prev = nullptr;
+
+    void Register()
+    {
+        if (g_memTrackListHead == nullptr) {
+            g_memTrackListHead = g_memTrackListTail = this;
+        }
+        else {
+            m_prev = g_memTrackListTail;
+            g_memTrackListTail->m_next = this;
+            g_memTrackListTail = this;
+        }
+
+    }
+
+    void Unregister()
+    {
+        if (m_next) { m_next->m_prev = m_prev; }
+        if (m_prev) { m_prev->m_next = m_next; }
+        if (g_memTrackListHead == this) { g_memTrackListHead = g_memTrackListTail = nullptr; }
+        if (g_memTrackListTail == this) { g_memTrackListTail = m_prev; }
+    }
+
 public:
-    
+    ExtendedMemoryTracker()
+    {
+        Register();
+    }
+
     ~ExtendedMemoryTracker()
     {
+        Unregister();
+
         for (int i = 0; i < m_numAllocations; ++i) {
             char buf[512] = "";
             if (m_allocations[i].ptr != nullptr) {
@@ -87,6 +129,11 @@ public:
     {
         m_arena = arena;
     }
+
+    inline void SetName(const char* name) { m_name = name; }
+    inline const char* GetName() { return m_name; }
+
+    inline ExtendedMemoryTracker* GetNext() { return m_next; }
     
     LC_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignment, lc::SourceInfo scInfo)
     {
@@ -392,6 +439,26 @@ void PrintVector(const lc::math::Vector<TElement, ELEMENT_COUNT>& vec)
 }
 
 
+void* LoadFileContents(const char* path, lc::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
+{
+    HANDLE handle = CreateFileA(path, GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (!handle) {
+        printf("Failed to load %s\n", path);
+        return nullptr;
+    }
+    DWORD size = GetFileSize(handle, NULL);
+    void* buffer = memoryArena->Allocate(size, 16, LC_SOURCE_INFO);
+    DWORD bytesRead = 0;
+    auto res = ReadFile(handle, buffer, size, &bytesRead, NULL);
+    if (res == FALSE || bytesRead != size) {
+        printf("Failed to read %s\n", path);
+        memoryArena->Free(buffer);
+        return nullptr;
+    }
+    if (fileSize) { *fileSize = bytesRead; }
+    return buffer;
+}
+
 
 int main(int argc, char* argv[])
 {
@@ -401,6 +468,8 @@ int main(int argc, char* argv[])
     const size_t debugHeapSize = MEGABYTES(500);
     memory::TLSFAllocator debugAllocator(malloc(debugHeapSize), debugHeapSize);
     HeapArena debugArena(&debugAllocator);
+
+    debugArena.GetTrackingPolicy()->SetName("Debug Heap");
 #endif
 
     const size_t reservedMemorySize = GIGABYTES(2);
@@ -409,6 +478,7 @@ int main(int argc, char* argv[])
     memory::LinearAllocator applicationAllocator(reservedMemory, reservedMemorySize);
     LinearArena applicationArena(&applicationAllocator);
 #ifdef LC_DEVELOPMENT
+    applicationArena.GetTrackingPolicy()->SetName("Application Stack");
     applicationArena.GetTrackingPolicy()->SetArena(&debugArena);
 #endif
 
@@ -418,6 +488,7 @@ int main(int argc, char* argv[])
     memory::TLSFAllocator sandboxAllocator(sandboxedHeap, sandboxedHeapSize);
     HeapArena sandboxArena(&sandboxAllocator);
 #ifdef LC_DEVELOPMENT
+    sandboxArena.GetTrackingPolicy()->SetName("Sandbox Heap");
     sandboxArena.GetTrackingPolicy()->SetArena(&debugArena);
 #endif
 
@@ -476,7 +547,87 @@ int main(int argc, char* argv[])
         arena->Free(ptr);
     };
     enet_initialize_with_callbacks(ENET_VERSION, &inits);
+    //
+    struct Vertex
+    {
+        math::float4 position;
+        math::float4 color;
+    };
 
+    Vertex triangleVertices[] = {
+        { { 0.0f, 0.5f, 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        { { 0.45f, -0.5, 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { { -0.45f, -0.5f, 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+    };
+
+    uint16_t triangleIndices[] = {
+        0, 1, 2
+    };
+
+    ID3D11Buffer* vBuffer = nullptr;
+    {
+        D3D11_BUFFER_DESC bufferDesc = {};
+        ZeroMemory(&bufferDesc, sizeof(bufferDesc));
+
+        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DEFAULT;
+        bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_VERTEX_BUFFER;
+        bufferDesc.ByteWidth = sizeof(Vertex) * 3;
+        //bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_FLAG::D3D11_CPU_ACCESS_WRITE;
+
+        D3D11_SUBRESOURCE_DATA triangleVertexData = { triangleVertices , 0, 0 };
+      
+        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, &triangleVertexData, &vBuffer);
+        if (result != S_OK) {
+            printf("failed to create vertex buffer\n");
+        }
+    }
+
+    ID3D11Buffer* iBuffer = nullptr;
+    {
+        D3D11_BUFFER_DESC bufferDesc = {};
+        ZeroMemory(&bufferDesc, sizeof(bufferDesc));
+
+        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DEFAULT;
+        bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_INDEX_BUFFER;
+        bufferDesc.ByteWidth = sizeof(uint16_t) * 3;
+        //bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_FLAG::D3D11_CPU_ACCESS_WRITE;
+
+        D3D11_SUBRESOURCE_DATA triangleIndexData = { triangleIndices , 0, 0 };
+
+        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, &triangleIndexData, &iBuffer);
+        if (result != S_OK) {
+            printf("failed to create index buffer\n");
+        }
+    }
+
+    ID3D11VertexShader* vShader;
+    ID3D11PixelShader* fShader;
+    
+    size_t vShaderCodeSize = 0;
+    char* vShaderCode = static_cast<char*>(LoadFileContents("VertexShader.cso", &applicationArena, &vShaderCodeSize));
+    if (!vShaderCode) {
+        printf("Failed to load vertex shader\n");
+    }
+
+    size_t fShaderCodeSize = 0;
+    char* fShaderCode = static_cast<char*>(LoadFileContents("PixelShader.cso", &applicationArena, &fShaderCodeSize));
+    if (!fShaderCode) {
+        printf("Failed to load pixel shader\n");
+    }
+
+    auto vRes = g_pd3dDevice->CreateVertexShader(vShaderCode, vShaderCodeSize, nullptr, &vShader);
+    auto fRes = g_pd3dDevice->CreatePixelShader(fShaderCode, fShaderCodeSize, nullptr, &fShader);
+
+    D3D11_INPUT_ELEMENT_DESC inputDesc[] = {
+        { "POSITION", 0, DXGI_FORMAT::DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "COLOR", 0, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, 0, sizeof(math::float4), D3D11_INPUT_PER_VERTEX_DATA, 0 }
+    };
+    ID3D11InputLayout* inputLayout;
+
+    auto res = g_pd3dDevice->CreateInputLayout(inputDesc, 2, vShaderCode, vShaderCodeSize, &inputLayout);
+    if (res != S_OK) {
+        printf("failed to create input layout\n");
+    }
 
     ///
     StartCounter();
@@ -517,50 +668,23 @@ int main(int argc, char* argv[])
             ImGui_ImplDX11_NewFrame();
 
 #ifdef LC_DEVELOPMENT
-            if (ImGui::Begin("Memory usage")) {
+            if (ImGui::Begin("Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 
-                ImDrawList* drawList = ImGui::GetWindowDrawList();
+                size_t totalSize = 0;
+                auto it = GetMemTrackerListHead();
+                while (it != nullptr) {
 
-                float totalWidth = ImGui::GetContentRegionAvailWidth();
-                
-                float totalMemory = debugHeapSize + reservedMemorySize;
+                    totalSize += it->GetUsedMemorySize();
+                    if (ImGui::TreeNode(it->GetName())) {
+                        ImGui::Text("%lli kB allocated", it->GetUsedMemorySize() / 1024);
+                        ImGui::TreePop();
+                    }
 
-                auto blue = ImGui::ColorConvertFloat4ToU32(ImVec4(0, 0, 1, 1));
-                ImVec2 memRectA = ImGui::GetWindowContentRegionMin();
-                ImVec2 memRectB(memRectA.x + totalWidth, memRectA.y + 400);
-
-                float appPortion = reservedMemorySize / (float)totalMemory;
-
-                ImVec2 appRectA = memRectA;
-                float appWidth = appPortion * totalWidth;
-                ImVec2 appRectB(appRectA.x + appWidth, memRectB.y);
-
-                auto appCol = ImGui::ColorConvertFloat4ToU32(ImVec4(1, 0, 0, 1));
-
-                float sandboxPortion = sandboxedHeapSize / (float)reservedMemorySize;
-                ImVec2 sbRectA = appRectA;
-                float sbWidth = sandboxPortion * appWidth;
-                ImVec2 sbRectB(sbRectA.x + sbWidth, appRectB.y);
-                auto sbCol = ImGui::ColorConvertFloat4ToU32(ImVec4(1, 1, 0, 1));
-
-                drawList->AddRectFilled(memRectA, memRectB, blue);
-                
-                drawList->AddRectFilled(appRectA, appRectB, appCol);
-                drawList->AddRectFilled(sbRectA, sbRectB, sbCol);
-
-                if (ImGui::TreeNode("Application arena")) {
-                    ImGui::Text("%lli kB allocated", applicationArena.GetTrackingPolicy()->GetUsedMemorySize() / 1024);
-                    ImGui::TreePop();
+                    it = it->GetNext();
                 }
 
-                if (ImGui::TreeNode("Sandbox arena")) {
-                    ImGui::Text("%lli kB allocated", sandboxArena.GetTrackingPolicy()->GetUsedMemorySize() / 1024);
-                    ImGui::TreePop();
-                }
-
-                
-
-
+                ImGui::Separator();
+                ImGui::Text("Total usage: %lli kb", totalSize / 1024);
             } ImGui::End();
 #endif
             if (ImGui::Begin("Maths!")) {
@@ -719,6 +843,31 @@ int main(int argc, char* argv[])
 
         /* Begin render frame*/
         g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, bgColor);
+
+        // draw geometry
+
+        D3D11_VIEWPORT viewport = { 0 };
+
+        viewport.TopLeftX = 0;
+        viewport.TopLeftY = 0;
+        viewport.Width = WINDOW_WIDTH;
+        viewport.Height = WINDOW_HEIGHT;
+
+        g_pd3dDeviceContext->RSSetViewports(1, &viewport);
+
+        g_pd3dDeviceContext->IASetInputLayout(inputLayout);
+        g_pd3dDeviceContext->VSSetShader(vShader, nullptr, 0);
+        g_pd3dDeviceContext->PSSetShader(fShader, nullptr, 0);
+
+        ID3D11Buffer* vBuffers[] = { vBuffer };
+        UINT strides[] = { sizeof(Vertex) };
+        UINT offsets[] = { 0 };
+
+
+        g_pd3dDeviceContext->IASetVertexBuffers(0, 1, vBuffers, strides, offsets);
+        g_pd3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        g_pd3dDeviceContext->IASetIndexBuffer(iBuffer, DXGI_FORMAT::DXGI_FORMAT_R16_UINT, 0);
+        g_pd3dDeviceContext->DrawIndexed(3, 0, 0);
 
         // draw UI
         auto uiDrawData = ImGui::GetDrawData();
