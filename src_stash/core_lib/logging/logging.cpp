@@ -45,7 +45,6 @@ namespace lc
 
         void Log(LogChannel channel, LogLevel level, LogVerbosity verbosity, SourceInfo scInfo, const char* format, ...)
         {
-            
             LoggerBase* it = g_loggerListHead;
             while (it != nullptr) {
                 va_list args;
