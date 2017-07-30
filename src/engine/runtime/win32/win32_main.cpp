@@ -31,7 +31,7 @@ public:
         }
     }
 
-    GT_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignemnt, lc::SourceInfo scInfo)
+    GT_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignemnt, fnd::SourceInfo scInfo)
     {
         m_usedMemory += size;
     }
@@ -63,12 +63,12 @@ class ExtendedMemoryTracker
         void* ptr = nullptr;
         size_t size = 0;
         size_t alignment = 0;
-        lc::SourceInfo info;
+        fnd::SourceInfo info;
     };
     AllocInfo* m_allocations = nullptr;
     size_t m_numAllocations = 0;
     size_t m_capacity = 0;
-    lc::memory::MemoryArenaBase* m_arena = nullptr;
+    fnd::memory::MemoryArenaBase* m_arena = nullptr;
 
     const char* m_name = "";
 
@@ -115,7 +115,7 @@ public:
         }
     }
 
-    inline void SetArena(lc::memory::MemoryArenaBase* arena)
+    inline void SetArena(fnd::memory::MemoryArenaBase* arena)
     {
         m_arena = arena;
     }
@@ -125,7 +125,7 @@ public:
 
     inline ExtendedMemoryTracker* GetNext() { return m_next; }
 
-    GT_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignment, lc::SourceInfo scInfo)
+    GT_FORCE_INLINE void TrackAllocation(void* memory, size_t size, size_t alignment, fnd::SourceInfo scInfo)
     {
         if (!m_allocations || m_numAllocations == m_capacity) {
             if (!m_arena) { return; }
@@ -168,17 +168,17 @@ public:
 
 
 #ifdef GT_DEVELOPMENT
-typedef lc::memory::SimpleTrackingArena<lc::memory::TLSFAllocator, ExtendedMemoryTracker> HeapArena;
-typedef lc::memory::SimpleTrackingArena<lc::memory::LinearAllocator, ExtendedMemoryTracker> LinearArena;
+typedef fnd::memory::SimpleTrackingArena<fnd::memory::TLSFAllocator, ExtendedMemoryTracker> HeapArena;
+typedef fnd::memory::SimpleTrackingArena<fnd::memory::LinearAllocator, ExtendedMemoryTracker> LinearArena;
 #else
-typedef lc::memory::SimpleMemoryArena<lc::memory::TLSFAllocator>    HeapArena;
-typedef lc::memory::SimpleMemoryArena<lc::memory::LinearAllocator>  LinearArena;
+typedef fnd::memory::SimpleMemoryArena<fnd::memory::TLSFAllocator>    HeapArena;
+typedef fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator>  LinearArena;
 #endif
 
 class SimpleFilterPolicy
 {
 public:
-    bool Filter(lc::logging::LogCriteria criteria)
+    bool Filter(fnd::logging::LogCriteria criteria)
     {
         return true;
     }
@@ -187,7 +187,7 @@ public:
 class SimpleFormatPolicy
 {
 public:
-    void Format(char* buf, size_t bufSize, lc::logging::LogCriteria criteria, const char* format, va_list args)
+    void Format(char* buf, size_t bufSize, fnd::logging::LogCriteria criteria, const char* format, va_list args)
     {
         size_t offset = snprintf(buf, bufSize, "[%s]    ", criteria.channel.str);
         vsnprintf(buf + offset, bufSize - offset, format, args);
@@ -198,7 +198,7 @@ public:
 class IDEConsoleFormatter
 {
 public:
-    void Format(char* buf, size_t bufSize, lc::logging::LogCriteria criteria, const char* format, va_list args)
+    void Format(char* buf, size_t bufSize, fnd::logging::LogCriteria criteria, const char* format, va_list args)
     {
         size_t offset = snprintf(buf, bufSize, "%s(%lli): [%s]    ", criteria.scInfo.file, criteria.scInfo.line, criteria.channel.str);
         vsnprintf(buf + offset, bufSize - offset, format, args);
@@ -226,8 +226,45 @@ public:
     }
 };
 
-typedef lc::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, PrintfWriter> SimpleLogger;
-typedef lc::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
+#include <foundation/sockets/sockets.h>
+
+class NetworkFilterPolicy
+{
+public:
+    bool Filter(fnd::logging::LogCriteria criteria)
+    {
+        return criteria.channel.hash != fnd::logging::LogChannel("TCP Logger").hash;
+    }
+};
+
+#define REMOTE_LOGGING_PORT 8090
+class TCPWriter
+{
+    fnd::sockets::TCPConnectionSocket m_socket;
+public:
+
+    void Write(const char* msg)
+    {
+        fnd::sockets::Address remoteAddr(127, 0, 0, 1, REMOTE_LOGGING_PORT);
+        while(!m_socket.IsConnected()) {
+            
+            GT_LOG_INFO("TCP Logger", "trying to connect to %d.%d.%d.%d:%d", remoteAddr.GetA(), remoteAddr.GetB(), remoteAddr.GetC(), remoteAddr.GetD(), remoteAddr.GetPort());
+            auto res = m_socket.Connect(&remoteAddr);
+            if (res) { 
+                GT_LOG_INFO("TCP Logger", "Successfully connected to %d.%d.%d.%d:%d", remoteAddr.GetA(), remoteAddr.GetB(), remoteAddr.GetC(), remoteAddr.GetD(), remoteAddr.GetPort());
+                break; 
+            }
+        } 
+        m_socket.Send(const_cast<char*>(msg), strlen(msg) + 1);
+    }
+    
+};
+
+
+typedef fnd::logging::Logger<NetworkFilterPolicy, SimpleFormatPolicy, TCPWriter> NetworkLogger;
+typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, PrintfWriter> SimpleLogger;
+typedef fnd::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
+
 
 #define GIGABYTES(n) (MEGABYTES(n) * (size_t)1024)
 #define MEGABYTES(n) (KILOBYTES(n) * 1024)
@@ -470,7 +507,7 @@ struct PrintFormatString<double>
 
 
 template <class TElement, size_t ELEMENT_COUNT>
-void PrintVector(const lc::math::Vector<TElement, ELEMENT_COUNT>& vec)
+void PrintVector(const fnd::math::Vector<TElement, ELEMENT_COUNT>& vec)
 {
     printf("{ ");
     for (size_t i = 0; i < ELEMENT_COUNT; ++i) {
@@ -483,11 +520,11 @@ void PrintVector(const lc::math::Vector<TElement, ELEMENT_COUNT>& vec)
 }
 
 
-void* LoadFileContents(const char* path, lc::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
+void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
 {
     HANDLE handle = CreateFileA(path, GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (!handle) {
-        printf("Failed to load %s\n", path);
+        GT_LOG_ERROR("FileSystem", "Failed to load %s\n", path);
         return nullptr;
     }
     DWORD size = GetFileSize(handle, NULL);
@@ -495,7 +532,7 @@ void* LoadFileContents(const char* path, lc::memory::MemoryArenaBase* memoryAren
     DWORD bytesRead = 0;
     auto res = ReadFile(handle, buffer, size, &bytesRead, NULL);
     if (res == FALSE || bytesRead != size) {
-        printf("Failed to read %s\n", path);
+        GT_LOG_ERROR("FileSystem", "Failed to read %s\n", path);
         memoryArena->Free(buffer);
         return nullptr;
     }
@@ -504,24 +541,76 @@ void* LoadFileContents(const char* path, lc::memory::MemoryArenaBase* memoryAren
     return buffer;
 }
 
-#include <foundation/sockets/sockets.h>
+#ifdef _MSC_VER
+#ifdef GT_DEBUG
+#pragma comment(lib, "sodium-debug.lib")
+#else
+#pragma comment(lib, "sodium-release.lib")
+#endif
+#endif
+#include <engine/runtime/netcode_io/netcode.h>
+
+static uint8_t private_key[NETCODE_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 0x19, 0x10, 0xea,
+0x9a, 0x65, 0x62, 0xf6, 0x6f, 0x2b, 0x30, 0xe4,
+0x43, 0x71, 0xd6, 0x2c, 0xd1, 0x99, 0x27, 0x26,
+0x6b, 0x3c, 0x60, 0xf4, 0xb7, 0x15, 0xab, 0xa1 };
+
+
+
 
 extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 {
-  
-    fnd::sockets::InitializeSocketLayer();
 
-    fnd::sockets::Address addr(127, 0, 0, 1, 8080);
+    if (netcode_init() != NETCODE_OK)
+    {
+        printf("error: failed to initialize netcode.io\n");
+        return 1;
+    }
+
+    netcode_log_level(NETCODE_LOG_LEVEL_INFO);
+
+    struct netcode_client_t * client = netcode_client_create("0.0.0.0", 0.0);
+
+    if (!client)
+    {
+        printf("error: failed to create client\n");
+        return 1;
+    }
+
+#define TEST_CONNECT_TOKEN_EXPIRY 30
+#define TEST_PROTOCOL_ID 0x1122334455667788
+#define PRIx64 "llx"
+
+    NETCODE_CONST char * server_address = "127.0.0.1:40000";
+
+    uint64_t client_id = 0;
+    netcode_random_bytes((uint8_t*)&client_id, 8);
+    printf("client id is %.16" PRIx64 "\n", client_id);
+
+    uint8_t connect_token[NETCODE_CONNECT_TOKEN_BYTES];
+
+    if (netcode_generate_connect_token(1, &server_address, TEST_CONNECT_TOKEN_EXPIRY, client_id, TEST_PROTOCOL_ID, 0, private_key, connect_token) != NETCODE_OK)
+    {
+        printf("error: failed to generate connect token\n");
+        return 1;
+    }
+
+    netcode_client_connect(client, connect_token);
+
+
+    //return 0;
+    fnd::sockets::InitializeSocketLayer();
 
     fnd::sockets::UDPSocket socket;
 
    
-    using namespace lc;
+    using namespace fnd;
 
     SimpleLogger logger;
     IDEConsoleLogger ideLogger;
+    NetworkLogger tcpLogger;
 
-    GT_LOG_INFO("Generic", "Some message %f %d %s", 3.141f, 42, "Hello World");
+    GT_LOG_INFO("Application", "Initialized logging systems");
 
 #ifdef GT_DEVELOPMENT
     const size_t debugHeapSize = MEGABYTES(500);
@@ -551,6 +640,8 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     sandboxArena.GetTrackingPolicy()->SetArena(&debugArena);
 #endif
 
+    GT_LOG_INFO("Application", "Initialized memory systems");
+
     bool exitFlag = false;
     bool restartFlag = false;
 
@@ -559,9 +650,11 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     HWND hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("void"), _T("void"), WS_OVERLAPPEDWINDOW, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
 
     if (!hwnd) {
-        fprintf(stderr, "failed to create a window\n");
+        GT_LOG_ERROR("Application", "failed to create a window\n");
         return 1;
     }
+    
+    GT_LOG_INFO("Application", "Created application window");
 
     const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
 
@@ -572,6 +665,8 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
         UnregisterClass(_T("void"), wc.hInstance);
         return 1;
     }
+
+    GT_LOG_INFO("Application", "Initialized gfx device");
 
     ImGui::GetIO().UserData = &sandboxArena;
     ImGui::GetIO().MemAllocFn = [](size_t size) -> void* {
@@ -586,6 +681,8 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     ImGui_ImplDX11_Init(hwnd, g_pd3dDevice, g_pd3dDeviceContext);
 
     ImGui_Style_SetDark(0.8f);
+
+    GT_LOG_INFO("Application", "Initialized UI");
 
     // Show the window
     ShowWindow(hwnd, SW_SHOWDEFAULT);
@@ -623,7 +720,7 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 
         auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, &triangleVertexData, &vBuffer);
         if (result != S_OK) {
-            printf("failed to create vertex buffer\n");
+            GT_LOG_ERROR("D3D11", "failed to create vertex buffer\n");
         }
     }
 
@@ -641,7 +738,7 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 
         auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, &triangleIndexData, &iBuffer);
         if (result != S_OK) {
-            printf("failed to create index buffer\n");
+            GT_LOG_ERROR("D3D11", "failed to create index buffer\n");
         }
     }
 
@@ -651,13 +748,13 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     size_t vShaderCodeSize = 0;
     char* vShaderCode = static_cast<char*>(LoadFileContents("VertexShader.cso", &applicationArena, &vShaderCodeSize));
     if (!vShaderCode) {
-        printf("Failed to load vertex shader\n");
+        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
     }
 
     size_t fShaderCodeSize = 0;
     char* fShaderCode = static_cast<char*>(LoadFileContents("PixelShader.cso", &applicationArena, &fShaderCodeSize));
     if (!fShaderCode) {
-        printf("Failed to load pixel shader\n");
+        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
     }
 
     auto vRes = g_pd3dDevice->CreateVertexShader(vShaderCode, vShaderCodeSize, nullptr, &vShader);
@@ -671,8 +768,10 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 
     auto res = g_pd3dDevice->CreateInputLayout(inputDesc, 2, vShaderCode, vShaderCodeSize, &inputLayout);
     if (res != S_OK) {
-        printf("failed to create input layout\n");
+        GT_LOG_ERROR("D3D11", "failed to create input layout\n");
     }
+
+    GT_LOG_INFO("Application", "Initialized graphics scene");
 
     ///
     StartCounter();
@@ -686,6 +785,7 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
+    GT_LOG_INFO("Application", "Starting main loop");
     do {
         double newTime = GetCounter();
         double frameTime = newTime - currentTime;
@@ -703,8 +803,8 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
                 fnd::sockets::Address sender;
                 size_t bytesRead = socket.Receive(&sender, buffer, 512);
                 if (bytesRead > 0) {
-                    printf("Received msg from %d.%d.%d.%d:%d:\n", sender.GetA(), sender.GetB(), sender.GetC(), sender.GetD(), sender.GetPort());
-                    printf("%s\n", buffer);
+                    GT_LOG_INFO("Network", "Received msg via UDP from %d.%d.%d.%d:%d:", sender.GetA(), sender.GetB(), sender.GetC(), sender.GetD(), sender.GetPort());
+                    GT_LOG_INFO("Network", "msg was: %s", buffer);
                 }
             }
 
@@ -888,27 +988,46 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 
             if (ImGui::Begin("Networking", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 Port port = 0;
+                static Port targetPort = 8080;
+                ImGui::InputInt("Port", reinterpret_cast<int*>(&targetPort));
                 if (!socket.IsOpen(&port)) {
-                    if (ImGui::Button("Start server")) {
-                        if (!socket.Open(8080)) {
-                            printf("failed to open socket as server\n");
+                    if (ImGui::Button("Open socket")) {
+                        if (!socket.Open(targetPort)) {
+                            GT_LOG_ERROR("Network", "failed to open UDP socket on port %d", targetPort);
                         }
-                    } ImGui::SameLine();
-                    if (ImGui::Button("Try to connect to server")) {
-                        if (!socket.Open(0)) {
-                            printf("failed to open socket as client\n");
+                        else {
+                            GT_LOG_INFO("Network", "opened UDP socket on port %d", targetPort);
                         }
-                    }
+                    } 
                 }
                 else {
-                    bool isServer = port == 8080;
-                    ImGui::Text("Listening as %s", isServer ? "Server" : "Client");
+                    ImGui::Text("Listening on port %d", port);
                     if (ImGui::Button("Disconnect")) {
                         socket.Close();
+                        GT_LOG_INFO("Network", "closed UDP socket");
                     } ImGui::SameLine();
+                    static int a = 127, b = 0, c = 0, d = 1;
+                    static Port remotePort = 8080;
                     if (ImGui::Button("Send Hello World")) {
+                        fnd::sockets::Address addr(a, b, c, d, remotePort);
                         socket.Send(&addr, "Hello World", strlen("Hello World"));
                     }
+                    ImGui::Text("Remote address");
+                    ImGui::PushItemWidth(100.0f);
+                    ImGui::InputInt("##a", &a, 1, 100);
+                    ImGui::SameLine();
+                    ImGui::InputInt("##b", &b);
+                    ImGui::SameLine();
+                    ImGui::InputInt("##c", &c);
+                    ImGui::SameLine();
+                    ImGui::InputInt("##d", &d);
+                    ImGui::SameLine();
+                    ImGui::InputInt("Remote port", reinterpret_cast<int*>(&remotePort));
+                    ImGui::PopItemWidth();
+                    a = a >= 0 ? (a <= 255 ? a : 255) : 0;
+                    b = b >= 0 ? (b <= 255 ? b : 255) : 0;
+                    c = c >= 0 ? (c <= 255 ? c : 255) : 0;
+                    d = d >= 0 ? (d <= 255 ? d : 255) : 0;
                 }
             } ImGui::End();
 
@@ -967,7 +1086,6 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     ImGui_ImplDX11_Shutdown();
 
     fnd::sockets::ShutdownSocketLayer();
-
 
     return 0;
 }

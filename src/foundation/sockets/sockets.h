@@ -46,5 +46,41 @@ namespace fnd
 
             size_t Receive(Address* sender, void* buffer, size_t bufferSize);
         };
+
+        class TCPConnectionSocket;
+
+        class TCPListenSocket
+        {
+            SocketHandle    m_handle;
+            Port            m_port;
+        public:
+            TCPListenSocket();
+            bool Listen(Port port, size_t maxConnections);
+            void StopListen();
+
+            bool IsListening();
+            bool IsListening(Port* port);
+
+            bool HasConnection(Address* address, TCPConnectionSocket* socket);
+        };
+
+
+        class TCPConnectionSocket
+        {
+            SocketHandle    m_handle;
+            Address         m_remoteAddress;
+        public:
+            TCPConnectionSocket();
+            
+            bool Connect(Address* remoteAddress);
+            bool Open(SocketHandle socket);
+            void Close();
+
+            bool IsConnected();
+            bool IsConnected(Address* address);
+
+            bool Send(void* data, size_t numBytes);
+            size_t Receive(void* buffer, size_t bufferSize);
+        };
     }
 }

@@ -2,7 +2,7 @@
 #include "memory.h"
 #include "../int_types.h"
 
-namespace lc 
+namespace fnd 
 {
     namespace memory
     {
@@ -15,7 +15,7 @@ namespace lc
             size_t totalSize = size + alignment + sizeof(AllocationHeader);
             char* memory = static_cast<char*>(tlsf_malloc(m_internal, totalSize));
             if (memory == nullptr) { return nullptr; }
-            char* alignedMemory = static_cast<char*>(lc::pointerUtil::AlignAddress(memory + offset + sizeof(AllocationHeader), alignment)) - offset;
+            char* alignedMemory = static_cast<char*>(fnd::pointerUtil::AlignAddress(memory + offset + sizeof(AllocationHeader), alignment)) - offset;
             AllocationHeader* info = reinterpret_cast<AllocationHeader*>(alignedMemory - sizeof(AllocationHeader));
             info->size = size;
             info->adjust = uint32_t(reinterpret_cast<uintptr_t>(info) - reinterpret_cast<uintptr_t>(memory));

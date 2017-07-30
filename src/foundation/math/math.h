@@ -19,7 +19,7 @@ Vector& operator /= (TElement v) { return *this = (*this / v); } \
 
 #include <math.h>
 
-namespace lc
+namespace fnd
 {
     namespace math
     {

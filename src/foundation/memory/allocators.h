@@ -2,7 +2,7 @@
 #include "../int_types.h"
 #include "tlsf.h"
 
-namespace lc
+namespace fnd
 {
     namespace memory
     {

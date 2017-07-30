@@ -3,7 +3,7 @@
 #include "../int_types.h"
 
 
-namespace lc
+namespace fnd
 {
     namespace logging
     {
@@ -92,16 +92,16 @@ namespace lc
 
 
 #define GT_LOG_INFO(channelAsString, format, ...) \
-lc::logging::LoggerBase::LogDispatch(channelAsString, lc::logging::LogLevel::LOG_LEVEL_INFO, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
+fnd::logging::LoggerBase::LogDispatch(channelAsString, fnd::logging::LogLevel::LOG_LEVEL_INFO, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
 
 #define GT_LOG_DEBUG(channelAsString, format, ...) \
-lc::logging::LoggerBase::LogDispatch(channelAsString, lc::logging::LogLevel::LOG_LEVEL_DEBUG, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
+fnd::logging::LoggerBase::LogDispatch(channelAsString, fnd::logging::LogLevel::LOG_LEVEL_DEBUG, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
 
 #define GT_LOG_WARNING(channelAsString, format, ...) \
-lc::logging::LoggerBase::LogDispatch(channelAsString, lc::logging::LogLevel::LOG_LEVEL_WARNING, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
+fnd::logging::LoggerBase::LogDispatch(channelAsString, fnd::logging::LogLevel::LOG_LEVEL_WARNING, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
 
 #define GT_LOG_ERROR(channelAsString, format, ...) \
-lc::logging::LoggerBase::LogDispatch(channelAsString, lc::logging::LogLevel::LOG_LEVEL_ERROR, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
+fnd::logging::LoggerBase::LogDispatch(channelAsString, fnd::logging::LogLevel::LOG_LEVEL_ERROR, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
 
 #define GT_LOG_FATAL(channelAsString, format, ...) \
-lc::logging::LoggerBase::LogDispatch(channelAsString, lc::logging::LogLevel::LOG_LEVEL_FATAL, 0, GT_SOURCE_INFO, format, __VA_ARGS__)
+fnd::logging::LoggerBase::LogDispatch(channelAsString, fnd::logging::LogLevel::LOG_LEVEL_FATAL, 0, GT_SOURCE_INFO, format, __VA_ARGS__)

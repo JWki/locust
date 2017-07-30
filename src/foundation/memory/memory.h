@@ -10,7 +10,7 @@
 #define GT_FORCE_INLINE inline
 #endif
 
-namespace lc 
+namespace fnd 
 { 
    
     
@@ -172,7 +172,7 @@ namespace lc
     }
 }
 
-namespace lc {
+namespace fnd {
     namespace internal
     {
         struct PlacementNewDummy {};
@@ -180,12 +180,12 @@ namespace lc {
     }
 }
 
-inline void* operator new(size_t, lc::internal::PlacementNewDummy, void* ptr) { return ptr; }
-inline void operator delete(void*, lc::internal::PlacementNewDummy, void*) {}
+inline void* operator new(size_t, fnd::internal::PlacementNewDummy, void* ptr) { return ptr; }
+inline void operator delete(void*, fnd::internal::PlacementNewDummy, void*) {}
 
-#define GT_PLACEMENT_NEW(ptr) new(lc::internal::PlacementNewDummy(), ptr)
+#define GT_PLACEMENT_NEW(ptr) new(fnd::internal::PlacementNewDummy(), ptr)
 
-namespace lc {
+namespace fnd {
     namespace internal {
 
         template <class T>
@@ -274,10 +274,10 @@ namespace lc {
 GT_PLACEMENT_NEW (arenaAsPtr->Allocate(sizeof(Type), alignof(Type), GT_SOURCE_INFO)) Type
 
 #define GT_NEW_ARRAY(ArrayType, count, arenaAsPtr) \
-lc::internal::NewArray<ArrayType, lc::internal::RemovePointer<decltype(arenaAsPtr)>::Type>(count, arenaAsPtr, GT_SOURCE_INFO)
+fnd::internal::NewArray<ArrayType, fnd::internal::RemovePointer<decltype(arenaAsPtr)>::Type>(count, arenaAsPtr, GT_SOURCE_INFO)
 
 #define GT_DELETE(objectAsPtr, arenaAsPtr) \
-lc::internal::Delete(objectAsPtr, arenaAsPtr)
+fnd::internal::Delete(objectAsPtr, arenaAsPtr)
 
 #define GT_DELETE_ARRAY(array, arenaAsPtr) \
-lc::internal::DeleteArray(array, arenaAsPtr) 
+fnd::internal::DeleteArray(array, arenaAsPtr) 

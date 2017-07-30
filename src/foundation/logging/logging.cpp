@@ -2,7 +2,7 @@
 
 #include <stdarg.h>
 
-namespace lc
+namespace fnd
 {
     namespace logging
     {

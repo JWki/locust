@@ -4,7 +4,7 @@
 
 #define GT_SOURCE_INFO {__LINE__, __FILE__}
 
-namespace lc
+namespace fnd
 {
     struct SourceInfo
     {
