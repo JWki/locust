@@ -217,7 +217,7 @@ public:
     }
 };
 
-class PrintfWriter
+class ConsoleWriter
 {
 public:
     void Write(const char* msg)
@@ -260,9 +260,8 @@ public:
     
 };
 
-
 typedef fnd::logging::Logger<NetworkFilterPolicy, SimpleFormatPolicy, TCPWriter> NetworkLogger;
-typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, PrintfWriter> SimpleLogger;
+typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, ConsoleWriter> SimpleLogger;
 typedef fnd::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
 
 
@@ -271,9 +270,6 @@ typedef fnd::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsole
 #define KILOBYTES(n) (n * 1024)
 
 static_assert(GIGABYTES(8) > MEGABYTES(4), "some size type is wrong");
-
-#define WINDOW_WIDTH 1280
-#define WINDOW_HEIGHT 720
 
 #define WINDOW_WIDTH 1280
 #define WINDOW_HEIGHT 720
@@ -558,6 +554,25 @@ static uint8_t private_key[NETCODE_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 
 
 namespace gfx
 {
+    //
+    //  @TODO Resource handling, actual abstraction...
+    //
+    
+    /*
+        @NOTE
+
+        -> resource types:
+            -> Buffers (vertex, index, constant... treat generic if possible (usage hints/flags)?
+            -> Textures / Surfaces - unified concept for textures and render targets?
+            -> Shaders / Pipeline State (blend/raster/whatever state, input layout, etc) - split pipeline state up into blend/raster/etc states and shader bindings?
+            -> UAVs, structured buffers...?
+        -> need API to
+            -> create/destroy resources
+            -> update resource data
+            -> transition resource state? automate behind the scenes?
+    */
+
+
     static const size_t MAX_VERTEX_STREAMS = 8;
     static const size_t MAX_CONSTANT_BUFFERS = 8;
     static const size_t MAX_RENDER_TARGETS = 8;
@@ -565,7 +580,6 @@ namespace gfx
     enum class RenderCmdType : uint16_t
     {
         DRAW_BATCH,
-        
         UPDATE_BUFFER_DATA
     };
 
@@ -775,8 +789,7 @@ namespace gfx
             as_char += as_cmd_header->size + sizeof(RenderCmd);
             --numCommands;
         }
-        
-        //buffer->Flush();
+
     }
         
 }
@@ -784,49 +797,8 @@ namespace gfx
 
 extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 {
-
-    if (netcode_init() != NETCODE_OK)
-    {
-        printf("error: failed to initialize netcode.io\n");
-        return 1;
-    }
-
-    netcode_log_level(NETCODE_LOG_LEVEL_INFO);
-
-    struct netcode_client_t * client = netcode_client_create("0.0.0.0", 0.0);
-
-    if (!client)
-    {
-        printf("error: failed to create client\n");
-        return 1;
-    }
-
-#define TEST_CONNECT_TOKEN_EXPIRY 30
-#define TEST_PROTOCOL_ID 0x1122334455667788
-#define PRIx64 "llx"
-
-    NETCODE_CONST char * server_address = "127.0.0.1:40000";
-
-    uint64_t client_id = 0;
-    netcode_random_bytes((uint8_t*)&client_id, 8);
-    printf("client id is %.16" PRIx64 "\n", client_id);
-
-    uint8_t connect_token[NETCODE_CONNECT_TOKEN_BYTES];
-
-    if (netcode_generate_connect_token(1, &server_address, TEST_CONNECT_TOKEN_EXPIRY, client_id, TEST_PROTOCOL_ID, 0, private_key, connect_token) != NETCODE_OK)
-    {
-        printf("error: failed to generate connect token\n");
-        return 1;
-    }
-
-    netcode_client_connect(client, connect_token);
-
-
-    //return 0;
     fnd::sockets::InitializeSocketLayer();
-
     fnd::sockets::UDPSocket socket;
-
 
     using namespace fnd;
 
