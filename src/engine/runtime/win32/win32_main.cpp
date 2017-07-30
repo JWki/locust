@@ -368,7 +368,7 @@ void CreateRenderTarget()
     render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
     g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
     g_pd3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &g_mainRenderTargetView);
-    g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
+    //g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
     pBackBuffer->Release();
 }
 
@@ -556,6 +556,230 @@ static uint8_t private_key[NETCODE_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 
 0x6b, 0x3c, 0x60, 0xf4, 0xb7, 0x15, 0xab, 0xa1 };
 
 
+namespace gfx
+{
+    static const size_t MAX_VERTEX_STREAMS = 8;
+    static const size_t MAX_CONSTANT_BUFFERS = 8;
+    static const size_t MAX_RENDER_TARGETS = 8;
+
+    enum class RenderCmdType : uint16_t
+    {
+        DRAW_BATCH,
+        
+        UPDATE_BUFFER_DATA
+    };
+
+    typedef void(*RenderCmdDispatchFunc)(void*);
+
+    struct RenderCmd
+    {
+        RenderCmdType           type;
+        uint32_t                size;
+        RenderCmdDispatchFunc   Dispatch;
+    };
+
+    struct D3D11VertexBuffer
+    {
+        ID3D11Buffer*   buffer;
+        uint32_t        stride;
+        uint32_t        offset;
+    };
+
+    struct D3D11IndexBuffer
+    {
+        ID3D11Buffer*   buffer;
+        DXGI_FORMAT     format;
+        uint32_t        offset;
+    };
+
+    struct D3D11ConstantBuffer
+    {
+        ID3D11Buffer*   buffer;
+    };
+
+    namespace commands {
+
+        struct DrawBatchCmd
+        {
+            static const RenderCmdType Type = RenderCmdType::DRAW_BATCH;
+            static RenderCmdDispatchFunc Dispatch;
+
+            uint32_t        numVertexBuffers;
+            ID3D11Buffer*   vertexBuffers[MAX_VERTEX_STREAMS];
+            uint32_t        vertexBufferStrides[MAX_VERTEX_STREAMS];
+            uint32_t        vertexBufferOffsets[MAX_VERTEX_STREAMS];
+            
+            D3D11_PRIMITIVE_TOPOLOGY vertexTopology;
+
+            ID3D11Buffer*   indexBuffer;
+            uint32_t        indexBufferOffset;
+            DXGI_FORMAT     indexFormat;
+            uint32_t        indexCount;
+
+            uint32_t        numConstantBuffers;
+            ID3D11Buffer*   constantBuffers[MAX_CONSTANT_BUFFERS];
+            uint32_t        constantBufferOffsets[MAX_CONSTANT_BUFFERS];
+            uint32_t        constantBufferSizes[MAX_CONSTANT_BUFFERS];
+
+            ID3D11VertexShader*     vertexShader;
+            ID3D11PixelShader*      pixelShader;
+
+            ID3D11InputLayout*      inputLayout;
+        };
+
+        struct UpdateBufferDataCmd
+        {
+            static const RenderCmdType Type = RenderCmdType::UPDATE_BUFFER_DATA;
+            static RenderCmdDispatchFunc Dispatch;
+
+            ID3D11Buffer*   targetBuffer;
+
+            void*           data;
+            uint32_t        numBytes;
+        };
+    }
+
+    namespace dispatch {
+
+        void DispatchDrawBatchCmd(void* data)
+        {
+            auto cmd = static_cast<commands::DrawBatchCmd*>(data);
+            
+            g_pd3dDeviceContext->IASetInputLayout(cmd->inputLayout);
+            g_pd3dDeviceContext->IASetVertexBuffers(0, cmd->numVertexBuffers, cmd->vertexBuffers, cmd->vertexBufferStrides, cmd->vertexBufferOffsets);
+            g_pd3dDeviceContext->IASetPrimitiveTopology(cmd->vertexTopology);
+            g_pd3dDeviceContext->IASetIndexBuffer(cmd->indexBuffer, cmd->indexFormat, cmd->indexBufferOffset);
+            
+            g_pd3dDeviceContext->VSSetShader(cmd->vertexShader, nullptr, 0);
+            g_pd3dDeviceContext->PSSetShader(cmd->pixelShader, nullptr, 0);
+            
+            g_pd3dDeviceContext->VSSetConstantBuffers(0, cmd->numConstantBuffers, cmd->constantBuffers);
+            g_pd3dDeviceContext->PSSetConstantBuffers(0, cmd->numConstantBuffers, cmd->constantBuffers);
+            
+            g_pd3dDeviceContext->DrawIndexed(cmd->indexCount, 0, 0);
+        }
+
+        void DispatchUpdateBufferDataCmd(void* data)
+        {
+            auto cmd = static_cast<commands::UpdateBufferDataCmd*>(data);
+
+            D3D11_MAPPED_SUBRESOURCE resource;
+            HRESULT res = S_OK;
+            if((res = g_pd3dDeviceContext->Map(cmd->targetBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource)) != S_OK) {}
+            memcpy(resource.pData, cmd->data, cmd->numBytes);
+            g_pd3dDeviceContext->Unmap(cmd->targetBuffer, 0);
+        }
+    }
+
+    RenderCmdDispatchFunc commands::DrawBatchCmd::Dispatch = dispatch::DispatchDrawBatchCmd;
+    RenderCmdDispatchFunc commands::UpdateBufferDataCmd::Dispatch = dispatch::DispatchUpdateBufferDataCmd;
+
+
+    enum class RenderTargetAction : uint16_t
+    {
+        CLEAR_TO_COLOR,
+        NONE
+    };
+
+   
+
+    struct RenderPass
+    {
+        uint32_t                    numRenderTargets;
+        ID3D11RenderTargetView*     renderTargets[MAX_RENDER_TARGETS];
+
+        RenderTargetAction          beginAction;
+
+        fnd::math::float4           clearColor;
+        D3D11_VIEWPORT              viewport;
+        
+    };
+
+
+    class CommandBuffer
+    {
+        char* m_bufferStart;
+        char* m_next;
+        size_t m_bufferSize;
+        size_t m_numCommands = 0;
+    public:
+        CommandBuffer(void* buffer, size_t bufferSize)
+            :   m_bufferStart(reinterpret_cast<char*>(buffer)),
+                m_next(reinterpret_cast<char*>(buffer)),
+                m_bufferSize(bufferSize) {}
+
+        void Flush()
+        {
+            m_numCommands = 0;
+            m_next = m_bufferStart;
+        }
+
+        template <class TCmd>
+        TCmd* AllocateCommand()
+        {
+            size_t totalSize = sizeof(RenderCmd) + sizeof(TCmd);
+            if ((reinterpret_cast<uintptr_t>(m_next + totalSize) - reinterpret_cast<uintptr_t>(m_bufferStart)) > m_bufferSize) {
+                return nullptr;
+            }
+            union {
+                RenderCmd* as_cmd_header;
+                TCmd* as_cmd;
+                char* as_char;
+            };
+            as_char = m_next;
+            as_cmd_header->type = TCmd::Type;
+            as_cmd_header->Dispatch = TCmd::Dispatch;
+            as_cmd_header->size = sizeof(TCmd);
+
+            as_cmd_header++;
+            
+            as_cmd = GT_PLACEMENT_NEW(as_cmd) TCmd();
+            m_next += totalSize;
+            m_numCommands++;
+            return as_cmd;
+        }
+
+        RenderCmd* GetCommands(size_t* numCommands)
+        {
+            *numCommands = m_numCommands;
+            return reinterpret_cast<RenderCmd*>(m_bufferStart);
+        }
+    };
+
+    void SubmitCommandBuffer(RenderPass* renderPass, CommandBuffer* buffer)
+    {
+        g_pd3dDeviceContext->OMSetRenderTargets(renderPass->numRenderTargets, renderPass->renderTargets, nullptr);
+        switch (renderPass->beginAction) {
+            case RenderTargetAction::CLEAR_TO_COLOR: {
+                for (uint32_t i = 0; i < renderPass->numRenderTargets; ++i) {
+                    g_pd3dDeviceContext->ClearRenderTargetView(renderPass->renderTargets[i], static_cast<float*>(renderPass->clearColor));
+                }
+            } break;
+            default: {
+
+            } break;
+        }
+
+        g_pd3dDeviceContext->RSSetViewports(1, &renderPass->viewport);
+
+        size_t numCommands = 0;
+        union {
+            RenderCmd* as_cmd_header;
+            char* as_char;
+            void* as_void;
+        };
+        as_cmd_header = buffer->GetCommands(&numCommands);
+        while (numCommands > 0) {
+            void* cmd = as_char + sizeof(RenderCmd);
+            as_cmd_header->Dispatch(cmd);
+            as_char += as_cmd_header->size + sizeof(RenderCmd);
+            --numCommands;
+        }
+        
+        //buffer->Flush();
+    }
+        
+}
 
 
 extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
@@ -603,7 +827,7 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 
     fnd::sockets::UDPSocket socket;
 
-   
+
     using namespace fnd;
 
     SimpleLogger logger;
@@ -653,7 +877,7 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Application", "failed to create a window\n");
         return 1;
     }
-    
+
     GT_LOG_INFO("Application", "Created application window");
 
     const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
@@ -688,7 +912,7 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     ShowWindow(hwnd, SW_SHOWDEFAULT);
     UpdateWindow(hwnd);
 
-    
+
     //
     struct Vertex
     {
@@ -711,14 +935,12 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
         D3D11_BUFFER_DESC bufferDesc = {};
         ZeroMemory(&bufferDesc, sizeof(bufferDesc));
 
-        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DEFAULT;
+        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DYNAMIC;
         bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_VERTEX_BUFFER;
         bufferDesc.ByteWidth = sizeof(Vertex) * 3;
-        //bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_FLAG::D3D11_CPU_ACCESS_WRITE;
+        bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
-        D3D11_SUBRESOURCE_DATA triangleVertexData = { triangleVertices , 0, 0 };
-
-        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, &triangleVertexData, &vBuffer);
+        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, nullptr, &vBuffer);
         if (result != S_OK) {
             GT_LOG_ERROR("D3D11", "failed to create vertex buffer\n");
         }
@@ -729,14 +951,13 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
         D3D11_BUFFER_DESC bufferDesc = {};
         ZeroMemory(&bufferDesc, sizeof(bufferDesc));
 
-        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DEFAULT;
+        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DYNAMIC;
         bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_INDEX_BUFFER;
         bufferDesc.ByteWidth = sizeof(uint16_t) * 3;
-        //bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_FLAG::D3D11_CPU_ACCESS_WRITE;
+        bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
-        D3D11_SUBRESOURCE_DATA triangleIndexData = { triangleIndices , 0, 0 };
 
-        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, &triangleIndexData, &iBuffer);
+        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, nullptr, &iBuffer);
         if (result != S_OK) {
             GT_LOG_ERROR("D3D11", "failed to create index buffer\n");
         }
@@ -770,6 +991,19 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     if (res != S_OK) {
         GT_LOG_ERROR("D3D11", "failed to create input layout\n");
     }
+
+
+    gfx::CommandBuffer commandBuffer(applicationArena.Allocate(1024 * 1024, 16, GT_SOURCE_INFO), 1024 * 1024);
+    gfx::RenderPass mainRenderPass;
+    mainRenderPass.beginAction = gfx::RenderTargetAction::CLEAR_TO_COLOR;
+    mainRenderPass.clearColor = math::float4(bgColor[0], bgColor[1], bgColor[2], 1.0f);
+    mainRenderPass.numRenderTargets = 1;
+    mainRenderPass.renderTargets[0] = g_mainRenderTargetView;
+    mainRenderPass.viewport = { 0 };
+    mainRenderPass.viewport.TopLeftX = 0;
+    mainRenderPass.viewport.TopLeftY = 0;
+    mainRenderPass.viewport.Width = WINDOW_WIDTH;
+    mainRenderPass.viewport.Height = WINDOW_HEIGHT;
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
@@ -1039,42 +1273,49 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
             ImGui::End();
 
             /* End sim frame */
+            
+            commandBuffer.Flush();
+
+            auto vBufferUpdate = commandBuffer.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
+            vBufferUpdate->targetBuffer = vBuffer;
+            vBufferUpdate->data = triangleVertices;
+            vBufferUpdate->numBytes = sizeof(triangleVertices);
+
+            auto iBufferUpdate = commandBuffer.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
+            iBufferUpdate->targetBuffer = iBuffer;
+            iBufferUpdate->data = triangleIndices;
+            iBufferUpdate->numBytes = sizeof(triangleIndices);
+
+            auto drawCall = commandBuffer.AllocateCommand<gfx::commands::DrawBatchCmd>();
+            drawCall->numVertexBuffers = 1;
+            drawCall->vertexBuffers[0] = vBuffer;
+            drawCall->indexBuffer = iBuffer;
+            drawCall->numConstantBuffers = 0;
+
+            drawCall->vertexTopology = D3D10_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+            drawCall->vertexBufferOffsets[0] = 0;
+            drawCall->vertexBufferStrides[0] = sizeof(Vertex);
+            drawCall->indexBufferOffset = 0;
+            drawCall->indexCount = 3;
+            drawCall->inputLayout = inputLayout;
+            drawCall->indexFormat = DXGI_FORMAT::DXGI_FORMAT_R16_UINT;
+            drawCall->vertexShader = vShader;
+            drawCall->pixelShader = fShader;
+
             ImGui::Render();
             t += dt;
             accumulator -= dt;
         }
 
         /* Begin render frame*/
-        g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, bgColor);
 
         // draw geometry
-
-        D3D11_VIEWPORT viewport = { 0 };
-
-        viewport.TopLeftX = 0;
-        viewport.TopLeftY = 0;
-        viewport.Width = WINDOW_WIDTH;
-        viewport.Height = WINDOW_HEIGHT;
-
-        g_pd3dDeviceContext->RSSetViewports(1, &viewport);
-
-        g_pd3dDeviceContext->IASetInputLayout(inputLayout);
-        g_pd3dDeviceContext->VSSetShader(vShader, nullptr, 0);
-        g_pd3dDeviceContext->PSSetShader(fShader, nullptr, 0);
-
-        ID3D11Buffer* vBuffers[] = { vBuffer };
-        UINT strides[] = { sizeof(Vertex) };
-        UINT offsets[] = { 0 };
-
-
-        g_pd3dDeviceContext->IASetVertexBuffers(0, 1, vBuffers, strides, offsets);
-        g_pd3dDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-        g_pd3dDeviceContext->IASetIndexBuffer(iBuffer, DXGI_FORMAT::DXGI_FORMAT_R16_UINT, 0);
-        g_pd3dDeviceContext->DrawIndexed(3, 0, 0);
+        gfx::SubmitCommandBuffer(&mainRenderPass, &commandBuffer);
 
         // draw UI
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {
+            g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
             ImGui_ImplDX11_RenderDrawLists(uiDrawData);
         }
 

@@ -9,6 +9,10 @@
 #include <fcntl.h>
 #endif
 
+//
+//  @TODO: Pull implementation into common functions shared between types for socket handling
+//  @TODO: properly shutdown() sockets before closing
+
 namespace fnd
 {
     namespace sockets
