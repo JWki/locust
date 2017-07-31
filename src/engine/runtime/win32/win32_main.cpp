@@ -110,7 +110,7 @@ public:
             char buf[512] = "";
             if (m_allocations[i].ptr != nullptr) {
                 auto& info = m_allocations[i];
-                GT_LOG_WARNING("Memory", "Leaky allocation, %lli bytes leaked, allocated from\n%s(%lli)", info.size, info.info.file, info.info.line);
+                GT_LOG_WARNING("Memory", "Leaky allocation, %llu bytes leaked, allocated from\n%s(%lli)", info.size, info.info.file, info.info.line);
             }
         }
     }
@@ -200,7 +200,7 @@ class IDEConsoleFormatter
 public:
     void Format(char* buf, size_t bufSize, fnd::logging::LogCriteria criteria, const char* format, va_list args)
     {
-        size_t offset = snprintf(buf, bufSize, "%s(%lli): [%s]    ", criteria.scInfo.file, criteria.scInfo.line, criteria.channel.str);
+        size_t offset = snprintf(buf, bufSize, "%s(%llu): [%s]    ", criteria.scInfo.file, criteria.scInfo.line, criteria.channel.str);
         vsnprintf(buf + offset, bufSize - offset, format, args);
     }
 };
@@ -364,6 +364,7 @@ void ImGui_Style_SetDark(float alpha_)
 }
 
 
+#include <comdef.h>
 
 void CreateRenderTarget()
 {
@@ -376,19 +377,27 @@ void CreateRenderTarget()
     ZeroMemory(&render_target_view_desc, sizeof(render_target_view_desc));
     render_target_view_desc.Format = sd.BufferDesc.Format;
     render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
-    g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
-    g_pd3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &g_mainRenderTargetView);
+    auto res = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
+    if (res != S_OK) {
+        _com_error err(res);
+        LPCTSTR errMsg = err.ErrorMessage();
+        printf("%ws\n", errMsg);
+    }
+    res = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &g_mainRenderTargetView);
     //g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
     pBackBuffer->Release();
 }
 
 void CleanupRenderTarget()
 {
-    if (g_mainRenderTargetView) { g_mainRenderTargetView->Release(); g_mainRenderTargetView = NULL; }
+    if (g_mainRenderTargetView) { 
+        g_mainRenderTargetView->Release(); g_mainRenderTargetView = NULL; 
+    }
 }
 
 HRESULT CreateDeviceD3D(HWND hWnd)
 {
+    
     // Setup swap chain
     DXGI_SWAP_CHAIN_DESC sd;
     {
@@ -409,11 +418,41 @@ HRESULT CreateDeviceD3D(HWND hWnd)
     }
 
     UINT createDeviceFlags = 0;
-    //createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+#ifdef GT_DEVELOPMENT
+    createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+#endif
     D3D_FEATURE_LEVEL featureLevel;
     const D3D_FEATURE_LEVEL featureLevelArray[1] = { D3D_FEATURE_LEVEL_11_0, };
     if (D3D11CreateDeviceAndSwapChain(NULL, D3D_DRIVER_TYPE_HARDWARE, NULL, createDeviceFlags, featureLevelArray, 1, D3D11_SDK_VERSION, &sd, &g_pSwapChain, &g_pd3dDevice, &featureLevel, &g_pd3dDeviceContext) != S_OK)
         return E_FAIL;
+
+    ID3D11Debug *d3dDebug = nullptr;
+    if (SUCCEEDED(g_pd3dDevice->QueryInterface(__uuidof(ID3D11Debug), (void**)&d3dDebug)))
+    {
+        ID3D11InfoQueue *d3dInfoQueue = nullptr;
+        if (SUCCEEDED(d3dDebug->QueryInterface(__uuidof(ID3D11InfoQueue), (void**)&d3dInfoQueue)))
+        {
+#ifdef GT_DEVELOPMENT
+            d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_CORRUPTION, true);
+            d3dInfoQueue->SetBreakOnSeverity(D3D11_MESSAGE_SEVERITY_ERROR, true);
+#endif
+
+            D3D11_MESSAGE_ID hide[] =
+            {
+                D3D11_MESSAGE_ID_SETPRIVATEDATA_CHANGINGPARAMS,
+                // Add more message IDs here as needed
+            };
+
+            D3D11_INFO_QUEUE_FILTER filter;
+            memset(&filter, 0, sizeof(filter));
+            filter.DenyList.NumIDs = _countof(hide);
+            filter.DenyList.pIDList = hide;
+            d3dInfoQueue->AddStorageFilterEntries(&filter);
+            d3dInfoQueue->Release();
+        }
+        d3dDebug->Release();
+    }
+
 
     CreateRenderTarget();
 
@@ -468,7 +507,8 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
             g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
             CreateRenderTarget();
         }
-        return 0;
+        //return 0;
+        return DefWindowProc(hWnd, msg, wParam, lParam);
     case WM_SYSCOMMAND:
         if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
             return 0;
@@ -834,6 +874,20 @@ struct WorkerThread
 #define GT_RUNTIME_API
 #endif
 
+HWND g_hwnd = NULL;
+
+void AttachWindow(HWND b, HWND a)
+{
+    DWORD style = GetWindowLong(b, GWL_STYLE); //get the b style
+    style &= ~(WS_POPUP | WS_CAPTION); //reset the "caption" and "popup" bits
+    style |= WS_CHILD; //set the "child" bit
+    SetWindowLong(b, GWL_STYLE, style); //set the new style of b
+    SetParent(b, a); //a will be the new parent b
+    RECT rc; //temporary rectangle
+    GetClientRect(a, &rc); //the "inside border" rectangle for a
+    MoveWindow(b, rc.left, rc.top, (rc.right - rc.left) / 2, (rc.bottom - rc.top) / 2, TRUE); //place b at (x,y,w,h) in a
+    UpdateWindow(a);
+}
 
 #define GT_TOOL_SERVER_PORT 8080
 #define GT_MAX_TOOL_CONNECTIONS 32
@@ -902,10 +956,26 @@ public:
             size_t numReceivedBytes = connection.Receive(m_receiveBuffer, RECEIVE_BUFFER_SIZE);
             if (numReceivedBytes > 0) {
                 GT_LOG_DEBUG("Tools Server", "Received msg: %s", m_receiveBuffer);
+            
+                if (strncmp(m_receiveBuffer, "WindowHandle = ", strlen("WindowHandle = ")) == 0) {
+                    GT_LOG_DEBUG("Tools Server", "OI");
+                    char* handleStr = m_receiveBuffer + strlen("WindowHandle = ");
+                    char* end;
+                    HWND wnd = (HWND)strtoull(handleStr, &end, 10);
+                    Sleep(500);
+                    AttachWindow(g_hwnd, wnd);
+                    RECT rc;
+                    GetClientRect(g_hwnd, &rc);
+                    CleanupRenderTarget();
+                    g_pSwapChain->ResizeBuffers(0, rc.right - rc.left, rc.bottom - rc.top, DXGI_FORMAT_UNKNOWN, 0);
+                    CreateRenderTarget();
+                }
             }
         }
     }
 };
+
+
 
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
@@ -969,7 +1039,7 @@ int win32_main(int argc, char* argv[])
             return 0;
         }, reinterpret_cast<void*>(&workerThreads[i]), 0, NULL);
     }
-    GT_LOG_INFO("Application", "Created %lli worker threads", NUM_WORKER_THREADS);
+    GT_LOG_INFO("Application", "Created %llu worker threads", NUM_WORKER_THREADS);
 
     //
     
@@ -982,29 +1052,6 @@ int win32_main(int argc, char* argv[])
     bool exitFlag = false;
     bool restartFlag = false;
 
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, LoadCursor(NULL, IDC_ARROW), NULL, NULL, _T("void"), NULL };
-    RegisterClassEx(&wc);
-    HWND hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("void"), _T("void"), WS_OVERLAPPEDWINDOW, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
-
-    if (!hwnd) {
-        GT_LOG_ERROR("Application", "failed to create a window\n");
-        return 1;
-    }
-
-    GT_LOG_INFO("Application", "Created application window");
-
-    const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
-
-    // Initialize Direct3D
-    if (CreateDeviceD3D(hwnd) < 0)
-    {
-        CleanupDeviceD3D();
-        UnregisterClass(_T("void"), wc.hInstance);
-        return 1;
-    }
-
-    GT_LOG_INFO("Application", "Initialized gfx device");
-
     ImGui::GetIO().UserData = &sandboxArena;
     ImGui::GetIO().MemAllocFn = [](size_t size) -> void* {
         auto arena = static_cast<HeapArena*>(ImGui::GetIO().UserData);
@@ -1015,15 +1062,38 @@ int win32_main(int argc, char* argv[])
         arena->Free(ptr);
     };
 
-    ImGui_ImplDX11_Init(hwnd, g_pd3dDevice, g_pd3dDeviceContext);
+    WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, LoadCursor(NULL, IDC_ARROW), NULL, NULL, _T("GTRuntimeWindowClass"), NULL };
+    RegisterClassEx(&wc);
+    g_hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
+
+    if (!g_hwnd) {
+        GT_LOG_ERROR("Application", "failed to create a window\n");
+        return 1;
+    }
+
+    GT_LOG_INFO("Application", "Created application window");
+
+    const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
+
+    // Initialize Direct3D
+    if (CreateDeviceD3D(g_hwnd) < 0)
+    {
+        CleanupDeviceD3D();
+        UnregisterClass(_T("void"), wc.hInstance);
+        return 1;
+    }
+
+    GT_LOG_INFO("Application", "Initialized gfx device");
+
+    ImGui_ImplDX11_Init(g_hwnd, g_pd3dDevice, g_pd3dDeviceContext);
 
     ImGui_Style_SetDark(0.8f);
 
     GT_LOG_INFO("Application", "Initialized UI");
 
     // Show the window
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
-    UpdateWindow(hwnd);
+    ShowWindow(g_hwnd, SW_SHOWDEFAULT);
+    UpdateWindow(g_hwnd);
 
 
     //
@@ -1113,17 +1183,7 @@ int win32_main(int argc, char* argv[])
     gfx::CommandBuffer commandBuffer2(cmdBufferSpace + COMMAND_BUFFER_SIZE * 2, COMMAND_BUFFER_SIZE);
     gfx::CommandBuffer commandBuffer3(cmdBufferSpace + COMMAND_BUFFER_SIZE * 3, COMMAND_BUFFER_SIZE);
 
-    
-    gfx::RenderPass mainRenderPass;
-    mainRenderPass.beginAction = gfx::RenderTargetAction::CLEAR_TO_COLOR;
-    mainRenderPass.clearColor = math::float4(bgColor[0], bgColor[1], bgColor[2], 1.0f);
-    mainRenderPass.numRenderTargets = 1;
-    mainRenderPass.renderTargets[0] = g_mainRenderTargetView;
-    mainRenderPass.viewport = { 0 };
-    mainRenderPass.viewport.TopLeftX = 0;
-    mainRenderPass.viewport.TopLeftY = 0;
-    mainRenderPass.viewport.Width = WINDOW_WIDTH;
-    mainRenderPass.viewport.Height = WINDOW_HEIGHT;
+
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
@@ -1188,7 +1248,7 @@ int win32_main(int argc, char* argv[])
 
                     totalSize += it->GetUsedMemorySize();
                     if (ImGui::TreeNode(it->GetName())) {
-                        ImGui::Text("%lli kB allocated", it->GetUsedMemorySize() / 1024);
+                        ImGui::Text("%llu kB allocated", it->GetUsedMemorySize() / 1024);
                         ImGui::TreePop();
                     }
 
@@ -1196,7 +1256,7 @@ int win32_main(int argc, char* argv[])
                 }
 
                 ImGui::Separator();
-                ImGui::Text("Total usage: %lli kb", totalSize / 1024);
+                ImGui::Text("Total usage: %llu kb", totalSize / 1024);
             } ImGui::End();
 #endif
             if (ImGui::Begin("Maths!")) {
@@ -1502,6 +1562,17 @@ int win32_main(int argc, char* argv[])
 
         // draw geometry
 
+        gfx::RenderPass mainRenderPass;
+        mainRenderPass.beginAction = gfx::RenderTargetAction::CLEAR_TO_COLOR;
+        mainRenderPass.clearColor = math::float4(bgColor[0], bgColor[1], bgColor[2], 1.0f);
+        mainRenderPass.numRenderTargets = 1;
+        mainRenderPass.renderTargets[0] = g_mainRenderTargetView;
+        mainRenderPass.viewport = { 0 };
+        mainRenderPass.viewport.TopLeftX = 0;
+        mainRenderPass.viewport.TopLeftY = 0;
+        mainRenderPass.viewport.Width = WINDOW_WIDTH;
+        mainRenderPass.viewport.Height = WINDOW_HEIGHT;
+
         auto commandSubmissionTimerStart = GetCounter();
         gfx::CommandBuffer* cmdBuffers[] = {
             &commandBuffer0, &commandBuffer1, &commandBuffer2, &commandBuffer3
@@ -1514,6 +1585,8 @@ int win32_main(int argc, char* argv[])
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {
             g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
+            float black[] = { 0.0f, 0.0f, 0.0f, 1.0f };
+            //g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, black);
             ImGui_ImplDX11_RenderDrawLists(uiDrawData);
         }
 
