@@ -33,8 +33,12 @@ namespace fnd
             auto next = m_next;
             auto previous = m_prev;
 
-            if (previous) { previous->m_next = next; }
-            if (next) { next->m_prev = previous; }
+            if (previous && previous->m_next == this) { 
+                previous->m_next = next; 
+            }
+            if (next && next->m_prev == this) { 
+                next->m_prev = previous; 
+            }
 
             m_next = m_prev = nullptr;
         }

@@ -180,7 +180,7 @@ class SimpleFilterPolicy
 public:
     bool Filter(fnd::logging::LogCriteria criteria)
     {
-        return true;
+        return criteria.channel.hash != fnd::logging::LogChannel("Renderer").hash;
     }
 };
 
@@ -233,34 +233,48 @@ class NetworkFilterPolicy
 public:
     bool Filter(fnd::logging::LogCriteria criteria)
     {
-        return criteria.channel.hash != fnd::logging::LogChannel("TCP Logger").hash;
+        return criteria.channel.hash != fnd::logging::LogChannel("TCP Logger").hash
+            && criteria.channel.hash != fnd::logging::LogChannel("Renderer").hash;
     }
 };
 
-#define REMOTE_LOGGING_PORT 8090
+class NetworkFormatPolicy
+{
+public:
+    void Format(char* buf, size_t bufSize, fnd::logging::LogCriteria criteria, const char* format, va_list args)
+    {
+        size_t offset = snprintf(buf, bufSize, "[%s]    ", criteria.channel.str);
+        vsnprintf(buf + offset, bufSize - offset, format, args);
+    }
+};
+
 class TCPWriter
 {
     fnd::sockets::TCPConnectionSocket m_socket;
 public:
-
+    TCPWriter() = default;
+    TCPWriter(fnd::sockets::TCPConnectionSocket socket)
+        :   m_socket(socket) {}
     void Write(const char* msg)
     {
-        fnd::sockets::Address remoteAddr(127, 0, 0, 1, REMOTE_LOGGING_PORT);
-        while(!m_socket.IsConnected()) {
-            
-            GT_LOG_INFO("TCP Logger", "trying to connect to %d.%d.%d.%d:%d", remoteAddr.GetA(), remoteAddr.GetB(), remoteAddr.GetC(), remoteAddr.GetD(), remoteAddr.GetPort());
-            auto res = m_socket.Connect(&remoteAddr);
-            if (res) { 
-                GT_LOG_INFO("TCP Logger", "Successfully connected to %d.%d.%d.%d:%d", remoteAddr.GetA(), remoteAddr.GetB(), remoteAddr.GetC(), remoteAddr.GetD(), remoteAddr.GetPort());
-                break; 
-            }
-        } 
-        m_socket.Send(const_cast<char*>(msg), strlen(msg) + 1);
+        if (m_socket.IsConnected()) {
+            m_socket.Send(const_cast<char*>(msg), strlen(msg) + 1);
+        }
     }
     
 };
 
-typedef fnd::logging::Logger<NetworkFilterPolicy, SimpleFormatPolicy, TCPWriter> NetworkLogger;
+class NetworkLogger : public fnd::logging::Logger<NetworkFilterPolicy, NetworkFormatPolicy, TCPWriter>
+{
+public:
+    NetworkLogger() = default;
+    void SetSocket(fnd::sockets::TCPConnectionSocket socket)
+    {
+        m_writer = TCPWriter(socket);
+    }
+};
+    
+    
 typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, ConsoleWriter> SimpleLogger;
 typedef fnd::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
 
@@ -760,7 +774,7 @@ namespace gfx
         }
     };
 
-    void SubmitCommandBuffer(RenderPass* renderPass, CommandBuffer* buffer)
+    void SubmitCommandBuffers(RenderPass* renderPass, CommandBuffer** buffers, size_t numBuffers)
     {
         g_pd3dDeviceContext->OMSetRenderTargets(renderPass->numRenderTargets, renderPass->renderTargets, nullptr);
         switch (renderPass->beginAction) {
@@ -776,18 +790,21 @@ namespace gfx
 
         g_pd3dDeviceContext->RSSetViewports(1, &renderPass->viewport);
 
-        size_t numCommands = 0;
-        union {
-            RenderCmd* as_cmd_header;
-            char* as_char;
-            void* as_void;
-        };
-        as_cmd_header = buffer->GetCommands(&numCommands);
-        while (numCommands > 0) {
-            void* cmd = as_char + sizeof(RenderCmd);
-            as_cmd_header->Dispatch(cmd);
-            as_char += as_cmd_header->size + sizeof(RenderCmd);
-            --numCommands;
+        for (size_t i = 0; i < numBuffers; ++i) {
+            auto buffer = buffers[i];
+            size_t numCommands = 0;
+            union {
+                RenderCmd* as_cmd_header;
+                char* as_char;
+                void* as_void;
+            };
+            as_cmd_header = buffer->GetCommands(&numCommands);
+            while (numCommands > 0) {
+                void* cmd = as_char + sizeof(RenderCmd);
+                as_cmd_header->Dispatch(cmd);
+                as_char += as_cmd_header->size + sizeof(RenderCmd);
+                --numCommands;
+            }
         }
 
     }
@@ -795,17 +812,114 @@ namespace gfx
 }
 
 
-extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
+struct Task
+{
+    void* data = nullptr;
+    void(*Func)(void*) = nullptr;
+};
+
+struct WorkerThread
+{
+    Task task;
+};
+
+
+#ifdef GT_SHARED_LIB
+#ifdef _MSC_VER
+#define GT_RUNTIME_API extern "C" __declspec(dllexport)
+#else
+#define GT_RUNTIME_API
+#endif
+#else
+#define GT_RUNTIME_API
+#endif
+
+
+#define GT_TOOL_SERVER_PORT 8080
+#define GT_MAX_TOOL_CONNECTIONS 32
+
+class ToolServer
+{
+    fnd::sockets::TCPListenSocket       m_listenSocket;
+    size_t                              m_maxNumConnections = 0;
+    fnd::sockets::TCPConnectionSocket*  m_connections = nullptr;
+    bool*                               m_slotIsFree = nullptr;
+    fnd::memory::MemoryArenaBase*       m_memoryArena = nullptr;
+
+    char*                               m_receiveBuffer = nullptr;
+    NetworkLogger*                      m_tcpLoggers = nullptr;
+
+    bool AddConnection(fnd::sockets::Address* address, fnd::sockets::TCPConnectionSocket* connection)
+    {
+        
+        GT_LOG_INFO("Tools Server", "New connection from { %d.%d.%d.%d:%d }", address->GetA(), address->GetB(), address->GetC(), address->GetD(), address->GetPort());
+        size_t index = m_maxNumConnections + 1;
+        for (size_t i = 0; i < m_maxNumConnections; ++i) {
+            if (m_slotIsFree[i]) {
+                index = i;
+                break;
+            }
+        }
+        if (index > m_maxNumConnections) { 
+            GT_LOG_WARNING("Tools Server", "Too many open connections, rejecting");
+            connection->Close();
+            return false; 
+        }
+        m_slotIsFree[index] = false;
+        m_connections[index] = *connection;
+        m_tcpLoggers[index].SetSocket(*connection);
+        return true;
+    }
+
+public:
+    static const size_t                 RECEIVE_BUFFER_SIZE = MEGABYTES(5);
+
+    bool Start(fnd::memory::MemoryArenaBase* arena, Port port, size_t maxConnections)
+    {
+        m_memoryArena = arena;
+        if (maxConnections > GT_MAX_TOOL_CONNECTIONS || arena == nullptr) {
+            return false;
+        }
+        m_maxNumConnections = maxConnections;
+        m_connections = GT_NEW_ARRAY(fnd::sockets::TCPConnectionSocket, maxConnections, arena);
+        m_slotIsFree = GT_NEW_ARRAY(bool, maxConnections, arena);
+        m_tcpLoggers = GT_NEW_ARRAY(NetworkLogger, maxConnections, arena);
+        for (size_t i = 0; i < maxConnections; ++i) { m_slotIsFree[i] = true; }
+        m_receiveBuffer = reinterpret_cast<char*>(arena->Allocate(RECEIVE_BUFFER_SIZE, 16, GT_SOURCE_INFO));
+        return m_listenSocket.Listen(port, maxConnections);
+    }
+
+    void Tick()
+    {
+        if (!m_listenSocket.IsListening()) { return; }
+        fnd::sockets::TCPConnectionSocket incomingConnection;
+        fnd::sockets::Address incomingAddress;
+        if (m_listenSocket.HasConnection(&incomingAddress, &incomingConnection)) {
+            AddConnection(&incomingAddress, &incomingConnection);
+        }
+        for (size_t i = 0; i < m_maxNumConnections; ++i) {
+            auto& connection = m_connections[i];
+            size_t numReceivedBytes = connection.Receive(m_receiveBuffer, RECEIVE_BUFFER_SIZE);
+            if (numReceivedBytes > 0) {
+                GT_LOG_DEBUG("Tools Server", "Received msg: %s", m_receiveBuffer);
+            }
+        }
+    }
+};
+
+GT_RUNTIME_API
+int win32_main(int argc, char* argv[])
 {
     fnd::sockets::InitializeSocketLayer();
     fnd::sockets::UDPSocket socket;
-
+   
     using namespace fnd;
 
+#ifdef GT_DEVELOPMENT
     SimpleLogger logger;
     IDEConsoleLogger ideLogger;
-    NetworkLogger tcpLogger;
-
+#endif
+    
     GT_LOG_INFO("Application", "Initialized logging systems");
 
 #ifdef GT_DEVELOPMENT
@@ -837,7 +951,34 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 #endif
 
     GT_LOG_INFO("Application", "Initialized memory systems");
+    
+   
+    const size_t NUM_WORKER_THREADS = 4;
+    WorkerThread workerThreads[NUM_WORKER_THREADS];
+    for (int i = 0; i < NUM_WORKER_THREADS; ++i) {
+        CreateThread(NULL, 0, [](void* data) -> DWORD {
+            do {
+                auto worker = static_cast<WorkerThread*>(data);
+                if (worker->task.Func != nullptr) {
+                    worker->task.Func(worker->task.data);
 
+                    worker->task.Func = nullptr;
+                    worker->task.data = nullptr;
+                }
+            } while (true);
+            return 0;
+        }, reinterpret_cast<void*>(&workerThreads[i]), 0, NULL);
+    }
+    GT_LOG_INFO("Application", "Created %lli worker threads", NUM_WORKER_THREADS);
+
+    //
+    
+    ToolServer toolServer;
+    if (!toolServer.Start(&applicationArena, GT_TOOL_SERVER_PORT, GT_MAX_TOOL_CONNECTIONS)) {
+        GT_LOG_ERROR("Application", "Failed to initialize tools server");
+    }
+    
+    //
     bool exitFlag = false;
     bool restartFlag = false;
 
@@ -965,7 +1106,14 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
     }
 
 
-    gfx::CommandBuffer commandBuffer(applicationArena.Allocate(1024 * 1024, 16, GT_SOURCE_INFO), 1024 * 1024);
+    const size_t COMMAND_BUFFER_SIZE = sizeof(gfx::commands::DrawBatchCmd) * 10000;
+    char* cmdBufferSpace = (char*)applicationArena.Allocate(COMMAND_BUFFER_SIZE * 4, 16, GT_SOURCE_INFO);
+    gfx::CommandBuffer commandBuffer0(cmdBufferSpace, COMMAND_BUFFER_SIZE);
+    gfx::CommandBuffer commandBuffer1(cmdBufferSpace + COMMAND_BUFFER_SIZE, COMMAND_BUFFER_SIZE);
+    gfx::CommandBuffer commandBuffer2(cmdBufferSpace + COMMAND_BUFFER_SIZE * 2, COMMAND_BUFFER_SIZE);
+    gfx::CommandBuffer commandBuffer3(cmdBufferSpace + COMMAND_BUFFER_SIZE * 3, COMMAND_BUFFER_SIZE);
+
+    
     gfx::RenderPass mainRenderPass;
     mainRenderPass.beginAction = gfx::RenderTargetAction::CLEAR_TO_COLOR;
     mainRenderPass.clearColor = math::float4(bgColor[0], bgColor[1], bgColor[2], 1.0f);
@@ -1013,6 +1161,8 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
                     GT_LOG_INFO("Network", "msg was: %s", buffer);
                 }
             }
+
+            toolServer.Tick();
 
             /* Begin sim frame*/
             while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
@@ -1244,36 +1394,11 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
+            float fCounter = static_cast<float>(GetCounter());
+            triangleVertices[0].position = math::float4(0.0f, 0.5f, 0.0f, 1.0f) * math::Sin(fCounter) * math::Cos(fCounter);
+            //triangleVertices[1].position = math::float4(0.45f, -0.5, 0.0f, 1.0f) * math::Cos(fCounter);
+
             /* End sim frame */
-            
-            commandBuffer.Flush();
-
-            auto vBufferUpdate = commandBuffer.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
-            vBufferUpdate->targetBuffer = vBuffer;
-            vBufferUpdate->data = triangleVertices;
-            vBufferUpdate->numBytes = sizeof(triangleVertices);
-
-            auto iBufferUpdate = commandBuffer.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
-            iBufferUpdate->targetBuffer = iBuffer;
-            iBufferUpdate->data = triangleIndices;
-            iBufferUpdate->numBytes = sizeof(triangleIndices);
-
-            auto drawCall = commandBuffer.AllocateCommand<gfx::commands::DrawBatchCmd>();
-            drawCall->numVertexBuffers = 1;
-            drawCall->vertexBuffers[0] = vBuffer;
-            drawCall->indexBuffer = iBuffer;
-            drawCall->numConstantBuffers = 0;
-
-            drawCall->vertexTopology = D3D10_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-            drawCall->vertexBufferOffsets[0] = 0;
-            drawCall->vertexBufferStrides[0] = sizeof(Vertex);
-            drawCall->indexBufferOffset = 0;
-            drawCall->indexCount = 3;
-            drawCall->inputLayout = inputLayout;
-            drawCall->indexFormat = DXGI_FORMAT::DXGI_FORMAT_R16_UINT;
-            drawCall->vertexShader = vShader;
-            drawCall->pixelShader = fShader;
-
             ImGui::Render();
             t += dt;
             accumulator -= dt;
@@ -1281,8 +1406,109 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 
         /* Begin render frame*/
 
+        auto renderFrameTimerStart = GetCounter();
+        auto cmdRecordingTimerStart = GetCounter();
+
+        commandBuffer0.Flush();
+        commandBuffer1.Flush();
+        commandBuffer2.Flush();
+        commandBuffer3.Flush();
+
+        auto vBufferUpdate = commandBuffer0.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
+        vBufferUpdate->targetBuffer = vBuffer;
+        vBufferUpdate->data = triangleVertices;
+        vBufferUpdate->numBytes = sizeof(triangleVertices);
+
+        auto iBufferUpdate = commandBuffer0.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
+        iBufferUpdate->targetBuffer = iBuffer;
+        iBufferUpdate->data = triangleIndices;
+        iBufferUpdate->numBytes = sizeof(triangleIndices);
+        
+
+        auto drawCall = commandBuffer0.AllocateCommand<gfx::commands::DrawBatchCmd>();
+        drawCall->numVertexBuffers = 1;
+        drawCall->vertexBuffers[0] = vBuffer;
+        drawCall->indexBuffer = iBuffer;
+        drawCall->numConstantBuffers = 0;
+
+        drawCall->vertexTopology = D3D10_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+        drawCall->vertexBufferOffsets[0] = 0;
+        drawCall->vertexBufferStrides[0] = sizeof(Vertex);
+        drawCall->indexBufferOffset = 0;
+        drawCall->indexCount = 3;
+        drawCall->inputLayout = inputLayout;
+        drawCall->indexFormat = DXGI_FORMAT::DXGI_FORMAT_R16_UINT;
+        drawCall->vertexShader = vShader;
+        drawCall->pixelShader = fShader;
+
+        /*
+        struct DrawCallRecordData
+        {
+            ID3D11Buffer* vBuffer;
+            ID3D11Buffer* iBuffer;
+            ID3D11VertexShader* vShader;
+            ID3D11PixelShader* fShader;
+            ID3D11InputLayout* inputLayout;
+
+            gfx::CommandBuffer* commandBuffer;
+
+            volatile int* counter;
+        };
+
+        volatile int complCount = 4;
+
+        DrawCallRecordData recordData0{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer0, &complCount };
+        DrawCallRecordData recordData1{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer1, &complCount };
+        DrawCallRecordData recordData2{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer2, &complCount };
+        DrawCallRecordData recordData3{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer3, &complCount };
+
+
+        auto RecordDrawCalls = [](void* data) -> void {
+            auto context = static_cast<DrawCallRecordData*>(data);
+            for (int i = 0; i < 2500; ++i) {
+                auto drawCall = context->commandBuffer->AllocateCommand<gfx::commands::DrawBatchCmd>();
+                drawCall->numVertexBuffers = 1;
+                drawCall->vertexBuffers[0] = context->vBuffer;
+                drawCall->indexBuffer = context->iBuffer;
+                drawCall->numConstantBuffers = 0;
+
+                drawCall->vertexTopology = D3D10_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+                drawCall->vertexBufferOffsets[0] = 0;
+                drawCall->vertexBufferStrides[0] = sizeof(Vertex);
+                drawCall->indexBufferOffset = 0;
+                drawCall->indexCount = 3;
+                drawCall->inputLayout = context->inputLayout;
+                drawCall->indexFormat = DXGI_FORMAT::DXGI_FORMAT_R16_UINT;
+                drawCall->vertexShader = context->vShader;
+                drawCall->pixelShader = context->fShader;
+            }
+            (*(context->counter))--;
+        };
+
+        workerThreads[0].task.data = &recordData0;
+        workerThreads[1].task.data = &recordData1;
+        workerThreads[2].task.data = &recordData2;
+        workerThreads[3].task.data = &recordData3;
+
+        for (int i = 0; i < 4; ++i) {
+            workerThreads[i].task.Func = RecordDrawCalls;
+        }
+
+        do {} while (complCount > 0);
+        */
+        
+        GT_LOG_INFO("Renderer", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
+
+
         // draw geometry
-        gfx::SubmitCommandBuffer(&mainRenderPass, &commandBuffer);
+
+        auto commandSubmissionTimerStart = GetCounter();
+        gfx::CommandBuffer* cmdBuffers[] = {
+            &commandBuffer0, &commandBuffer1, &commandBuffer2, &commandBuffer3
+        };
+        gfx::SubmitCommandBuffers(&mainRenderPass, cmdBuffers, 4);
+        
+        GT_LOG_INFO("Renderer", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
 
         // draw UI
         auto uiDrawData = ImGui::GetDrawData();
@@ -1292,8 +1518,10 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
         }
 
         /* Present render frame*/
+        auto presentTimerStart = GetCounter();
         g_pSwapChain->Present(0, 0);
-
+        GT_LOG_INFO("Renderer", "Present took %f ms", 1000.0 * (GetCounter() - presentTimerStart));
+        GT_LOG_INFO("Renderer", "Render frame took %f ms", 1000.0 * (GetCounter() - renderFrameTimerStart));
     } while (!exitFlag);
 
     ImGui_ImplDX11_Shutdown();
@@ -1302,3 +1530,10 @@ extern "C" __declspec(dllexport) int win32_main(int argc, char* argv[])
 
     return 0;
 }
+
+#ifndef GT_SHARED_LIB
+int main(int argc, char* argv[])
+{
+    return win32_main(argc, argv);
+}
+#endif

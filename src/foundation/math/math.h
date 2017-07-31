@@ -24,22 +24,33 @@ namespace fnd
     namespace math
     {
 
-        template <class TNumber>
-        TNumber Sqrt(TNumber n)
-        {
-            static_assert(false, "TNumber doesn't support Sqrt()");
-        }
-
-        template <>
         float Sqrt(float n)
         {
             return sqrtf(n);
         }
-
-        template <>
         double Sqrt(double n)
         {
             return sqrt(n);
+        }
+
+        float Sin(float n)
+        {
+            return sinf(n);
+        }
+
+        float Cos(float n)
+        {
+            return cosf(n);
+        }
+
+        double Sin(double n)
+        {
+            return sin(n);
+        }
+
+        double Cos(double n)
+        {
+            return cos(n);
         }
     
         template <class TElement, size_t ELEMENT_COUNT>
