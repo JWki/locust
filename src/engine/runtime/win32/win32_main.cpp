@@ -5,7 +5,7 @@
 #include <d3d11.h>
 #pragma comment(lib, "d3d11.lib")
 
-#include <engine/runtime/ImGui/imgui.h>
+#include <engine/core/ImGui/imgui.h>
 #include <engine/runtime/win32/imgui_impl_dx11.h>
 
 #include <tchar.h>
@@ -598,7 +598,7 @@ void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryAre
 #pragma comment(lib, "sodium-release.lib")
 #endif
 #endif
-#include <engine/runtime/netcode_io/netcode.h>
+#include <engine/core/netcode_io/netcode.h>
 
 static uint8_t private_key[NETCODE_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 0x19, 0x10, 0xea,
 0x9a, 0x65, 0x62, 0xf6, 0x6f, 0x2b, 0x30, 0xe4,
@@ -885,7 +885,7 @@ void AttachWindow(HWND b, HWND a)
     SetParent(b, a); //a will be the new parent b
     RECT rc; //temporary rectangle
     GetClientRect(a, &rc); //the "inside border" rectangle for a
-    MoveWindow(b, rc.left, rc.top, (rc.right - rc.left) / 2, (rc.bottom - rc.top) / 2, TRUE); //place b at (x,y,w,h) in a
+    MoveWindow(b, rc.left, rc.top, (rc.right - rc.left), (rc.bottom - rc.top), TRUE); //place b at (x,y,w,h) in a
     UpdateWindow(a);
 }
 
