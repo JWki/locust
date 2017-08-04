@@ -918,6 +918,18 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create swap chain");
     }
 
+    struct ConstantData {
+        float transform[16];
+    };
+
+    ConstantData transform;
+    memset(&transform, 0x0, sizeof(ConstantData));
+    for (int i = 0; i < 4; ++i) {
+        transform.transform[4 * i + i] = 1.0f;
+    }
+    //transform.transform[4 * 3 + 3] = 1.0f;
+
+
     gfx::BufferDesc vBufferDesc;
     vBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
     vBufferDesc.byteWidth = sizeof(triangleVertices);
@@ -936,6 +948,17 @@ int win32_main(int argc, char* argv[])
     gfx::Buffer iBuffer = gfx::CreateBuffer(gfxDevice, &iBufferDesc);
     if (!GFX_CHECK_RESOURCE(iBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create index buffer");
+    }
+
+    gfx::BufferDesc cBufferDesc;
+    cBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
+    cBufferDesc.byteWidth = sizeof(ConstantData);
+    cBufferDesc.initialData = &transform;
+    cBufferDesc.initialDataSize = sizeof(transform);
+    cBufferDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+    gfx::Buffer cBuffer = gfx::CreateBuffer(gfxDevice, &cBufferDesc);
+    if (!GFX_CHECK_RESOURCE(cBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
     }
 
     gfx::ShaderDesc vShaderDesc;
@@ -976,6 +999,7 @@ int win32_main(int argc, char* argv[])
     triangleDrawCall.vertexStrides[0] = sizeof(Vertex);
     triangleDrawCall.numElements = 3;
     triangleDrawCall.pipelineState = pipeline;
+    triangleDrawCall.vsConstantInputs[0] = cBuffer;
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
@@ -989,15 +1013,8 @@ int win32_main(int argc, char* argv[])
 
     double currentTime = GetCounter();
     double accumulator = 0.0;
-
-    /*
-    ConstantData transform;
-    memset(&transform, 0x0, sizeof(ConstantData));
-    for (int i = 0; i < 4; ++i) {
-        transform.transform[4 * i + i] = 1.0f;
-    }
-    */
-
+    
+   
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
@@ -1273,9 +1290,7 @@ int win32_main(int argc, char* argv[])
 
         auto renderFrameTimerStart = GetCounter();
         auto cmdRecordingTimerStart = GetCounter();
-        
-        
-        
+
         GT_LOG_INFO("RenderProfile", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
         
         // draw geometry

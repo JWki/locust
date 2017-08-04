@@ -651,6 +651,56 @@ namespace gfx
             cmdBuf->d3dDC->IASetIndexBuffer(indexBuffer, g_indexFormatTable[(uint8_t)pipelineState->desc.indexFormat], drawCall->elementOffset);
         }
 
+        uint32_t numVSConstantBuffers = 0;
+        ID3D11Buffer* vsConstantBuffers[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        uint32_t numPSConstantBuffers = 0;
+        ID3D11Buffer* psConstantBuffers[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        uint32_t numGSConstantBuffers = 0;
+        ID3D11Buffer* gsConstantBuffers[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        uint32_t numHSConstantBuffers = 0;
+        ID3D11Buffer* hsConstantBuffers[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        uint32_t numDSConstantBuffers = 0;
+        ID3D11Buffer* dsConstantBuffers[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+
+        for (uint32_t i = 0; i < GFX_MAX_CONSTANT_INPUTS_PER_STAGE; ++i) {
+            if (GFX_CHECK_RESOURCE(drawCall->vsConstantInputs[i])) {
+                numVSConstantBuffers++;
+                vsConstantBuffers[i] = device->interf->bufferPool.Get(drawCall->vsConstantInputs[i].id)->buffer;
+            }
+            if (GFX_CHECK_RESOURCE(drawCall->psConstantInputs[i])) {
+                numPSConstantBuffers++;
+                psConstantBuffers[i] = device->interf->bufferPool.Get(drawCall->psConstantInputs[i].id)->buffer;
+            }
+            if (GFX_CHECK_RESOURCE(drawCall->gsConstantInputs[i])) {
+                numGSConstantBuffers++;
+                gsConstantBuffers[i] = device->interf->bufferPool.Get(drawCall->gsConstantInputs[i].id)->buffer;
+            }
+            if (GFX_CHECK_RESOURCE(drawCall->hsConstantInputs[i])) {
+                numHSConstantBuffers++;
+                hsConstantBuffers[i] = device->interf->bufferPool.Get(drawCall->hsConstantInputs[i].id)->buffer;
+            }
+            if (GFX_CHECK_RESOURCE(drawCall->dsConstantInputs[i])) {
+                numDSConstantBuffers++;
+                dsConstantBuffers[i] = device->interf->bufferPool.Get(drawCall->dsConstantInputs[i].id)->buffer;
+            }
+        }
+
+        if (numVSConstantBuffers > 0) {
+            cmdBuf->d3dDC->VSSetConstantBuffers(0, numVSConstantBuffers, vsConstantBuffers);
+        }
+        if (numPSConstantBuffers > 0) {
+            cmdBuf->d3dDC->PSSetConstantBuffers(0, numPSConstantBuffers, psConstantBuffers);
+        }
+        if (numGSConstantBuffers > 0) {
+            cmdBuf->d3dDC->GSSetConstantBuffers(0, numGSConstantBuffers, gsConstantBuffers);
+        }
+        if (numHSConstantBuffers > 0) {
+            cmdBuf->d3dDC->HSSetConstantBuffers(0, numHSConstantBuffers, hsConstantBuffers);
+        }
+        if (numDSConstantBuffers > 0) {
+            cmdBuf->d3dDC->DSSetConstantBuffers(0, numDSConstantBuffers, dsConstantBuffers);
+        }
+
         cmdBuf->d3dDC->VSSetShader(pipelineState->vertexShader->as_vertexShader, nullptr, 0);
         cmdBuf->d3dDC->PSSetShader(pipelineState->pixelShader->as_pixelShader, nullptr, 0);
         if (pipelineState->geometryShader != nullptr) {

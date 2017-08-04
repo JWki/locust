@@ -9,6 +9,40 @@ namespace fnd {
     }
 }
 
+#define GFX_DEVICE_INFO_NAME_LEN 128
+
+#define GFX_DEFAULT_BUFFER_POOL_SIZE        1024
+#define GFX_DEFAULT_IMAGE_POOL_SIZE         1024
+#define GFX_DEFAULT_PIPELINE_POOL_SIZE      1024
+#define GFX_DEFAULT_SHADER_POOL_SIZE        1024
+#define GFX_DEFAULT_RENDER_PASS_POOL_SIZE   1024
+#define GFX_DEFAULT_CMD_BUFFER_POOL_SIZE    1024
+#define GFX_DEFAULT_MAX_NUM_SWAPCHAINS      64
+#define GFX_DEFAULT_MAX_NUM_DEVICES         4
+
+#ifndef GFX_MAX_VERTEX_ATTRIBS
+#define GFX_MAX_VERTEX_ATTRIBS 8
+#endif
+
+#ifndef GFX_MAX_COLOR_ATTACHMENTS
+#define GFX_MAX_COLOR_ATTACHMENTS 8
+#endif
+
+#ifndef GFX_MAX_VERTEX_STREAMS
+#define GFX_MAX_VERTEX_STREAMS 8
+#endif
+
+#ifndef GFX_MAX_IMAGE_INPUTS_PER_STAGE
+#define GFX_MAX_IMAGE_INPUTS_PER_STAGE 8
+#endif
+
+#ifndef GFX_MAX_CONSTANT_INPUTS_PER_STAGE
+#define GFX_MAX_CONSTANT_INPUTS_PER_STAGE 4
+#endif
+
+#define GFX_CHECK_RESOURCE(handle) (handle.id != gfx::INVALID_ID)
+
+
 namespace gfx
 {
 
@@ -110,7 +144,6 @@ namespace gfx
     struct Interface;       // setup & memory management interface, used to access list of devices
     struct Device;          // main interface for command submission and resource creation
 
-#define GFX_DEVICE_INFO_NAME_LEN 128
     struct DeviceInfo
     {
         uint32_t    index = 0;                                      // index within internal device list
@@ -118,14 +151,7 @@ namespace gfx
         // @TODO Add more things here
     };
 
-#define GFX_DEFAULT_BUFFER_POOL_SIZE        1024
-#define GFX_DEFAULT_IMAGE_POOL_SIZE         1024
-#define GFX_DEFAULT_PIPELINE_POOL_SIZE      1024
-#define GFX_DEFAULT_SHADER_POOL_SIZE        1024
-#define GFX_DEFAULT_RENDER_PASS_POOL_SIZE   1024
-#define GFX_DEFAULT_CMD_BUFFER_POOL_SIZE    1024
-#define GFX_DEFAULT_MAX_NUM_SWAPCHAINS      64
-#define GFX_DEFAULT_MAX_NUM_DEVICES         4
+
 
     struct InterfaceDesc
     {
@@ -187,7 +213,6 @@ namespace gfx
         VertexFormat format = VertexFormat::VERTEX_FORMAT_INVALID;
     };
 
-#define GFX_MAX_VERTEX_ATTRIBS 8
 
     struct VertexLayoutDesc
     {
@@ -217,7 +242,6 @@ namespace gfx
         size_t      codeSize    = 0;
     };
 
-#define GFX_MAX_COLOR_ATTACHMENTS 8
 
     struct AttachmentDesc
     {
@@ -264,11 +288,6 @@ namespace gfx
         DepthAttachmentAction   depth;
         StencilAttachmentAction stencil;
     };
-
-#define GFX_MAX_VERTEX_STREAMS 8
-#define GFX_MAX_IMAGE_INPUTS_PER_STAGE 8
-#define GFX_MAX_CONSTANT_INPUTS_PER_STAGE 4
-
 
     struct DrawCall
     {
@@ -351,5 +370,4 @@ namespace gfx
 
     void PresentSwapChain(Device* device, SwapChain swapChain);
 
-#define GFX_CHECK_RESOURCE(handle) (handle.id != gfx::INVALID_ID)
 }
