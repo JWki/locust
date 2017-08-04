@@ -886,91 +886,8 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
     }
 
-    /*
-    ID3D11Buffer* vBuffer = nullptr;
-    {
-        D3D11_BUFFER_DESC bufferDesc = {};
-        ZeroMemory(&bufferDesc, sizeof(bufferDesc));
-
-        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DYNAMIC;
-        bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_VERTEX_BUFFER;
-        bufferDesc.ByteWidth = sizeof(Vertex) * 3;
-        bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-
-        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, nullptr, &vBuffer);
-        if (result != S_OK) {
-            GT_LOG_ERROR("D3D11", "failed to create vertex buffer\n");
-        }
-    }
-
-    ID3D11Buffer* iBuffer = nullptr;
-    {
-        D3D11_BUFFER_DESC bufferDesc = {};
-        ZeroMemory(&bufferDesc, sizeof(bufferDesc));
-
-        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DYNAMIC;
-        bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_INDEX_BUFFER;
-        bufferDesc.ByteWidth = sizeof(uint16_t) * 3;
-        bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-
-
-        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, nullptr, &iBuffer);
-        if (result != S_OK) {
-            GT_LOG_ERROR("D3D11", "failed to create index buffer\n");
-        }
-    }
-    
-    struct ConstantData
-    {
-        float transform[16];
-    };
-
-    ID3D11Buffer* cBuffer = nullptr;
-    {
-        D3D11_BUFFER_DESC bufferDesc = {};
-        ZeroMemory(&bufferDesc, sizeof(bufferDesc));
-
-        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DYNAMIC;
-        bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_CONSTANT_BUFFER;
-        bufferDesc.ByteWidth = sizeof(ConstantData);
-        bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-
-        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, nullptr, &cBuffer);
-        if (result != S_OK) {
-            GT_LOG_ERROR("D3D11", "failed to create constant buffer\n");
-        }
-    }
-
-    ID3D11VertexShader* vShader;
-    ID3D11PixelShader* fShader;
-
-    
-
-    auto vRes = g_pd3dDevice->CreateVertexShader(vShaderCode, vShaderCodeSize, nullptr, &vShader);
-    auto fRes = g_pd3dDevice->CreatePixelShader(fShaderCode, fShaderCodeSize, nullptr, &fShader);
-
-    D3D11_INPUT_ELEMENT_DESC inputDesc[] = {
-        { "POSITION", 0, DXGI_FORMAT::DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT, 0, sizeof(math::float4), D3D11_INPUT_PER_VERTEX_DATA, 0 }
-    };
-    ID3D11InputLayout* inputLayout;
-
-    auto res = g_pd3dDevice->CreateInputLayout(inputDesc, 2, vShaderCode, vShaderCodeSize, &inputLayout);
-    if (res != S_OK) {
-        GT_LOG_ERROR("D3D11", "failed to create input layout\n");
-    }
-
-    /*
-    const size_t COMMAND_BUFFER_SIZE = sizeof(gfx::commands::DrawBatchCmd) * 10000;
-    char* cmdBufferSpace = (char*)applicationArena.Allocate(COMMAND_BUFFER_SIZE * 4, 16, GT_SOURCE_INFO);
-    gfx::CommandBuffer commandBuffer0(cmdBufferSpace, COMMAND_BUFFER_SIZE);
-    gfx::CommandBuffer commandBuffer1(cmdBufferSpace + COMMAND_BUFFER_SIZE, COMMAND_BUFFER_SIZE);
-    gfx::CommandBuffer commandBuffer2(cmdBufferSpace + COMMAND_BUFFER_SIZE * 2, COMMAND_BUFFER_SIZE);
-    gfx::CommandBuffer commandBuffer3(cmdBufferSpace + COMMAND_BUFFER_SIZE * 3, COMMAND_BUFFER_SIZE);
-    */
-    
     //
-    
+ 
     gfx::Interface* gfxInterface = nullptr;
     gfx::Device* gfxDevice = nullptr;
 
@@ -998,17 +915,32 @@ int win32_main(int argc, char* argv[])
         }
     }
 
+    gfx::SwapChainDesc swapChainDesc;   
+    swapChainDesc.width = WINDOW_WIDTH;
+    swapChainDesc.height = WINDOW_HEIGHT;
+    swapChainDesc.window = g_hwnd;
+    gfx::SwapChain swapChain = gfx::CreateSwapChain(gfxDevice, &swapChainDesc);
+
+
     gfx::BufferDesc vBufferDesc;
     vBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    vBufferDesc.byteWidth = sizeof(triangleVertices);
     vBufferDesc.initialData = triangleVertices;
     vBufferDesc.initialDataSize = sizeof(triangleVertices);
     gfx::Buffer vBuffer = gfx::CreateBuffer(gfxDevice, &vBufferDesc);
+    if (!GFX_CHECK_RESOURCE(vBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create vertex buffer");
+    }
 
     gfx::BufferDesc iBufferDesc;
     iBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    iBufferDesc.byteWidth = sizeof(triangleIndices);
     iBufferDesc.initialData = triangleIndices;
     iBufferDesc.initialDataSize = sizeof(triangleIndices);
     gfx::Buffer iBuffer = gfx::CreateBuffer(gfxDevice, &iBufferDesc);
+    if (!GFX_CHECK_RESOURCE(iBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create index buffer");
+    }
 
     gfx::ShaderDesc vShaderDesc;
     vShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
@@ -1021,7 +953,14 @@ int win32_main(int argc, char* argv[])
     pShaderDesc.codeSize = pShaderCodeSize;
 
     gfx::Shader vShader = gfx::CreateShader(gfxDevice, &vShaderDesc);
+    if (!GFX_CHECK_RESOURCE(vShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
+    }
+
     gfx::Shader pShader = gfx::CreateShader(gfxDevice, &pShaderDesc);
+    if (!GFX_CHECK_RESOURCE(pShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+    }
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
@@ -1301,8 +1240,8 @@ int win32_main(int argc, char* argv[])
             ImGui::End();
 
             float fCounter = static_cast<float>(GetCounter());
-            //triangleVertices[0].position = math::float4(0.0f, 0.5f, 0.0f, 1.0f) * math::Sin(fCounter) * math::Cos(fCounter);
-            //triangleVertices[1].position = math::float4(0.45f, -0.5, 0.0f, 1.0f) * math::Cos(fCounter);
+            triangleVertices[0].position = math::float4(0.0f, 0.5f, 0.0f, 1.0f) * math::Sin(fCounter) * math::Cos(fCounter);
+            triangleVertices[1].position = math::float4(0.45f, -0.5, 0.0f, 1.0f) * math::Cos(fCounter);
 
             static math::float4 positionOffset;
 
@@ -1314,131 +1253,19 @@ int win32_main(int argc, char* argv[])
 
         /* Begin render frame*/
 
-        /*
         auto renderFrameTimerStart = GetCounter();
         auto cmdRecordingTimerStart = GetCounter();
-
-        commandBuffer0.Flush();
-        commandBuffer1.Flush();
-        commandBuffer2.Flush();
-        commandBuffer3.Flush();
-
-        auto vBufferUpdate = commandBuffer0.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
-        vBufferUpdate->targetBuffer = vBuffer;
-        vBufferUpdate->data = triangleVertices;
-        vBufferUpdate->numBytes = sizeof(triangleVertices);
-
-        auto iBufferUpdate = commandBuffer0.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
-        iBufferUpdate->targetBuffer = iBuffer;
-        iBufferUpdate->data = triangleIndices;
-        iBufferUpdate->numBytes = sizeof(triangleIndices);
         
-        auto cBufferUpdate = commandBuffer0.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
-        cBufferUpdate->targetBuffer = cBuffer;
-        cBufferUpdate->data = &transform;
-        cBufferUpdate->numBytes = sizeof(ConstantData);
-
-        auto drawCall = commandBuffer0.AllocateCommand<gfx::commands::DrawBatchCmd>();
-        drawCall->numVertexBuffers = 1;
-        drawCall->vertexBuffers[0] = vBuffer;
-        drawCall->indexBuffer = iBuffer;
-        drawCall->numConstantBuffers = 1;
-        drawCall->constantBuffers[0] = cBuffer;
-        drawCall->constantBufferOffsets[0] = 0;
-
-        drawCall->vertexTopology = D3D10_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-        drawCall->vertexBufferOffsets[0] = 0;
-        drawCall->vertexBufferStrides[0] = sizeof(Vertex);
-        drawCall->indexBufferOffset = 0;
-        drawCall->indexCount = 3;
-        drawCall->inputLayout = inputLayout;
-        drawCall->indexFormat = DXGI_FORMAT::DXGI_FORMAT_R16_UINT;
-        drawCall->vertexShader = vShader;
-        drawCall->pixelShader = fShader;
-
-        /*
-        struct DrawCallRecordData
-        {
-            ID3D11Buffer* vBuffer;
-            ID3D11Buffer* iBuffer;
-            ID3D11VertexShader* vShader;
-            ID3D11PixelShader* fShader;
-            ID3D11InputLayout* inputLayout;
-
-            gfx::CommandBuffer* commandBuffer;
-
-            volatile int* counter;
-        };
-
-        volatile int complCount = 4;
-
-        DrawCallRecordData recordData0{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer0, &complCount };
-        DrawCallRecordData recordData1{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer1, &complCount };
-        DrawCallRecordData recordData2{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer2, &complCount };
-        DrawCallRecordData recordData3{ vBuffer, iBuffer, vShader, fShader, inputLayout, &commandBuffer3, &complCount };
-
-
-        auto RecordDrawCalls = [](void* data) -> void {
-            auto context = static_cast<DrawCallRecordData*>(data);
-            for (int i = 0; i < 2500; ++i) {
-                auto drawCall = context->commandBuffer->AllocateCommand<gfx::commands::DrawBatchCmd>();
-                drawCall->numVertexBuffers = 1;
-                drawCall->vertexBuffers[0] = context->vBuffer;
-                drawCall->indexBuffer = context->iBuffer;
-                drawCall->numConstantBuffers = 0;
-
-                drawCall->vertexTopology = D3D10_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-                drawCall->vertexBufferOffsets[0] = 0;
-                drawCall->vertexBufferStrides[0] = sizeof(Vertex);
-                drawCall->indexBufferOffset = 0;
-                drawCall->indexCount = 3;
-                drawCall->inputLayout = context->inputLayout;
-                drawCall->indexFormat = DXGI_FORMAT::DXGI_FORMAT_R16_UINT;
-                drawCall->vertexShader = context->vShader;
-                drawCall->pixelShader = context->fShader;
-            }
-            (*(context->counter))--;
-        };
-
-        workerThreads[0].task.data = &recordData0;
-        workerThreads[1].task.data = &recordData1;
-        workerThreads[2].task.data = &recordData2;
-        workerThreads[3].task.data = &recordData3;
-
-        for (int i = 0; i < 4; ++i) {
-            workerThreads[i].task.Func = RecordDrawCalls;
-        }
-
-        do {} while (complCount > 0);
-        */
         
-        //GT_LOG_INFO("RenderProfile", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
         
-
+        GT_LOG_INFO("RenderProfile", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
+        
         // draw geometry
-
-        /*
-        gfx::RenderPass mainRenderPass;
-        mainRenderPass.beginAction = gfx::RenderTargetAction::CLEAR_TO_COLOR;
-        mainRenderPass.clearColor = math::float4(bgColor[0], bgColor[1], bgColor[2], 1.0f);
-        mainRenderPass.numRenderTargets = 1;
-        mainRenderPass.renderTargets[0] = g_mainRenderTargetView;
-        mainRenderPass.viewport = { 0 };
-        mainRenderPass.viewport.TopLeftX = 0;
-        mainRenderPass.viewport.TopLeftY = 0;
-        mainRenderPass.viewport.Width = WINDOW_WIDTH;
-        mainRenderPass.viewport.Height = WINDOW_HEIGHT;
-
         auto commandSubmissionTimerStart = GetCounter();
-        gfx::CommandBuffer* cmdBuffers[] = {
-            &commandBuffer0, &commandBuffer1, &commandBuffer2, &commandBuffer3
-        };
-        gfx::SubmitCommandBuffers(&mainRenderPass, cmdBuffers, 4);
         
-        
-        GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
-        */
 
+        GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
+       
         // draw UI
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {

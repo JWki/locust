@@ -10,6 +10,8 @@
 #define HANDLE_INDEX(handle)        (uint16_t)(handle)
 #define HANDLE_GENERATION(handle)   (uint16_t)(handle >> 16)
 
+#define HANDLE_GENERATION_START 1
+
 #define MAKE_HANDLE(index, generation) (uint32_t)(((uint32_t)generation) << 16 | index); 
 
 namespace gfx
@@ -17,7 +19,7 @@ namespace gfx
     struct D3D11Buffer 
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation  = 1;
+        uint16_t        generation  = HANDLE_GENERATION_START;
         _ResourceState  resState    = _ResourceState::STATE_EMPTY;
 
         BufferDesc desc;
@@ -27,27 +29,30 @@ namespace gfx
     struct D3D11Image
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 1;
+        uint16_t        generation = HANDLE_GENERATION_START;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
+        ImageDesc       desc;
         // @TODO
     };
 
     struct D3D11PipelineState
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 1;
+        uint16_t        generation = HANDLE_GENERATION_START;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
         
+        PipelineStateDesc desc;
         // @TODO
     };
    
     struct D3D11Shader
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 1;
+        uint16_t        generation = HANDLE_GENERATION_START;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
+        ShaderDesc      desc;
         // @NOTE
         union {
             ID3D11VertexShader* as_vertexShader;
@@ -61,16 +66,17 @@ namespace gfx
     struct D3D11RenderPass
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 0;
+        uint16_t        generation = HANDLE_GENERATION_START;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
+        RenderPassDesc  desc;
         // @TODO
     };
 
     struct D3D11CommandBuffer
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 0;
+        uint16_t        generation = HANDLE_GENERATION_START;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
         // @TODO
@@ -79,11 +85,56 @@ namespace gfx
     struct D3D11SwapChain
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 0;
+        uint16_t        generation = HANDLE_GENERATION_START;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
+        SwapChainDesc   desc;
+
+        IDXGISwapChain* swapChain = nullptr;
         // @TODO
     };
+
+
+    void D3D11ReleaseResource(D3D11Buffer* buffer)
+    {
+        if (buffer->buffer != nullptr) {
+            buffer->buffer->Release();
+        }
+    }
+
+    void D3D11ReleaseResource(D3D11Shader* shader)
+    {
+        if (shader->as_vertexShader == nullptr) { return; }
+        switch (shader->desc.type) {
+            case ShaderType::SHADER_TYPE_VS:
+                shader->as_vertexShader->Release();
+                break;
+            case ShaderType::SHADER_TYPE_PS:
+                shader->as_vertexShader->Release();
+                break;
+            case ShaderType::SHADER_TYPE_GS:
+                shader->as_vertexShader->Release();
+                break;
+            case ShaderType::SHADER_TYPE_HS:
+                shader->as_vertexShader->Release();
+                break;
+            case ShaderType::SHADER_TYPE_DS:
+                shader->as_vertexShader->Release();
+                break;
+        }
+    }
+
+    void D3D11ReleaseResource(D3D11RenderPass* renderPass)
+    {
+        // no-op, we hold no d3d11 resources
+    }
+
+    void D3D11ReleaseResource(D3D11SwapChain* swapChain)
+    {
+        if (swapChain->swapChain != nullptr) {
+            swapChain->swapChain->Release();
+        }
+    }
 
     template <class TResource> 
     struct ResourcePool
@@ -144,6 +195,14 @@ namespace gfx
             res->resState = _ResourceState::STATE_EMPTY;
 
             ReleaseIndex(index);
+        }
+
+        TResource* Get(uint32_t id)
+        {
+            uint16_t index = HANDLE_INDEX(id);
+            TResource* res = &buffer[index];
+            assert(res->generation == HANDLE_GENERATION(id));
+            return res;
         }
     };
 
@@ -246,6 +305,8 @@ namespace gfx
         return device;
     }
 
+    //
+    //
 
 
     //
@@ -268,10 +329,18 @@ namespace gfx
             return { gfx::INVALID_ID };
         }
 
+        ResourceUsage usage = desc->usage == ResourceUsage::_DEFAULT ? ResourceUsage::USAGE_IMMUTABLE : desc->usage;
+
         D3D11_BUFFER_DESC d3d11Desc;
         ZeroMemory(&d3d11Desc, sizeof(d3d11Desc));
         d3d11Desc.ByteWidth = (UINT)desc->byteWidth;
-        d3d11Desc.Usage = g_resUsageTable[(uint8_t)desc->usage];
+        d3d11Desc.Usage = g_resUsageTable[(uint8_t)usage];
+        if (usage != ResourceUsage::USAGE_IMMUTABLE) {
+            d3d11Desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        }
+        if (usage == ResourceUsage::USAGE_STAGING) {
+            d3d11Desc.CPUAccessFlags |= D3D11_CPU_ACCESS_READ;
+        }
         switch (desc->type) {
             case BufferType::BUFFER_TYPE_VERTEX:
                 d3d11Desc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_VERTEX_BUFFER;
@@ -287,15 +356,25 @@ namespace gfx
             break;
         }
 
+
         D3D11_SUBRESOURCE_DATA* initialDataPtr = nullptr;
         D3D11_SUBRESOURCE_DATA initialData;
         if (desc->initialData != nullptr) {
             ZeroMemory(&initialData, sizeof(initialData));
             initialData.pSysMem = desc->initialData;
+            initialDataPtr = &initialData;
+        }
+        else {
+            if (usage == ResourceUsage::USAGE_IMMUTABLE) {
+                // @TODO: logging
+                device->interf->bufferPool.Free(result.id);
+                return { gfx::INVALID_ID };
+            }
         }
         HRESULT res = device->d3dDevice->CreateBuffer(&d3d11Desc, initialDataPtr, &buffer->buffer);
         if (FAILED(res)) {
             // @TODO: logging/error code
+            device->interf->bufferPool.Free(result.id);
             return { gfx::INVALID_ID };
         }
 
@@ -332,9 +411,55 @@ namespace gfx
             break;
         }
         if (FAILED(res)) {
+            device->interf->shaderPool.Free(result.id);
             return { gfx::INVALID_ID };
         }
+        shader->desc = *desc;
         return result;
     }
 
+    SwapChain CreateSwapChain(Device* device, SwapChainDesc* desc)
+    {
+        D3D11SwapChain* swapChain;
+        SwapChain result;
+        if (!device->interf->swapChainPool.Allocate(&swapChain, &result.id)) {
+            return { gfx::INVALID_ID };
+        }
+
+        DXGI_MODE_DESC backBufferDesc = {};
+        backBufferDesc.Width = desc->width;
+        backBufferDesc.Height = desc->height;
+        backBufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+        DXGI_SAMPLE_DESC sampleDesc = {};
+        sampleDesc.Count = 1;	// no multisampling
+
+        DXGI_SWAP_CHAIN_DESC d3d11Desc = {};
+        d3d11Desc.BufferCount = desc->numBuffers;
+        d3d11Desc.BufferDesc = backBufferDesc;
+        d3d11Desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        d3d11Desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+        d3d11Desc.OutputWindow = (HWND)desc->window;
+        d3d11Desc.SampleDesc = sampleDesc;
+        d3d11Desc.Windowed = true;
+
+        HRESULT res = device->interf->idxgiFactory->CreateSwapChain(device->d3dDevice, &d3d11Desc, &swapChain->swapChain);
+        if (FAILED(res)) {
+            device->interf->swapChainPool.Free(result.id);
+            return { gfx::INVALID_ID };
+        }
+        swapChain->desc = *desc;
+        return result;
+    }
+
+    RenderPass CreateRenderPass(Device* device, RenderPassDesc* desc)
+    {
+        D3D11RenderPass* renderPass;
+        RenderPass result;
+        if (!device->interf->passPool.Allocate(&renderPass, &result.id)) {
+            return { gfx::INVALID_ID };
+        }
+        renderPass->desc = *desc;
+        return result;
+    }
 }

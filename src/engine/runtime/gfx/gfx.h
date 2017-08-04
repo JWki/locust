@@ -12,21 +12,21 @@ namespace fnd {
 namespace gfx
 {
 
-    /* Resource handle types */
-    
-    typedef struct { uint32_t id; } Buffer;     // A buffer for vertex/index/constant data
-    typedef struct { uint32_t id; } Image;      // A texture or render target
-
-    typedef struct { uint32_t id; } PipelineState;  // Wraps render states, vertex input layout, shader bindings...
-    typedef struct { uint32_t id; } Shader;         // a compiled shader object @NOTE: pack vertex/pixel/etc shader into one object? PipelineObject?
-    typedef struct { uint32_t id; } RenderPass;     // defines a complete render pass with all render targets, clear/resolve actions, etc
-
-    typedef struct { uint32_t id; } CommandBuffer;  // wraps (or emulates) a command buffer for multithreaded command recording
-
-    typedef struct { uint32_t id; } SwapChain;      // wraps a swap chain (for multi window stuff)
-
     /* some constants */
     enum { INVALID_ID = 0 };
+
+    /* Resource handle types */
+    
+    typedef struct { uint32_t id = INVALID_ID; } Buffer;     // A buffer for vertex/index/constant data
+    typedef struct { uint32_t id = INVALID_ID; } Image;      // A texture or render target
+
+    typedef struct { uint32_t id = INVALID_ID; } PipelineState;  // Wraps render states, vertex input layout, shader bindings...
+    typedef struct { uint32_t id = INVALID_ID; } Shader;         // a compiled shader object @NOTE: pack vertex/pixel/etc shader into one object? PipelineObject?
+    typedef struct { uint32_t id = INVALID_ID; } RenderPass;     // defines a complete render pass with all render targets, clear/resolve actions, etc
+
+    typedef struct { uint32_t id = INVALID_ID; } CommandBuffer;  // wraps (or emulates) a command buffer for multithreaded command recording
+
+    typedef struct { uint32_t id = INVALID_ID; } SwapChain;      // wraps a swap chain (for multi window stuff)
 
     /* */
 
@@ -182,9 +182,19 @@ namespace gfx
         size_t      codeSize    = 0;
     };
 
+#define GFX_MAX_COLOR_ATTACHMENTS 8
+
+    struct AttachmentDesc
+    {
+        Image       image;
+        uint16_t    mipmapLevel     = 0;
+        uint16_t    slice           = 0;
+    };
+
     struct RenderPassDesc
     {
-        // @TODO
+        AttachmentDesc  colorAttachments[GFX_MAX_COLOR_ATTACHMENTS];
+        AttachmentDesc  depthStencilAttachment;
     };
 
     struct CommandBufferDesc
@@ -194,7 +204,11 @@ namespace gfx
 
     struct SwapChainDesc
     {
-        // @TODO
+        uint16_t    numBuffers = 2; // for double/triple buffering, default is double buffered
+        uint32_t    width = 0;
+        uint32_t    height = 0;
+        void*       window = nullptr;
+        // @TODO multisampling
     };
 
     Buffer CreateBuffer(Device* device, BufferDesc* desc);
@@ -205,12 +219,15 @@ namespace gfx
     CommandBuffer CreateCommandBuffer(Device* device, CommandBufferDesc* desc);
     SwapChain CreateSwapChain(Device* device, SwapChainDesc* desc);
 
-    bool GetBufferDesc(Device* device, Buffer* buffer, BufferDesc* outDesc);
-    bool GetImageDesc(Device* device, Image* image, ImageDesc* outDesc);
-    bool GetPipelineStateDesc(Device* device, PipelineState* pipelineState, PipelineStateDesc* outDesc);
-    bool GetShaderDesc(Device* device, Shader* shader, ShaderDesc* outDesc);
-    bool GetRenderPassDesc(Device* device, RenderPass* pass, RenderPassDesc* outDesc);
+    BufferDesc GetBufferDesc(Device* device, Buffer* buffer);
+    ImageDesc GetImageDesc(Device* device, Image* image);
+    PipelineStateDesc GetPipelineStateDesc(Device* device, PipelineState* pipelineState);
+    ShaderDesc GetShaderDesc(Device* device, Shader* shader);
+    RenderPass GetRenderPassDesc(Device* device, RenderPass* pass);
     
-    bool GetSwapChainDesc(Device* device, SwapChain* swapChain, SwapChainDesc* outDesc);
+    SwapChainDesc GetSwapChainDesc(Device* device, SwapChain* swapChain);
 
+
+
+#define GFX_CHECK_RESOURCE(handle) (handle.id != gfx::INVALID_ID)
 }
