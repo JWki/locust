@@ -17,7 +17,7 @@ namespace gfx
     struct D3D11Buffer 
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation  = 0;
+        uint16_t        generation  = 1;
         _ResourceState  resState    = _ResourceState::STATE_EMPTY;
 
         BufferDesc desc;
@@ -27,7 +27,7 @@ namespace gfx
     struct D3D11Image
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 0;
+        uint16_t        generation = 1;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
         // @TODO
@@ -36,7 +36,7 @@ namespace gfx
     struct D3D11PipelineState
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 0;
+        uint16_t        generation = 1;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
         
         // @TODO
@@ -45,10 +45,17 @@ namespace gfx
     struct D3D11Shader
     {
         Device*         associatedDevice = nullptr;
-        uint16_t        generation = 0;
+        uint16_t        generation = 1;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
-        // @TODO
+        // @NOTE
+        union {
+            ID3D11VertexShader* as_vertexShader;
+            ID3D11PixelShader* as_pixelShader;
+            ID3D11GeometryShader* as_geometryShader;
+            ID3D11HullShader* as_hullShader;
+            ID3D11DomainShader* as_domainShader;
+        };
     };
 
     struct D3D11RenderPass
@@ -144,13 +151,13 @@ namespace gfx
     {
         fnd::memory::MemoryArenaBase* memoryArena = nullptr;
 
-        ResourcePool<D3D11Buffer>   bufferPool;
-        ResourcePool<Image>         imagePool;
-        ResourcePool<PipelineState> pipelineStatePool;
-        ResourcePool<Shader>        shaderPool;
-        ResourcePool<RenderPass>    passPool;
-        ResourcePool<CommandBuffer> cmdBufferPool;
-        ResourcePool<SwapChain>     swapChainPool;
+        ResourcePool<D3D11Buffer>           bufferPool;
+        ResourcePool<D3D11Image>            imagePool;
+        ResourcePool<D3D11PipelineState>    pipelineStatePool;
+        ResourcePool<D3D11Shader>           shaderPool;
+        ResourcePool<D3D11RenderPass>       passPool;
+        ResourcePool<D3D11CommandBuffer>    cmdBufferPool;
+        ResourcePool<D3D11SwapChain>        swapChainPool;
 
         Device*     deviceList = nullptr;
         uint32_t    numDevices = 0;
@@ -258,12 +265,12 @@ namespace gfx
         Buffer result{ gfx::INVALID_ID };
        
         if (!device->interf->bufferPool.Allocate(&buffer, &result.id)) {
-            return result;
+            return { gfx::INVALID_ID };
         }
 
         D3D11_BUFFER_DESC d3d11Desc;
         ZeroMemory(&d3d11Desc, sizeof(d3d11Desc));
-        d3d11Desc.ByteWidth = desc->byteWidth;
+        d3d11Desc.ByteWidth = (UINT)desc->byteWidth;
         d3d11Desc.Usage = g_resUsageTable[(uint8_t)desc->usage];
         switch (desc->type) {
             case BufferType::BUFFER_TYPE_VERTEX:
@@ -287,6 +294,10 @@ namespace gfx
             initialData.pSysMem = desc->initialData;
         }
         HRESULT res = device->d3dDevice->CreateBuffer(&d3d11Desc, initialDataPtr, &buffer->buffer);
+        if (FAILED(res)) {
+            // @TODO: logging/error code
+            return { gfx::INVALID_ID };
+        }
 
         buffer->associatedDevice = device;
         buffer->desc = *desc;
@@ -295,5 +306,35 @@ namespace gfx
         return result;
     }
 
+    Shader CreateShader(Device* device, ShaderDesc* desc)
+    {
+        gfx::D3D11Shader* shader = nullptr;
+        Shader result{ gfx::INVALID_ID };
+        if (!device->interf->shaderPool.Allocate(&shader, &result.id)) {
+            return { gfx::INVALID_ID };
+        }
+        HRESULT res = S_OK;
+        switch (desc->type) {
+        case ShaderType::SHADER_TYPE_VS:
+            res = device->d3dDevice->CreateVertexShader(desc->code, (size_t)desc->codeSize, nullptr, &shader->as_vertexShader);
+            break;
+        case ShaderType::SHADER_TYPE_PS:
+            res = device->d3dDevice->CreatePixelShader(desc->code, (size_t)desc->codeSize, nullptr, &shader->as_pixelShader);
+            break;
+        case ShaderType::SHADER_TYPE_GS:
+            res = device->d3dDevice->CreateGeometryShader(desc->code, (size_t)desc->codeSize, nullptr, &shader->as_geometryShader);
+            break;
+        case ShaderType::SHADER_TYPE_HS:
+            res = device->d3dDevice->CreateHullShader(desc->code, (size_t)desc->codeSize, nullptr, &shader->as_hullShader);
+            break;
+        case ShaderType::SHADER_TYPE_DS:
+            res = device->d3dDevice->CreateDomainShader(desc->code, (size_t)desc->codeSize, nullptr, &shader->as_domainShader);
+            break;
+        }
+        if (FAILED(res)) {
+            return { gfx::INVALID_ID };
+        }
+        return result;
+    }
 
 }

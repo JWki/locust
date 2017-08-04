@@ -874,6 +874,18 @@ int win32_main(int argc, char* argv[])
         0, 1, 2
     };
 
+    size_t vShaderCodeSize = 0;
+    char* vShaderCode = static_cast<char*>(LoadFileContents("VertexShader.cso", &applicationArena, &vShaderCodeSize));
+    if (!vShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
+    }
+
+    size_t pShaderCodeSize = 0;
+    char* pShaderCode = static_cast<char*>(LoadFileContents("PixelShader.cso", &applicationArena, &pShaderCodeSize));
+    if (!pShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
+    }
+
     /*
     ID3D11Buffer* vBuffer = nullptr;
     {
@@ -932,17 +944,7 @@ int win32_main(int argc, char* argv[])
     ID3D11VertexShader* vShader;
     ID3D11PixelShader* fShader;
 
-    size_t vShaderCodeSize = 0;
-    char* vShaderCode = static_cast<char*>(LoadFileContents("VertexShader.cso", &applicationArena, &vShaderCodeSize));
-    if (!vShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
-    }
-
-    size_t fShaderCodeSize = 0;
-    char* fShaderCode = static_cast<char*>(LoadFileContents("PixelShader.cso", &applicationArena, &fShaderCodeSize));
-    if (!fShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
-    }
+    
 
     auto vRes = g_pd3dDevice->CreateVertexShader(vShaderCode, vShaderCodeSize, nullptr, &vShader);
     auto fRes = g_pd3dDevice->CreatePixelShader(fShaderCode, fShaderCodeSize, nullptr, &fShader);
@@ -1008,7 +1010,18 @@ int win32_main(int argc, char* argv[])
     iBufferDesc.initialDataSize = sizeof(triangleIndices);
     gfx::Buffer iBuffer = gfx::CreateBuffer(gfxDevice, &iBufferDesc);
 
+    gfx::ShaderDesc vShaderDesc;
+    vShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
+    vShaderDesc.code = vShaderCode;
+    vShaderDesc.codeSize = vShaderCodeSize;
+    
+    gfx::ShaderDesc pShaderDesc;
+    pShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+    pShaderDesc.code = pShaderCode;
+    pShaderDesc.codeSize = pShaderCodeSize;
 
+    gfx::Shader vShader = gfx::CreateShader(gfxDevice, &vShaderDesc);
+    gfx::Shader pShader = gfx::CreateShader(gfxDevice, &pShaderDesc);
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 

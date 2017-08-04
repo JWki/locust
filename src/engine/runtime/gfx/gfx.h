@@ -157,12 +157,12 @@ namespace gfx
 
     struct BufferDesc
     {
-        uint32_t        byteWidth       = 0;
+        size_t          byteWidth       = 0;
         BufferType      type            = BufferType::_DEFAULT;
         ResourceUsage   usage           = ResourceUsage::_DEFAULT;
 
         void*           initialData     = nullptr;
-        uint32_t        initialDataSize = 0;
+        size_t          initialDataSize = 0;
     };
 
     struct ImageDesc
@@ -177,7 +177,9 @@ namespace gfx
     
     struct ShaderDesc
     {
-        // @TODO
+        ShaderType  type        = ShaderType::_DEFAULT;
+        char*       code        = nullptr;
+        size_t      codeSize    = 0;
     };
 
     struct RenderPassDesc
@@ -196,19 +198,19 @@ namespace gfx
     };
 
     Buffer CreateBuffer(Device* device, BufferDesc* desc);
-    bool CreateImage(Device* device, Image* outImage, ImageDesc* desc);
-    bool CreatePipelineState(Device* device, PipelineState* outPipeline, PipelineStateDesc* desc);
-    bool CreateShader(Device* device, Shader* outShader, ShaderDesc* desc);
-    bool CreateRenderPass(Device* device, RenderPass* outRenderPass, RenderPassDesc* desc);
-    bool CreateCommandBuffer(Device* device, CommandBuffer* outCmdBuffer, CommandBufferDesc* desc);
-    bool CreateSwapChain(Device* device, SwapChain* outSwapChain, SwapChainDesc* desc);
+    Image CreateImage(Device* device, ImageDesc* desc);
+    PipelineState CreatePipelineState(Device* device, PipelineStateDesc* desc);
+    Shader CreateShader(Device* device, ShaderDesc* desc);
+    RenderPass CreateRenderPass(Device* device, RenderPassDesc* desc);
+    CommandBuffer CreateCommandBuffer(Device* device, CommandBufferDesc* desc);
+    SwapChain CreateSwapChain(Device* device, SwapChainDesc* desc);
 
-    bool GetBufferDesc(Device* device, Buffer* buffer);
-    bool GetImageDesc(Device* device, Image* image);
-    bool GetPipelineStateDesc(Device* device, PipelineState* pipelineState);
-    bool GetShaderDesc(Device* device, Shader* shader);
-    bool GetRenderPassDesc(Device* device, RenderPass* pass);
+    bool GetBufferDesc(Device* device, Buffer* buffer, BufferDesc* outDesc);
+    bool GetImageDesc(Device* device, Image* image, ImageDesc* outDesc);
+    bool GetPipelineStateDesc(Device* device, PipelineState* pipelineState, PipelineStateDesc* outDesc);
+    bool GetShaderDesc(Device* device, Shader* shader, ShaderDesc* outDesc);
+    bool GetRenderPassDesc(Device* device, RenderPass* pass, RenderPassDesc* outDesc);
     
-    bool GetSwapChainDesc(Device* device, SwapChain* swapChain);
+    bool GetSwapChainDesc(Device* device, SwapChain* swapChain, SwapChainDesc* outDesc);
 
 }
