@@ -1,3 +1,3 @@
 make_exe("runtime", main_dir)
-links { "foundation", "core" }
+links { "foundation" }
 files("**.hlsl*")

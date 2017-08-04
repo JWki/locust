@@ -5,7 +5,7 @@
 #include <d3d11.h>
 #pragma comment(lib, "d3d11.lib")
 
-#include <engine/core/ImGui/imgui.h>
+#include <engine/runtime/ImGui/imgui.h>
 #include <engine/runtime/win32/imgui_impl_dx11.h>
 
 #include <tchar.h>
@@ -16,6 +16,8 @@
 #include <foundation/memory/memory.h>
 #include <foundation/memory/allocators.h>
 #include <foundation/logging/logging.h>
+
+#include <engine/runtime/gfx/gfx.h>
 
 #include <foundation/math/math.h>
 #define IS_POW_OF_TWO(n) ((n & (n - 1)) == 0)
@@ -180,7 +182,8 @@ class SimpleFilterPolicy
 public:
     bool Filter(fnd::logging::LogCriteria criteria)
     {
-        return criteria.channel.hash != fnd::logging::LogChannel("Renderer").hash;
+        auto h = fnd::logging::LogChannel("RenderProfile").hash;
+        return criteria.channel.hash != fnd::logging::LogChannel("RenderProfile").hash;
     }
 };
 
@@ -234,7 +237,7 @@ public:
     bool Filter(fnd::logging::LogCriteria criteria)
     {
         return criteria.channel.hash != fnd::logging::LogChannel("TCP Logger").hash
-            && criteria.channel.hash != fnd::logging::LogChannel("Renderer").hash;
+               && criteria.channel.hash != fnd::logging::LogChannel("RenderProfile").hash;
     }
 };
 
@@ -279,14 +282,15 @@ typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, ConsoleWrit
 typedef fnd::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
 
 
-#define GIGABYTES(n) (MEGABYTES(n) * (size_t)1024)
-#define MEGABYTES(n) (KILOBYTES(n) * 1024)
 #define KILOBYTES(n) (n * 1024)
+#define MEGABYTES(n) (KILOBYTES(n) * 1024)
+#define GIGABYTES(n) (MEGABYTES(n) * (size_t)1024)
 
 static_assert(GIGABYTES(8) > MEGABYTES(4), "some size type is wrong");
 
 #define WINDOW_WIDTH 1280
 #define WINDOW_HEIGHT 720
+
 
 static ID3D11Device*            g_pd3dDevice = NULL;
 static ID3D11DeviceContext*     g_pd3dDeviceContext = NULL;
@@ -598,258 +602,14 @@ void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryAre
 #pragma comment(lib, "sodium-release.lib")
 #endif
 #endif
-#include <engine/core/netcode_io/netcode.h>
+#include <engine/runtime/netcode_io/netcode.h>
 
 static uint8_t private_key[NETCODE_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 0x19, 0x10, 0xea,
 0x9a, 0x65, 0x62, 0xf6, 0x6f, 0x2b, 0x30, 0xe4,
 0x43, 0x71, 0xd6, 0x2c, 0xd1, 0x99, 0x27, 0x26,
 0x6b, 0x3c, 0x60, 0xf4, 0xb7, 0x15, 0xab, 0xa1 };
 
-
-namespace gfx
-{
-    //
-    //  @TODO Resource handling, actual abstraction...
-    //
-    
-    /*
-        @NOTE
-
-        -> resource types:
-            -> Buffers (vertex, index, constant... treat generic if possible (usage hints/flags)?
-            -> Textures / Surfaces - unified concept for textures and render targets?
-            -> Shaders / Pipeline State (blend/raster/whatever state, input layout, etc) - split pipeline state up into blend/raster/etc states and shader bindings?
-            -> UAVs, structured buffers...?
-        -> need API to
-            -> create/destroy resources
-            -> update resource data
-            -> transition resource state? automate behind the scenes?
-    */
-
-
-    static const size_t MAX_VERTEX_STREAMS = 8;
-    static const size_t MAX_CONSTANT_BUFFERS = 8;
-    static const size_t MAX_RENDER_TARGETS = 8;
-
-    enum class RenderCmdType : uint16_t
-    {
-        DRAW_BATCH,
-        UPDATE_BUFFER_DATA
-    };
-
-    typedef void(*RenderCmdDispatchFunc)(void*);
-
-    struct RenderCmd
-    {
-        RenderCmdType           type;
-        uint32_t                size;
-        RenderCmdDispatchFunc   Dispatch;
-    };
-
-    struct D3D11VertexBuffer
-    {
-        ID3D11Buffer*   buffer;
-        uint32_t        stride;
-        uint32_t        offset;
-    };
-
-    struct D3D11IndexBuffer
-    {
-        ID3D11Buffer*   buffer;
-        DXGI_FORMAT     format;
-        uint32_t        offset;
-    };
-
-    struct D3D11ConstantBuffer
-    {
-        ID3D11Buffer*   buffer;
-    };
-
-    namespace commands {
-
-        struct DrawBatchCmd
-        {
-            static const RenderCmdType Type = RenderCmdType::DRAW_BATCH;
-            static RenderCmdDispatchFunc Dispatch;
-
-            uint32_t        numVertexBuffers;
-            ID3D11Buffer*   vertexBuffers[MAX_VERTEX_STREAMS];
-            uint32_t        vertexBufferStrides[MAX_VERTEX_STREAMS];
-            uint32_t        vertexBufferOffsets[MAX_VERTEX_STREAMS];
-            
-            D3D11_PRIMITIVE_TOPOLOGY vertexTopology;
-
-            ID3D11Buffer*   indexBuffer;
-            uint32_t        indexBufferOffset;
-            DXGI_FORMAT     indexFormat;
-            uint32_t        indexCount;
-
-            uint32_t        numConstantBuffers;
-            ID3D11Buffer*   constantBuffers[MAX_CONSTANT_BUFFERS];
-            uint32_t        constantBufferOffsets[MAX_CONSTANT_BUFFERS];
-            uint32_t        constantBufferSizes[MAX_CONSTANT_BUFFERS];
-
-            ID3D11VertexShader*     vertexShader;
-            ID3D11PixelShader*      pixelShader;
-
-            ID3D11InputLayout*      inputLayout;
-        };
-
-        struct UpdateBufferDataCmd
-        {
-            static const RenderCmdType Type = RenderCmdType::UPDATE_BUFFER_DATA;
-            static RenderCmdDispatchFunc Dispatch;
-
-            ID3D11Buffer*   targetBuffer;
-
-            void*           data;
-            uint32_t        numBytes;
-        };
-    }
-
-    namespace dispatch {
-
-        void DispatchDrawBatchCmd(void* data)
-        {
-            auto cmd = static_cast<commands::DrawBatchCmd*>(data);
-            
-            g_pd3dDeviceContext->IASetInputLayout(cmd->inputLayout);
-            g_pd3dDeviceContext->IASetVertexBuffers(0, cmd->numVertexBuffers, cmd->vertexBuffers, cmd->vertexBufferStrides, cmd->vertexBufferOffsets);
-            g_pd3dDeviceContext->IASetPrimitiveTopology(cmd->vertexTopology);
-            g_pd3dDeviceContext->IASetIndexBuffer(cmd->indexBuffer, cmd->indexFormat, cmd->indexBufferOffset);
-            
-            g_pd3dDeviceContext->VSSetShader(cmd->vertexShader, nullptr, 0);
-            g_pd3dDeviceContext->PSSetShader(cmd->pixelShader, nullptr, 0);
-            
-            g_pd3dDeviceContext->VSSetConstantBuffers(0, cmd->numConstantBuffers, cmd->constantBuffers);
-            g_pd3dDeviceContext->PSSetConstantBuffers(0, cmd->numConstantBuffers, cmd->constantBuffers);
-            
-            g_pd3dDeviceContext->DrawIndexed(cmd->indexCount, 0, 0);
-        }
-
-        void DispatchUpdateBufferDataCmd(void* data)
-        {
-            auto cmd = static_cast<commands::UpdateBufferDataCmd*>(data);
-
-            D3D11_MAPPED_SUBRESOURCE resource;
-            HRESULT res = S_OK;
-            if((res = g_pd3dDeviceContext->Map(cmd->targetBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource)) != S_OK) {}
-            memcpy(resource.pData, cmd->data, cmd->numBytes);
-            g_pd3dDeviceContext->Unmap(cmd->targetBuffer, 0);
-        }
-    }
-
-    RenderCmdDispatchFunc commands::DrawBatchCmd::Dispatch = dispatch::DispatchDrawBatchCmd;
-    RenderCmdDispatchFunc commands::UpdateBufferDataCmd::Dispatch = dispatch::DispatchUpdateBufferDataCmd;
-
-
-    enum class RenderTargetAction : uint16_t
-    {
-        CLEAR_TO_COLOR,
-        NONE
-    };
-
-   
-
-    struct RenderPass
-    {
-        uint32_t                    numRenderTargets;
-        ID3D11RenderTargetView*     renderTargets[MAX_RENDER_TARGETS];
-
-        RenderTargetAction          beginAction;
-
-        fnd::math::float4           clearColor;
-        D3D11_VIEWPORT              viewport;
-        
-    };
-
-
-    class CommandBuffer
-    {
-        char* m_bufferStart;
-        char* m_next;
-        size_t m_bufferSize;
-        size_t m_numCommands = 0;
-    public:
-        CommandBuffer(void* buffer, size_t bufferSize)
-            :   m_bufferStart(reinterpret_cast<char*>(buffer)),
-                m_next(reinterpret_cast<char*>(buffer)),
-                m_bufferSize(bufferSize) {}
-
-        void Flush()
-        {
-            m_numCommands = 0;
-            m_next = m_bufferStart;
-        }
-
-        template <class TCmd>
-        TCmd* AllocateCommand()
-        {
-            size_t totalSize = sizeof(RenderCmd) + sizeof(TCmd);
-            if ((reinterpret_cast<uintptr_t>(m_next + totalSize) - reinterpret_cast<uintptr_t>(m_bufferStart)) > m_bufferSize) {
-                return nullptr;
-            }
-            union {
-                RenderCmd* as_cmd_header;
-                TCmd* as_cmd;
-                char* as_char;
-            };
-            as_char = m_next;
-            as_cmd_header->type = TCmd::Type;
-            as_cmd_header->Dispatch = TCmd::Dispatch;
-            as_cmd_header->size = sizeof(TCmd);
-
-            as_cmd_header++;
-            
-            as_cmd = GT_PLACEMENT_NEW(as_cmd) TCmd();
-            m_next += totalSize;
-            m_numCommands++;
-            return as_cmd;
-        }
-
-        RenderCmd* GetCommands(size_t* numCommands)
-        {
-            *numCommands = m_numCommands;
-            return reinterpret_cast<RenderCmd*>(m_bufferStart);
-        }
-    };
-
-    void SubmitCommandBuffers(RenderPass* renderPass, CommandBuffer** buffers, size_t numBuffers)
-    {
-        g_pd3dDeviceContext->OMSetRenderTargets(renderPass->numRenderTargets, renderPass->renderTargets, nullptr);
-        switch (renderPass->beginAction) {
-            case RenderTargetAction::CLEAR_TO_COLOR: {
-                for (uint32_t i = 0; i < renderPass->numRenderTargets; ++i) {
-                    g_pd3dDeviceContext->ClearRenderTargetView(renderPass->renderTargets[i], static_cast<float*>(renderPass->clearColor));
-                }
-            } break;
-            default: {
-
-            } break;
-        }
-
-        g_pd3dDeviceContext->RSSetViewports(1, &renderPass->viewport);
-
-        for (size_t i = 0; i < numBuffers; ++i) {
-            auto buffer = buffers[i];
-            size_t numCommands = 0;
-            union {
-                RenderCmd* as_cmd_header;
-                char* as_char;
-                void* as_void;
-            };
-            as_cmd_header = buffer->GetCommands(&numCommands);
-            while (numCommands > 0) {
-                void* cmd = as_char + sizeof(RenderCmd);
-                as_cmd_header->Dispatch(cmd);
-                as_char += as_cmd_header->size + sizeof(RenderCmd);
-                --numCommands;
-            }
-        }
-
-    }
-        
-}
+#include <engine/runtime/gfx/gfx.h>
 
 
 struct Task
@@ -1097,6 +857,7 @@ int win32_main(int argc, char* argv[])
 
 
     //
+    
     struct Vertex
     {
         math::float4 position;
@@ -1113,6 +874,7 @@ int win32_main(int argc, char* argv[])
         0, 1, 2
     };
 
+    /*
     ID3D11Buffer* vBuffer = nullptr;
     {
         D3D11_BUFFER_DESC bufferDesc = {};
@@ -1145,6 +907,27 @@ int win32_main(int argc, char* argv[])
             GT_LOG_ERROR("D3D11", "failed to create index buffer\n");
         }
     }
+    
+    struct ConstantData
+    {
+        float transform[16];
+    };
+
+    ID3D11Buffer* cBuffer = nullptr;
+    {
+        D3D11_BUFFER_DESC bufferDesc = {};
+        ZeroMemory(&bufferDesc, sizeof(bufferDesc));
+
+        bufferDesc.Usage = D3D11_USAGE::D3D11_USAGE_DYNAMIC;
+        bufferDesc.BindFlags = D3D11_BIND_FLAG::D3D11_BIND_CONSTANT_BUFFER;
+        bufferDesc.ByteWidth = sizeof(ConstantData);
+        bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+        auto result = g_pd3dDevice->CreateBuffer(&bufferDesc, nullptr, &cBuffer);
+        if (result != S_OK) {
+            GT_LOG_ERROR("D3D11", "failed to create constant buffer\n");
+        }
+    }
 
     ID3D11VertexShader* vShader;
     ID3D11PixelShader* fShader;
@@ -1175,13 +958,55 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "failed to create input layout\n");
     }
 
-
+    /*
     const size_t COMMAND_BUFFER_SIZE = sizeof(gfx::commands::DrawBatchCmd) * 10000;
     char* cmdBufferSpace = (char*)applicationArena.Allocate(COMMAND_BUFFER_SIZE * 4, 16, GT_SOURCE_INFO);
     gfx::CommandBuffer commandBuffer0(cmdBufferSpace, COMMAND_BUFFER_SIZE);
     gfx::CommandBuffer commandBuffer1(cmdBufferSpace + COMMAND_BUFFER_SIZE, COMMAND_BUFFER_SIZE);
     gfx::CommandBuffer commandBuffer2(cmdBufferSpace + COMMAND_BUFFER_SIZE * 2, COMMAND_BUFFER_SIZE);
     gfx::CommandBuffer commandBuffer3(cmdBufferSpace + COMMAND_BUFFER_SIZE * 3, COMMAND_BUFFER_SIZE);
+    */
+    
+    //
+    
+    gfx::Interface* gfxInterface = nullptr;
+    gfx::Device* gfxDevice = nullptr;
+
+    gfx::InterfaceDesc interfaceDesc;
+    if (!gfx::CreateInterface(&gfxInterface, &interfaceDesc, &applicationArena)) {
+        GT_LOG_ERROR("Renderer", "Failed to initialize graphics interface\n");
+    }
+
+    gfx::DeviceInfo deviceInfo[GFX_DEFAULT_MAX_NUM_DEVICES];
+    uint32_t numDevices = 0;
+    gfx::EnumerateDevices(gfxInterface, deviceInfo, &numDevices);
+    for (uint32_t i = 0; i < numDevices; ++i) {
+        GT_LOG_INFO("Renderer", "Detected graphics device: %s", deviceInfo[i].friendlyName);
+    }
+    if (numDevices == 0) {
+        GT_LOG_ERROR("Renderer", "No graphics device detected!");
+    }
+    else {
+        gfxDevice = gfx::GetDevice(gfxInterface, deviceInfo[0].index);
+        if (gfxDevice != nullptr) {
+            GT_LOG_INFO("Renderer", "Selected graphics device: %s", deviceInfo[0].friendlyName);
+        }
+        else {
+            GT_LOG_ERROR("Renderer", "Failed to get default graphics device");
+        }
+    }
+
+    gfx::BufferDesc vBufferDesc;
+    vBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    vBufferDesc.initialData = triangleVertices;
+    vBufferDesc.initialDataSize = sizeof(triangleVertices);
+    gfx::Buffer vBuffer = gfx::CreateBuffer(gfxDevice, &vBufferDesc);
+
+    gfx::BufferDesc iBufferDesc;
+    iBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    iBufferDesc.initialData = triangleIndices;
+    iBufferDesc.initialDataSize = sizeof(triangleIndices);
+    gfx::Buffer iBuffer = gfx::CreateBuffer(gfxDevice, &iBufferDesc);
 
 
 
@@ -1195,6 +1020,14 @@ int win32_main(int argc, char* argv[])
 
     double currentTime = GetCounter();
     double accumulator = 0.0;
+
+    /*
+    ConstantData transform;
+    memset(&transform, 0x0, sizeof(ConstantData));
+    for (int i = 0; i < 4; ++i) {
+        transform.transform[4 * i + i] = 1.0f;
+    }
+    */
 
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
@@ -1455,8 +1288,10 @@ int win32_main(int argc, char* argv[])
             ImGui::End();
 
             float fCounter = static_cast<float>(GetCounter());
-            triangleVertices[0].position = math::float4(0.0f, 0.5f, 0.0f, 1.0f) * math::Sin(fCounter) * math::Cos(fCounter);
+            //triangleVertices[0].position = math::float4(0.0f, 0.5f, 0.0f, 1.0f) * math::Sin(fCounter) * math::Cos(fCounter);
             //triangleVertices[1].position = math::float4(0.45f, -0.5, 0.0f, 1.0f) * math::Cos(fCounter);
+
+            static math::float4 positionOffset;
 
             /* End sim frame */
             ImGui::Render();
@@ -1466,6 +1301,7 @@ int win32_main(int argc, char* argv[])
 
         /* Begin render frame*/
 
+        /*
         auto renderFrameTimerStart = GetCounter();
         auto cmdRecordingTimerStart = GetCounter();
 
@@ -1484,12 +1320,18 @@ int win32_main(int argc, char* argv[])
         iBufferUpdate->data = triangleIndices;
         iBufferUpdate->numBytes = sizeof(triangleIndices);
         
+        auto cBufferUpdate = commandBuffer0.AllocateCommand<gfx::commands::UpdateBufferDataCmd>();
+        cBufferUpdate->targetBuffer = cBuffer;
+        cBufferUpdate->data = &transform;
+        cBufferUpdate->numBytes = sizeof(ConstantData);
 
         auto drawCall = commandBuffer0.AllocateCommand<gfx::commands::DrawBatchCmd>();
         drawCall->numVertexBuffers = 1;
         drawCall->vertexBuffers[0] = vBuffer;
         drawCall->indexBuffer = iBuffer;
-        drawCall->numConstantBuffers = 0;
+        drawCall->numConstantBuffers = 1;
+        drawCall->constantBuffers[0] = cBuffer;
+        drawCall->constantBufferOffsets[0] = 0;
 
         drawCall->vertexTopology = D3D10_PRIMITIVE_TOPOLOGY::D3D10_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
         drawCall->vertexBufferOffsets[0] = 0;
@@ -1557,11 +1399,12 @@ int win32_main(int argc, char* argv[])
         do {} while (complCount > 0);
         */
         
-        GT_LOG_INFO("Renderer", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
-
+        //GT_LOG_INFO("RenderProfile", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
+        
 
         // draw geometry
 
+        /*
         gfx::RenderPass mainRenderPass;
         mainRenderPass.beginAction = gfx::RenderTargetAction::CLEAR_TO_COLOR;
         mainRenderPass.clearColor = math::float4(bgColor[0], bgColor[1], bgColor[2], 1.0f);
@@ -1579,22 +1422,25 @@ int win32_main(int argc, char* argv[])
         };
         gfx::SubmitCommandBuffers(&mainRenderPass, cmdBuffers, 4);
         
-        GT_LOG_INFO("Renderer", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
+        
+        GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
+        */
 
         // draw UI
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {
             g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, nullptr);
             float black[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-            //g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, black);
+            
+            g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, bgColor);
             ImGui_ImplDX11_RenderDrawLists(uiDrawData);
         }
 
         /* Present render frame*/
         auto presentTimerStart = GetCounter();
         g_pSwapChain->Present(0, 0);
-        GT_LOG_INFO("Renderer", "Present took %f ms", 1000.0 * (GetCounter() - presentTimerStart));
-        GT_LOG_INFO("Renderer", "Render frame took %f ms", 1000.0 * (GetCounter() - renderFrameTimerStart));
+        GT_LOG_INFO("RenderProfile", "Present took %f ms", 1000.0 * (GetCounter() - presentTimerStart));
+        //GT_LOG_INFO("RenderProfile", "Render frame took %f ms", 1000.0 * (GetCounter() - renderFrameTimerStart));
     } while (!exitFlag);
 
     ImGui_ImplDX11_Shutdown();

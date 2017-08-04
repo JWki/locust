@@ -1,3 +1,7 @@
+cbuffer Object : register(cb0) {
+    float4x4 WorldMatrix;
+};
+
 struct Vertex
 {
     float4 pos : POSITION;
@@ -13,7 +17,7 @@ struct PixelInput
 PixelInput main(Vertex vertex)
 {
     PixelInput output;
-    output.pos = vertex.pos;
+    output.pos = mul(WorldMatrix, vertex.pos);
     output.color = vertex.color;
     return output;
 }

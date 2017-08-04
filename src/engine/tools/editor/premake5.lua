@@ -1,2 +1,2 @@
 make_exe("editor", main_dir)
-links { "foundation", "core"}
+links { "foundation" }
