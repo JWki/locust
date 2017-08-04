@@ -170,8 +170,43 @@ namespace gfx
         // @TODO
     };
 
+    enum class VertexFormat : uint8_t
+    {
+        VERTEX_FORMAT_INVALID,
+        VERTEX_FORMAT_FLOAT,
+        VERTEX_FORMAT_FLOAT2,
+        VERTEX_FORMAT_FLOAT3,
+        VERTEX_FORMAT_FLOAT4
+    };
+
+    struct VertexAttribDesc
+    {
+        const char* name    = "";
+        uint32_t    index   = 0;
+        uint32_t    offset  = 0;
+        VertexFormat format = VertexFormat::VERTEX_FORMAT_INVALID;
+    };
+
+#define GFX_MAX_VERTEX_ATTRIBS 8
+
+    struct VertexLayoutDesc
+    {
+        uint32_t            stride = 0;
+        VertexAttribDesc    attribs[GFX_MAX_VERTEX_ATTRIBS];
+    };
+
     struct PipelineStateDesc
     {
+        Shader      vertexShader;
+        Shader      pixelShader;
+        Shader      geometryShader;
+        Shader      hullShader;
+        Shader      domainShader;
+
+        VertexLayoutDesc vertexLayout;
+
+        PrimitiveType   primitiveType = PrimitiveType::_DEFAULT;
+        IndexFormat     indexFormat = IndexFormat::INDEX_FORMAT_NONE;
         // @TODO
     };
     
@@ -197,6 +232,71 @@ namespace gfx
         AttachmentDesc  depthStencilAttachment;
     };
 
+    enum class Action : uint8_t
+    {
+        _DEFAULT = 0,
+        ACTION_CLEAR,
+        ACTION_LOAD,
+        ACTION_DONTCARE
+    };
+
+    struct ColorAttachmentAction
+    {
+        Action  action      = Action::_DEFAULT;
+        float   color[4]    = { 0.0f, 0.0f, 0.0f, 1.0f };
+    };
+
+    struct DepthAttachmentAction
+    {
+        Action  action  = Action::_DEFAULT;
+        float   value   = 1.0f;
+    };
+
+    struct StencilAttachmentAction
+    {
+        Action  action  = Action::_DEFAULT;
+        uint8_t value   = 0;
+    };
+
+    struct RenderPassAction
+    {
+        ColorAttachmentAction   colors[GFX_MAX_COLOR_ATTACHMENTS];
+        DepthAttachmentAction   depth;
+        StencilAttachmentAction stencil;
+    };
+
+#define GFX_MAX_VERTEX_STREAMS 8
+#define GFX_MAX_IMAGE_INPUTS_PER_STAGE 8
+#define GFX_MAX_CONSTANT_INPUTS_PER_STAGE 4
+
+
+    struct DrawCall
+    {
+        PipelineState pipelineState;
+        
+        uint32_t numElements = 0;
+        uint32_t elementOffset = 0;
+        uint32_t numInstances = 1;
+        
+        uint32_t vertexOffsets[GFX_MAX_VERTEX_STREAMS];
+        uint32_t vertexStrides[GFX_MAX_VERTEX_STREAMS];
+        
+        Buffer  vertexBuffers[GFX_MAX_VERTEX_STREAMS];
+        Buffer  indexBuffer;
+
+        Image   vsImageInputs[GFX_MAX_IMAGE_INPUTS_PER_STAGE];
+        Image   psImageInputs[GFX_MAX_IMAGE_INPUTS_PER_STAGE];
+        Image   gsImageInputs[GFX_MAX_IMAGE_INPUTS_PER_STAGE];
+        Image   hsImageInputs[GFX_MAX_IMAGE_INPUTS_PER_STAGE];
+        Image   dsImageInputs[GFX_MAX_IMAGE_INPUTS_PER_STAGE];
+
+        Buffer  vsConstantInputs[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        Buffer  psConstantInputs[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        Buffer  gsConstantInputs[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        Buffer  hsConstantInputs[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+        Buffer  dsConstantInputs[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
+    };
+    
     struct CommandBufferDesc
     {
         // @TODO
@@ -204,7 +304,7 @@ namespace gfx
 
     struct SwapChainDesc
     {
-        uint16_t    numBuffers = 2; // for double/triple buffering, default is double buffered
+        uint8_t     bufferCountHint = 2;    // 2 indicates double buffering, 3 indicates triple buffering
         uint32_t    width = 0;
         uint32_t    height = 0;
         void*       window = nullptr;
@@ -219,15 +319,37 @@ namespace gfx
     CommandBuffer CreateCommandBuffer(Device* device, CommandBufferDesc* desc);
     SwapChain CreateSwapChain(Device* device, SwapChainDesc* desc);
 
-    BufferDesc GetBufferDesc(Device* device, Buffer* buffer);
-    ImageDesc GetImageDesc(Device* device, Image* image);
-    PipelineStateDesc GetPipelineStateDesc(Device* device, PipelineState* pipelineState);
-    ShaderDesc GetShaderDesc(Device* device, Shader* shader);
-    RenderPass GetRenderPassDesc(Device* device, RenderPass* pass);
-    
-    SwapChainDesc GetSwapChainDesc(Device* device, SwapChain* swapChain);
+    BufferDesc GetBufferDesc(Device* device, Buffer buffer);
+    ImageDesc GetImageDesc(Device* device, Image image);
+    PipelineStateDesc GetPipelineStateDesc(Device* device, PipelineState pipelineState);
+    ShaderDesc GetShaderDesc(Device* device, Shader shader);
+    RenderPass GetRenderPassDesc(Device* device, RenderPass pass);
+    SwapChainDesc GetSwapChainDesc(Device* device, SwapChain swapChain);
 
 
+    void ResizeSwapChain(Device* device, SwapChain swapChain, uint32_t width, uint32_t height);
+
+    CommandBuffer   GetImmediateCommandBuffer(Device* device);
+
+    struct Viewport
+    {
+        float width;
+        float height;
+    };
+
+    struct Rect
+    {
+        // @TODO
+    };
+
+    void BeginDefaultRenderPass(Device* device, CommandBuffer cmdBuffer, SwapChain swapChain, RenderPassAction* action);
+    void BeginRenderPass(Device* device, CommandBuffer cmdBuffer, RenderPass renderPass, RenderPassAction* action);
+    void SubmitDrawCall(Device* device, CommandBuffer cmdBuffer, DrawCall* drawCall);
+    void SetViewport(Device* device, CommandBuffer cmdBuffer, Viewport viewport);
+    void SetScissor(Device* device, CommandBuffer cmdBuffer, Rect scissorRect);
+    void EndRenderPass(Device* device, CommandBuffer cmdBuffer);
+
+    void PresentSwapChain(Device* device, SwapChain swapChain);
 
 #define GFX_CHECK_RESOURCE(handle) (handle.id != gfx::INVALID_ID)
 }

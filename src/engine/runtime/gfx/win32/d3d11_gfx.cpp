@@ -36,16 +36,8 @@ namespace gfx
         // @TODO
     };
 
-    struct D3D11PipelineState
-    {
-        Device*         associatedDevice = nullptr;
-        uint16_t        generation = HANDLE_GENERATION_START;
-        _ResourceState  resState = _ResourceState::STATE_EMPTY;
-        
-        PipelineStateDesc desc;
-        // @TODO
-    };
-   
+
+
     struct D3D11Shader
     {
         Device*         associatedDevice = nullptr;
@@ -63,6 +55,25 @@ namespace gfx
         };
     };
 
+    struct D3D11PipelineState
+    {
+        Device*         associatedDevice = nullptr;
+        uint16_t        generation = HANDLE_GENERATION_START;
+        _ResourceState  resState = _ResourceState::STATE_EMPTY;
+        
+        PipelineStateDesc desc;
+
+        ID3D11InputLayout* inputLayout  = nullptr;
+
+        D3D11Shader*    vertexShader    = nullptr;
+        D3D11Shader*    pixelShader     = nullptr;
+        D3D11Shader*    geometryShader  = nullptr;
+        D3D11Shader*    hullShader      = nullptr;
+        D3D11Shader*    domainShader    = nullptr;
+        // @TODO
+    };
+
+
     struct D3D11RenderPass
     {
         Device*         associatedDevice = nullptr;
@@ -79,6 +90,9 @@ namespace gfx
         uint16_t        generation = HANDLE_GENERATION_START;
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
+        ID3D11DeviceContext*    d3dDC = nullptr;
+
+        bool            inRenderPass = false;
         // @TODO
     };
 
@@ -90,7 +104,8 @@ namespace gfx
 
         SwapChainDesc   desc;
 
-        IDXGISwapChain* swapChain = nullptr;
+        IDXGISwapChain*             swapChain   = nullptr;
+        ID3D11RenderTargetView*     rtv         = nullptr;
         // @TODO
     };
 
@@ -231,6 +246,7 @@ namespace gfx
         IDXGIAdapter1*          dxgiAdapter = nullptr;
         ID3D11Device*           d3dDevice   = nullptr;
         ID3D11DeviceContext*    d3dDC       = nullptr;
+        CommandBuffer           dcAsCmdBuffer;
     };
 
 
@@ -302,7 +318,18 @@ namespace gfx
             return nullptr;
         }
 
+        D3D11CommandBuffer* immediateBuffer;
+        assert(interf->cmdBufferPool.Allocate(&immediateBuffer, &device->dcAsCmdBuffer.id));
+        immediateBuffer->associatedDevice = device;
+        immediateBuffer->d3dDC = device->d3dDC;
+        immediateBuffer->resState = _ResourceState::STATE_VALID;
+
         return device;
+    }
+
+    CommandBuffer GetImmediateCommandBuffer(Device* device)
+    {
+        return device->dcAsCmdBuffer;
     }
 
     //
@@ -414,7 +441,73 @@ namespace gfx
             device->interf->shaderPool.Free(result.id);
             return { gfx::INVALID_ID };
         }
+        shader->associatedDevice = device;
         shader->desc = *desc;
+        return result;
+    }
+
+
+    DXGI_FORMAT g_vertexFormatTable[] = {
+        DXGI_FORMAT::DXGI_FORMAT_UNKNOWN,
+        DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT,
+        DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT,
+        DXGI_FORMAT::DXGI_FORMAT_R32G32B32_FLOAT,
+        DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT
+    };
+
+    D3D11_PRIMITIVE_TOPOLOGY g_primitiveTypeTable[] = {
+        D3D11_PRIMITIVE_TOPOLOGY::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+        D3D11_PRIMITIVE_TOPOLOGY::D3D11_PRIMITIVE_TOPOLOGY_POINTLIST,
+        D3D11_PRIMITIVE_TOPOLOGY::D3D11_PRIMITIVE_TOPOLOGY_LINELIST,
+        D3D11_PRIMITIVE_TOPOLOGY::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+        D3D11_PRIMITIVE_TOPOLOGY::D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP,
+    };
+
+    PipelineState CreatePipelineState(Device* device, PipelineStateDesc* desc)
+    {
+        gfx::D3D11PipelineState* state = nullptr;
+        PipelineState result{ gfx::INVALID_ID };
+        if (!device->interf->pipelineStatePool.Allocate(&state, &result.id)) {
+            return { gfx::INVALID_ID };
+        }
+
+        state->associatedDevice = device;
+        state->desc = *desc;
+        if (state->desc.primitiveType == PrimitiveType::_DEFAULT) {
+            state->desc.primitiveType = PrimitiveType::PRIMITIVE_TYPE_TRIANGLES;
+        }
+        
+
+
+        state->vertexShader = device->interf->shaderPool.Get(desc->vertexShader.id);
+        state->pixelShader = device->interf->shaderPool.Get(desc->pixelShader.id);
+        if (GFX_CHECK_RESOURCE(desc->geometryShader)) {
+            state->geometryShader = device->interf->shaderPool.Get(desc->geometryShader.id);
+        }
+        if (GFX_CHECK_RESOURCE(desc->hullShader)) {
+            state->hullShader = device->interf->shaderPool.Get(desc->hullShader.id);
+        }
+        if (GFX_CHECK_RESOURCE(desc->domainShader)) {
+            state->domainShader = device->interf->shaderPool.Get(desc->domainShader.id);
+        }
+
+        D3D11_INPUT_ELEMENT_DESC inputElements[GFX_MAX_VERTEX_ATTRIBS];
+        UINT numInputElements = 0;
+        for (UINT i = 0; i < GFX_MAX_VERTEX_ATTRIBS; ++i) {
+            if (desc->vertexLayout.attribs[i].format != VertexFormat::VERTEX_FORMAT_INVALID) {
+                auto& attrib = desc->vertexLayout.attribs[i];
+                inputElements[i] = { attrib.name, attrib.index, g_vertexFormatTable[(uint8_t)attrib.format], 0, attrib.offset, D3D11_INPUT_PER_VERTEX_DATA, 0};
+                numInputElements++;
+            }
+            else {
+                break;
+            }
+        }
+        HRESULT res = device->d3dDevice->CreateInputLayout(inputElements, numInputElements, state->vertexShader->desc.code, state->vertexShader->desc.codeSize, &state->inputLayout);
+        if (FAILED(res)) {
+            device->interf->pipelineStatePool.ReleaseIndex(result.id);
+            return { gfx::INVALID_ID };
+        }
         return result;
     }
 
@@ -435,7 +528,7 @@ namespace gfx
         sampleDesc.Count = 1;	// no multisampling
 
         DXGI_SWAP_CHAIN_DESC d3d11Desc = {};
-        d3d11Desc.BufferCount = desc->numBuffers;
+        d3d11Desc.BufferCount = 1;  // @NOTE double buffering, ignore hint
         d3d11Desc.BufferDesc = backBufferDesc;
         d3d11Desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         d3d11Desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
@@ -448,8 +541,52 @@ namespace gfx
             device->interf->swapChainPool.Free(result.id);
             return { gfx::INVALID_ID };
         }
+
+        // create render target view for this swapchain
+        ID3D11Texture2D* pBackBuffer;
+        D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
+        ZeroMemory(&render_target_view_desc, sizeof(render_target_view_desc));
+        render_target_view_desc.Format = d3d11Desc.BufferDesc.Format;
+        render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+        res = swapChain->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
+        if (res != S_OK) {
+            swapChain->swapChain->Release();
+            device->interf->swapChainPool.Free(result.id);
+            return { gfx::INVALID_ID };
+        }
+        res = device->d3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &swapChain->rtv);
+        pBackBuffer->Release();
+
+        swapChain->associatedDevice = device;
         swapChain->desc = *desc;
+        swapChain->desc.bufferCountHint = 2;    // @NOTE double buffering is the only supported mode in this backend
         return result;
+    }
+
+    void ResizeSwapChain(Device* device, SwapChain handle, uint32_t width, uint32_t height)
+    {
+        D3D11SwapChain* swapChain = device->interf->swapChainPool.Get(handle.id);
+        if (swapChain->rtv) {
+            swapChain->rtv->Release();
+            swapChain->rtv = nullptr;
+        }
+
+        swapChain->swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+
+        DXGI_SWAP_CHAIN_DESC desc;
+        swapChain->swapChain->GetDesc(&desc);
+        ID3D11Texture2D* pBackBuffer;
+        D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
+        ZeroMemory(&render_target_view_desc, sizeof(render_target_view_desc));
+        render_target_view_desc.Format = desc.BufferDesc.Format;
+        render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
+        HRESULT res = swapChain->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
+        if (res != S_OK) {
+            // @TODO error handling
+        }
+        assert(res == S_OK);
+        res = device->d3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &swapChain->rtv);
+        pBackBuffer->Release();
     }
 
     RenderPass CreateRenderPass(Device* device, RenderPassDesc* desc)
@@ -461,5 +598,99 @@ namespace gfx
         }
         renderPass->desc = *desc;
         return result;
+    }
+
+
+    void BeginDefaultRenderPass(Device* device, CommandBuffer cmdBuffer, SwapChain swapChain, RenderPassAction* action)
+    {
+        D3D11SwapChain* swpCh = device->interf->swapChainPool.Get(swapChain.id);
+        D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
+        assert(!cmdBuf->inRenderPass);
+        cmdBuf->inRenderPass = true;
+        cmdBuf->d3dDC->OMSetRenderTargets(1, &swpCh->rtv, nullptr);
+        if (action->colors[0].action == Action::ACTION_CLEAR) {
+            cmdBuf->d3dDC->ClearRenderTargetView(swpCh->rtv, action->colors[0].color);
+        }
+    }
+
+    void EndRenderPass(Device* device, CommandBuffer cmdBuffer)
+    {
+        D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
+        assert(cmdBuf->inRenderPass);
+        cmdBuf->inRenderPass = false;
+    }
+    
+    DXGI_FORMAT g_indexFormatTable[] = {
+        DXGI_FORMAT::DXGI_FORMAT_R16_UINT,  // @TODO handle this nicer?
+        DXGI_FORMAT::DXGI_FORMAT_R16_UINT,
+        DXGI_FORMAT::DXGI_FORMAT_R16_UINT,
+        DXGI_FORMAT::DXGI_FORMAT_R32_UINT,
+    };
+
+    void SubmitDrawCall(Device* device, CommandBuffer cmdBuffer, DrawCall* drawCall)
+    {
+        D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
+        assert(cmdBuf->inRenderPass);
+        
+        D3D11PipelineState* pipelineState = device->interf->pipelineStatePool.Get(drawCall->pipelineState.id);
+
+        uint32_t numVertexBuffers = 0;
+        ID3D11Buffer* vertexBuffers[GFX_MAX_VERTEX_STREAMS];
+        for (uint32_t i = 0; i < GFX_MAX_VERTEX_STREAMS; ++i) {
+            if (GFX_CHECK_RESOURCE(drawCall->vertexBuffers[i])) {
+                numVertexBuffers++;
+                vertexBuffers[i] = device->interf->bufferPool.Get(drawCall->vertexBuffers[i].id)->buffer;
+            }
+            else {
+                break;
+            }
+        }
+        cmdBuf->d3dDC->IASetVertexBuffers(0, numVertexBuffers, vertexBuffers, drawCall->vertexStrides, drawCall->vertexOffsets);
+        if (pipelineState->desc.indexFormat != IndexFormat::INDEX_FORMAT_NONE) {
+            ID3D11Buffer* indexBuffer = device->interf->bufferPool.Get(drawCall->indexBuffer.id)->buffer;
+            cmdBuf->d3dDC->IASetIndexBuffer(indexBuffer, g_indexFormatTable[(uint8_t)pipelineState->desc.indexFormat], drawCall->elementOffset);
+        }
+
+        cmdBuf->d3dDC->VSSetShader(pipelineState->vertexShader->as_vertexShader, nullptr, 0);
+        cmdBuf->d3dDC->PSSetShader(pipelineState->pixelShader->as_pixelShader, nullptr, 0);
+        if (pipelineState->geometryShader != nullptr) {
+            cmdBuf->d3dDC->GSSetShader(pipelineState->geometryShader->as_geometryShader, nullptr, 0);
+        }
+        if (pipelineState->hullShader != nullptr) {
+            cmdBuf->d3dDC->HSSetShader(pipelineState->geometryShader->as_hullShader, nullptr, 0);
+        }
+        if (pipelineState->domainShader != nullptr) {
+            cmdBuf->d3dDC->DSSetShader(pipelineState->geometryShader->as_domainShader, nullptr, 0);
+        }
+        cmdBuf->d3dDC->IASetPrimitiveTopology(g_primitiveTypeTable[(uint8_t)pipelineState->desc.primitiveType]);
+        cmdBuf->d3dDC->IASetInputLayout(pipelineState->inputLayout);
+        if (pipelineState->desc.indexFormat != IndexFormat::INDEX_FORMAT_NONE) {
+            cmdBuf->d3dDC->DrawIndexedInstanced(drawCall->numElements, drawCall->numInstances, drawCall->elementOffset, 0, 0);
+        }
+        else {
+            cmdBuf->d3dDC->DrawInstanced(drawCall->numElements, drawCall->numInstances, 0, 0);
+        }
+    }
+
+
+    void SetViewport(Device* device, CommandBuffer cmdBuffer, Viewport viewport)
+    {
+        D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
+        assert(cmdBuf->inRenderPass);
+
+        D3D11_VIEWPORT vp;
+        ZeroMemory(&vp, sizeof(D3D11_VIEWPORT));
+        vp.Width = viewport.width;
+        vp.Height = viewport.height;
+        vp.MinDepth = 0.0f;
+        vp.MaxDepth = 1.0f;
+        vp.TopLeftX = vp.TopLeftY = 0.0f;
+        cmdBuf->d3dDC->RSSetViewports(1, &vp);
+    }
+
+    void PresentSwapChain(Device* device, SwapChain swapChain) 
+    {
+        D3D11SwapChain* swpChn = device->interf->swapChainPool.Get(swapChain.id);
+        swpChn->swapChain->Present(0, 0);
     }
 }

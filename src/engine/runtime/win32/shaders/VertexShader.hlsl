@@ -1,6 +1,6 @@
-cbuffer Object : register(cb0) {
+/*cbuffer Object : register(cb0) {
     float4x4 WorldMatrix;
-};
+};*/
 
 struct Vertex
 {
@@ -17,7 +17,7 @@ struct PixelInput
 PixelInput main(Vertex vertex)
 {
     PixelInput output;
-    output.pos = mul(WorldMatrix, vertex.pos);
+    output.pos = vertex.pos; // mul(WorldMatrix, vertex.pos);
     output.color = vertex.color;
     return output;
 }
