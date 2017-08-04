@@ -820,6 +820,8 @@ int win32_main(int argc, char* argv[])
     RegisterClassEx(&wc);
     g_hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
 
+    HWND secondaryWindow = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
+
     if (!g_hwnd) {
         GT_LOG_ERROR("Application", "failed to create a window\n");
         return 1;
@@ -849,6 +851,8 @@ int win32_main(int argc, char* argv[])
     ShowWindow(g_hwnd, SW_SHOWDEFAULT);
     UpdateWindow(g_hwnd);
 
+    ShowWindow(secondaryWindow, SW_SHOWDEFAULT);
+    UpdateWindow(secondaryWindow);
 
     //
     
@@ -916,6 +920,18 @@ int win32_main(int argc, char* argv[])
     gfx::SwapChain swapChain = gfx::CreateSwapChain(gfxDevice, &swapChainDesc);
     if (!GFX_CHECK_RESOURCE(swapChain)) {
         GT_LOG_ERROR("Renderer", "Failed to create swap chain");
+    }
+
+    gfx::SwapChain secondSwapChain;
+    {
+        gfx::SwapChainDesc swapChainDesc;
+        swapChainDesc.width = WINDOW_WIDTH;
+        swapChainDesc.height = WINDOW_HEIGHT;
+        swapChainDesc.window = secondaryWindow;
+        secondSwapChain = gfx::CreateSwapChain(gfxDevice, &swapChainDesc);
+        if (!GFX_CHECK_RESOURCE(secondSwapChain)) {
+            GT_LOG_ERROR("Renderer", "Failed to create swap chain");
+        }
     }
 
     struct ConstantData {
@@ -1300,10 +1316,15 @@ int win32_main(int argc, char* argv[])
         clearAllAction.colors[0].action = gfx::Action::ACTION_CLEAR;
         float blue[] = { bgColor[0], bgColor[1], bgColor[2], 1.0f };
         memcpy(clearAllAction.colors[0].color, blue, sizeof(float) * 4);
+        
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
         gfx::SetViewport(gfxDevice, cmdBuffer, { (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT });
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &triangleDrawCall);
+        gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
+        gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, secondSwapChain, &clearAllAction);
+        gfx::SetViewport(gfxDevice, cmdBuffer, { (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT });
+        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &triangleDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
         GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
@@ -1321,6 +1342,7 @@ int win32_main(int argc, char* argv[])
         /* Present render frame*/
         auto presentTimerStart = GetCounter();
         gfx::PresentSwapChain(gfxDevice, swapChain);
+        gfx::PresentSwapChain(gfxDevice, secondSwapChain);
         //g_pSwapChain->Present(0, 0);
         GT_LOG_INFO("RenderProfile", "Present took %f ms", 1000.0 * (GetCounter() - presentTimerStart));
         //GT_LOG_INFO("RenderProfile", "Render frame took %f ms", 1000.0 * (GetCounter() - renderFrameTimerStart));
