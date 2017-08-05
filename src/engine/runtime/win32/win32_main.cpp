@@ -1623,7 +1623,10 @@ int win32_main(int argc, char* argv[])
         // draw UI
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {
-            gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
+            gfx::RenderPassAction uiPassAction;
+            uiPassAction.colors[0].action = gfx::Action::ACTION_LOAD;
+            
+            gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &uiPassAction);
             gfx::SetViewport(gfxDevice, cmdBuffer, { (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT });
             ImGui_ImplDX11_RenderDrawLists(uiDrawData, &cmdBuffer);
             gfx::EndRenderPass(gfxDevice, cmdBuffer);
