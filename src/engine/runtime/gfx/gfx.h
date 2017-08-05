@@ -73,6 +73,16 @@ namespace gfx
         USAGE_STAGING         // data can be read back by the CPU
     };
 
+    enum class MapType : uint8_t
+    {
+        _DEFAULT = 0,
+        MAP_READ,
+        MAP_WRITE, 
+        MAP_READ_WRITE,
+        MAP_WRITE_DISCARD,
+        MAP_WRITE_NO_OVERWRITE
+    };
+
     enum class BufferType : uint8_t
     {
         _DEFAULT = 0,
@@ -370,4 +380,7 @@ namespace gfx
 
     void PresentSwapChain(Device* device, SwapChain swapChain);
 
+
+    void*   MapBuffer(Device* device, Buffer buffer, MapType mapType);
+    void    UnmapBuffer(Device* device, Buffer buffer);
 }

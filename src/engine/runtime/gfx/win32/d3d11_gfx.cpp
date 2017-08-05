@@ -743,4 +743,33 @@ namespace gfx
         D3D11SwapChain* swpChn = device->interf->swapChainPool.Get(swapChain.id);
         swpChn->swapChain->Present(0, 0);
     }
+
+    D3D11_MAP g_mapTypeTable[] = {
+        D3D11_MAP_READ_WRITE,
+        D3D11_MAP_READ,
+        D3D11_MAP_WRITE,
+        D3D11_MAP_READ_WRITE,
+        D3D11_MAP_WRITE_DISCARD,
+        D3D11_MAP_WRITE_NO_OVERWRITE
+    };
+
+    void* MapBuffer(Device* device, Buffer buffer, MapType mapType)
+    {
+        D3D11Buffer* bufferObj = device->interf->bufferPool.Get(buffer.id);
+        if (!bufferObj) { return nullptr; }
+        D3D11_MAPPED_SUBRESOURCE subres;
+        ZeroMemory(&subres, sizeof(subres));
+        HRESULT res = device->d3dDC->Map(bufferObj->buffer, 0, g_mapTypeTable[(uint8_t)mapType], 0, &subres);
+        if (FAILED(res)) {
+            return nullptr;
+        }
+        return subres.pData;
+    }
+
+    void UnmapBuffer(Device* device, Buffer buffer)
+    {
+        D3D11Buffer* bufferObj = device->interf->bufferPool.Get(buffer.id);
+        if (!bufferObj) { return; }
+        device->d3dDC->Unmap(bufferObj->buffer, 0);
+    }
 }

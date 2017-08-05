@@ -971,7 +971,7 @@ int win32_main(int argc, char* argv[])
     cBufferDesc.byteWidth = sizeof(ConstantData);
     cBufferDesc.initialData = &transform;
     cBufferDesc.initialDataSize = sizeof(transform);
-    cBufferDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+    cBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
     gfx::Buffer cBuffer = gfx::CreateBuffer(gfxDevice, &cBufferDesc);
     if (!GFX_CHECK_RESOURCE(cBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
@@ -1034,6 +1034,8 @@ int win32_main(int argc, char* argv[])
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
+    math::float4 positionOffset(0.0f);
+
     GT_LOG_INFO("Application", "Starting main loop");
     do {
         double newTime = GetCounter();
@@ -1045,7 +1047,10 @@ int win32_main(int argc, char* argv[])
         currentTime = newTime;
         accumulator += frameTime;
 
+        bool didUpdate = false;
+
         while (accumulator >= dt) {
+            didUpdate = true;
 
             static char buffer[512];
             if (socket.IsOpen()) {
@@ -1291,15 +1296,27 @@ int win32_main(int argc, char* argv[])
 //            ImGui::End();
 
             float fCounter = static_cast<float>(GetCounter());
-            triangleVertices[0].position = math::float4(0.0f, 0.5f, 0.0f, 1.0f) * math::Sin(fCounter) * math::Cos(fCounter);
-            triangleVertices[1].position = math::float4(0.45f, -0.5, 0.0f, 1.0f) * math::Cos(fCounter);
 
-            static math::float4 positionOffset;
+            positionOffset.x = math::Sin(fCounter) * 1.0f;
+            positionOffset.y = -math::Cos(fCounter) * 1.0f;
+            //positionOffset.z = math::Sin(fCounter) * 2.0f;
+
+            for (int i = 0; i < 3; ++i) {
+                transform.transform[4 * 3 + i] = positionOffset[i];
+            }
 
             /* End sim frame */
             //ImGui::Render();
             t += dt;
             accumulator -= dt;
+        }
+        if (didUpdate) {
+            // stuff we wanna do at the start of every render frame, but ONLY if there was one or more updates, but only once
+            void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+            if (cBufferMem != nullptr) {
+                memcpy(cBufferMem, &transform, sizeof(transform));
+                gfx::UnmapBuffer(gfxDevice, cBuffer);
+            }
         }
 
         /* Begin render frame*/
