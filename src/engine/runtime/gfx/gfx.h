@@ -212,7 +212,8 @@ namespace gfx
         VERTEX_FORMAT_FLOAT,
         VERTEX_FORMAT_FLOAT2,
         VERTEX_FORMAT_FLOAT3,
-        VERTEX_FORMAT_FLOAT4
+        VERTEX_FORMAT_FLOAT4,
+        VERTEX_FORMAT_R8G8B8A8_UNNORM
     };
 
     struct VertexAttribDesc
@@ -302,10 +303,13 @@ namespace gfx
     struct DrawCall
     {
         PipelineState pipelineState;
-        
+
         uint32_t numElements = 0;
         uint32_t elementOffset = 0;
         uint32_t numInstances = 1;
+
+        uint32_t startVertexLocation = 0;
+        uint32_t startInstanceLocation = 0;
         
         uint32_t vertexOffsets[GFX_MAX_VERTEX_STREAMS];
         uint32_t vertexStrides[GFX_MAX_VERTEX_STREAMS];
@@ -348,6 +352,8 @@ namespace gfx
     CommandBuffer CreateCommandBuffer(Device* device, CommandBufferDesc* desc);
     SwapChain CreateSwapChain(Device* device, SwapChainDesc* desc);
 
+    void DestroyBuffer(Device* device, Buffer buffer);
+
     BufferDesc GetBufferDesc(Device* device, Buffer buffer);
     ImageDesc GetImageDesc(Device* device, Image image);
     PipelineStateDesc GetPipelineStateDesc(Device* device, PipelineState pipelineState);
@@ -368,7 +374,10 @@ namespace gfx
 
     struct Rect
     {
-        // @TODO
+        uint32_t left = 0;
+        uint32_t top = 0;
+        uint32_t right = 0;
+        uint32_t bottom = 0;
     };
 
     void BeginDefaultRenderPass(Device* device, CommandBuffer cmdBuffer, SwapChain swapChain, RenderPassAction* action);

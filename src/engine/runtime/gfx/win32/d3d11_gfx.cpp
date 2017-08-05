@@ -452,7 +452,9 @@ namespace gfx
         DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT,
         DXGI_FORMAT::DXGI_FORMAT_R32G32_FLOAT,
         DXGI_FORMAT::DXGI_FORMAT_R32G32B32_FLOAT,
-        DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT
+        DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
+
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM
     };
 
     D3D11_PRIMITIVE_TOPOLOGY g_primitiveTypeTable[] = {
@@ -715,10 +717,10 @@ namespace gfx
         cmdBuf->d3dDC->IASetPrimitiveTopology(g_primitiveTypeTable[(uint8_t)pipelineState->desc.primitiveType]);
         cmdBuf->d3dDC->IASetInputLayout(pipelineState->inputLayout);
         if (pipelineState->desc.indexFormat != IndexFormat::INDEX_FORMAT_NONE) {
-            cmdBuf->d3dDC->DrawIndexedInstanced(drawCall->numElements, drawCall->numInstances, drawCall->elementOffset, 0, 0);
+            cmdBuf->d3dDC->DrawIndexedInstanced(drawCall->numElements, drawCall->numInstances, drawCall->elementOffset, drawCall->startVertexLocation, drawCall->startInstanceLocation);
         }
         else {
-            cmdBuf->d3dDC->DrawInstanced(drawCall->numElements, drawCall->numInstances, 0, 0);
+            cmdBuf->d3dDC->DrawInstanced(drawCall->numElements, drawCall->numInstances, drawCall->startVertexLocation, drawCall->startInstanceLocation);
         }
     }
 
@@ -737,6 +739,16 @@ namespace gfx
         vp.TopLeftX = vp.TopLeftY = 0.0f;
         cmdBuf->d3dDC->RSSetViewports(1, &vp);
     }
+
+    void SetScissor(Device* device, CommandBuffer cmdBuffer, Rect scissorRect)
+    {
+        D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
+        assert(cmdBuf->inRenderPass);
+
+        D3D11_RECT r = { (LONG)scissorRect.left, (LONG)scissorRect.top, (LONG)scissorRect.right, (LONG)scissorRect.bottom };
+        cmdBuf->d3dDC->RSSetScissorRects(1, &r);
+    }
+
 
     void PresentSwapChain(Device* device, SwapChain swapChain) 
     {
@@ -771,5 +783,11 @@ namespace gfx
         D3D11Buffer* bufferObj = device->interf->bufferPool.Get(buffer.id);
         if (!bufferObj) { return; }
         device->d3dDC->Unmap(bufferObj->buffer, 0);
+    }
+
+
+    void DestroyBuffer(Device* device, Buffer buffer)
+    {
+        device->interf->bufferPool.Free(buffer.id);
     }
 }
