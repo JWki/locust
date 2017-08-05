@@ -6,7 +6,7 @@ struct Vertex
 {
     float4 pos : POSITION;
     float4 color : COLOR;
-    float weight : TEXCOORD;
+    float weight : TEXCOORD;    
 };
 
 struct PixelInput

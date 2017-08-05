@@ -2,6 +2,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <Windows.h>
+#undef near
+#undef far
 
 #include <engine/runtime/ImGui/imgui.h>
 //#include <engine/runtime/win32/imgui_impl_dx11.h>
@@ -730,6 +732,143 @@ public:
 };
 
 
+namespace util
+{
+    void Copy4x4FloatMatrix(float* matFrom, float* matTo)
+    {
+        memcpy(matTo, matFrom, sizeof(float) * 16);
+    }
+
+    float Get4x4FloatMatrixValue(float* mat, int column, int row)
+    {
+        int index = 4 * column + row;
+        assert(index < 16);
+        return mat[index];
+    }
+
+    void Set4x4FloatMatrixValue(float* mat, int column, int row, float value)
+    {
+        int index = 4 * column + row;
+        assert(index < 16);
+        mat[index] = value;
+    }
+
+    void Make4x4FloatMatrixIdentity(float* mat)
+    {
+        memset(mat, 0x0, sizeof(float) * 16);
+        for (int i = 0; i < 4; ++i) { mat[4 * i + i] = 1.0f; }
+    }
+
+
+    void Make4x4FloatProjectionMatrixLH(float* mat, float fovInRadians, float aspect, float near, float far)
+    {
+        Make4x4FloatMatrixIdentity(mat);
+
+        float tanHalfFovy = tanf(fovInRadians / 2.0f);
+
+        Set4x4FloatMatrixValue(mat, 0, 0, 1.0f / (aspect * tanHalfFovy));
+        Set4x4FloatMatrixValue(mat, 1, 1, 1.0f / tanHalfFovy);
+        Set4x4FloatMatrixValue(mat, 2, 3, 1.0f);
+        
+        Set4x4FloatMatrixValue(mat, 2, 2, (far * near) / (far - near));
+        Set4x4FloatMatrixValue(mat, 3, 2, -(2.0f * far * near) / (far - near));
+    }
+
+    void Make4x4FloatMatrixTranspose(float* mat, float* result)
+    {
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                Set4x4FloatMatrixValue(result, j, i, Get4x4FloatMatrixValue(mat, i, j));
+            }
+        }
+    }
+
+    fnd::math::float4 Get4x4FloatMatrixColumn(float* mat, int column) 
+    {
+        return {
+            mat[4 * column + 0],
+            mat[4 * column + 1],
+            mat[4 * column + 2],
+            mat[4 * column + 3]
+        };
+    }
+   
+    void Make4x4FloatRotationMatrix(float* mat, fnd::math::float3 axisIn, float rad)
+    {
+        float rotate[16];
+        float base[16];
+        Make4x4FloatMatrixIdentity(base);
+        Make4x4FloatMatrixIdentity(rotate);
+        Make4x4FloatMatrixIdentity(mat);
+
+        float a = rad;
+        float c = fnd::math::Cos(a);
+        float s = fnd::math::Sin(a);
+
+        auto axis = fnd::math::Normalize(axisIn);
+        auto temp = axis * (1.0f - c);
+
+        Set4x4FloatMatrixValue(rotate, 0, 0, c + temp[0] * axis[0]);
+        Set4x4FloatMatrixValue(rotate, 0, 1, temp[0] * axis[1] + s * axis[2]);
+        Set4x4FloatMatrixValue(rotate, 0, 2, temp[0] * axis[2] - s * axis[1]);
+        
+        Set4x4FloatMatrixValue(rotate, 1, 0, temp[1] * axis[0] - s * axis[2]);
+        Set4x4FloatMatrixValue(rotate, 1, 1, c + temp[1] * axis[1]);
+        Set4x4FloatMatrixValue(rotate, 1, 2, temp[1] * axis[2] + s * axis[0]);
+
+        Set4x4FloatMatrixValue(rotate, 2, 0, temp[2] * axis[0] + s * axis[1]);
+        Set4x4FloatMatrixValue(rotate, 2, 1, temp[2] * axis[1] - s * axis[0]);
+        Set4x4FloatMatrixValue(rotate, 2, 2, c + temp[2] * axis[2]);
+
+        fnd::math::float4 m0 = Get4x4FloatMatrixColumn(base, 0);
+        fnd::math::float4 m1 = Get4x4FloatMatrixColumn(base, 1);
+        fnd::math::float4 m2 = Get4x4FloatMatrixColumn(base, 2);
+        fnd::math::float4 m3 = Get4x4FloatMatrixColumn(base, 3);
+
+        float r00 = Get4x4FloatMatrixValue(rotate, 0, 0);
+        float r11 = Get4x4FloatMatrixValue(rotate, 1, 1);
+        float r12 = Get4x4FloatMatrixValue(rotate, 1, 2);
+        float r01 = Get4x4FloatMatrixValue(rotate, 0, 1);
+        float r02 = Get4x4FloatMatrixValue(rotate, 0, 2);
+
+        float r10 = Get4x4FloatMatrixValue(rotate, 1, 0);
+        float r20 = Get4x4FloatMatrixValue(rotate, 2, 0);
+        float r21 = Get4x4FloatMatrixValue(rotate, 2, 1);
+        float r22 = Get4x4FloatMatrixValue(rotate, 2, 2);
+
+        for (int i = 0; i < 4; ++i) {
+            Set4x4FloatMatrixValue(mat, i, 0, m0[i] * r00 + m1[i] * r01 + m2[i] * r02);
+            Set4x4FloatMatrixValue(mat, i, 1, m0[i] * r10 + m1[i] * r11 + m2[i] * r12);
+            Set4x4FloatMatrixValue(mat, i, 2, m0[i] * r20 + m1[i] * r21 + m2[i] * r22);
+            Set4x4FloatMatrixValue(mat, i, 3, m3[i]);
+        }
+    }
+
+    void Make4x4FloatTranslationMatrix(float* mat, fnd::math::float3 t)
+    {
+        Make4x4FloatMatrixIdentity(mat);
+        for (int i = 0; i < 3; ++i) {
+            Set4x4FloatMatrixValue(mat, 3, i, t[i]);
+        }
+    }
+
+    // result = matA * matB
+    void MultiplyMatrices(float* matA, float* matB, float* result)
+    {
+        Make4x4FloatMatrixIdentity(result);
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                float acc = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    acc += Get4x4FloatMatrixValue(matA, i, k) * Get4x4FloatMatrixValue(matB, k, j);
+                }
+                Set4x4FloatMatrixValue(result, i, j, acc);
+            } 
+        }
+    }
+}
+
+
 
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
@@ -873,10 +1012,10 @@ int win32_main(int argc, char* argv[])
         { { -0.45f, -0.5f, 0.0f, 1.0f },{ 0.0f, 0.0f, 1.0f, 1.0f } }
     };
 
-    VertexWeight triangleWeights[] = { 1.0f, 0.3f, 0.6f };
+    VertexWeight triangleWeights[] = { 1.0f, 1.0f, 1.0f };
 
     uint16_t triangleIndices[] = {
-        0, 1, 2
+        0, 1, 2, 2, 1, 0
     };
 
     size_t vShaderCodeSize = 0;
@@ -1016,7 +1155,7 @@ int win32_main(int argc, char* argv[])
     }
 
     gfx::PipelineStateDesc pipelineStateDesc;
-    pipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+    pipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     pipelineStateDesc.vertexShader = vShader;
     pipelineStateDesc.pixelShader = pShader;
     pipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT4 };
@@ -1034,7 +1173,8 @@ int win32_main(int argc, char* argv[])
     triangleDrawCall.vertexBuffers[1] = vWeightBuffer;
     triangleDrawCall.vertexOffsets[1] = 0;
     triangleDrawCall.vertexStrides[1] = sizeof(VertexWeight);
-    triangleDrawCall.numElements = 3;
+    triangleDrawCall.indexBuffer = iBuffer;
+    triangleDrawCall.numElements = ARRAYSIZE(triangleIndices);
     triangleDrawCall.pipelineState = pipeline;
     triangleDrawCall.vsConstantInputs[0] = cBuffer;
 
@@ -1055,8 +1195,7 @@ int win32_main(int argc, char* argv[])
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
-    math::float4 positionOffset(0.0f);
-
+   
     GT_LOG_INFO("Application", "Starting main loop");
     do {
         double newTime = GetCounter();
@@ -1317,17 +1456,36 @@ int win32_main(int argc, char* argv[])
 //            ImGui::End();
 
             float fCounter = static_cast<float>(GetCounter());
+           
+            math::float3 translation;
+            translation.x = 5.0f;//math::Sin(fCounter) * 1.0f;
+            translation.y = 0.0;//-math::Cos(fCounter) * 1.0f;
 
-            positionOffset.x = math::Sin(fCounter) * 1.0f;
-            positionOffset.y = -math::Cos(fCounter) * 1.0f;
-            //positionOffset.z = math::Sin(fCounter) * 2.0f;
+            float proj[16];
+            float camera[16];
+            float model[16];
+
+            float translate[16];
+            float rotate[16];
+            static float rotation = 0.0f;
+            rotation += 0.03f;
+
+            util::Make4x4FloatTranslationMatrix(translate, translation);
+            util::Make4x4FloatRotationMatrix(rotate, { 0.0f, 0.0f, 1.0f }, rotation);
+        
+            util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH / WINDOW_HEIGHT, 0.1f, 1000.0f);
+            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, 0.0f, 5.0f });
+            
+            float modelView[16];
+
+            util::MultiplyMatrices(translate, rotate, model);
+            util::Copy4x4FloatMatrix(rotate, model);
+            util::MultiplyMatrices(model, camera, modelView);
+            util::MultiplyMatrices(modelView, proj, transform.transform);
+            //util::Copy4x4FloatMatrix(model, transform.transform);
 
             for (int i = 0; i < 3; ++i) {
-                transform.transform[4 * 3 + i] = positionOffset[i];
-            }
-
-            for (int i = 0; i < 3; ++i) {
-                triangleWeights[i].value -= 0.001f;
+                //triangleWeights[i].value -= 0.001f;
                 triangleWeights[i].value = triangleWeights[i].value < 0.0f ? triangleWeights[i].value : (triangleWeights[i].value > 1.0f ? 1.0f : triangleWeights[i].value);
             }
             /* End sim frame */
