@@ -220,13 +220,13 @@ namespace gfx
         const char* name    = "";
         uint32_t    index   = 0;
         uint32_t    offset  = 0;
+        uint32_t    slot    = 0;
         VertexFormat format = VertexFormat::VERTEX_FORMAT_INVALID;
     };
 
 
     struct VertexLayoutDesc
     {
-        uint32_t            stride = 0;
         VertexAttribDesc    attribs[GFX_MAX_VERTEX_ATTRIBS];
     };
 

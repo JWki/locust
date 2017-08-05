@@ -6,6 +6,7 @@ struct Vertex
 {
     float4 pos : POSITION;
     float4 color : COLOR;
+    float weight : TEXCOORD;
 };
 
 struct PixelInput
@@ -17,7 +18,8 @@ struct PixelInput
 PixelInput main(Vertex vertex)
 {
     PixelInput output;
-    output.pos = mul(WorldMatrix, vertex.pos);
+    float4 targetPos = mul(WorldMatrix, vertex.pos);
+    output.pos = lerp(vertex.pos, targetPos, vertex.weight);
     output.color = vertex.color;
     return output;
 }

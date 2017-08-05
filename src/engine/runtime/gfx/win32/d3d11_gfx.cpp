@@ -343,7 +343,7 @@ namespace gfx
         D3D11_USAGE::D3D11_USAGE_DEFAULT,
         D3D11_USAGE::D3D11_USAGE_IMMUTABLE,
         D3D11_USAGE::D3D11_USAGE_DYNAMIC,
-        D3D11_USAGE::D3D11_USAGE_DYNAMIC,   // D3d11 has no staging buffers so no distiction here
+        D3D11_USAGE::D3D11_USAGE_DYNAMIC,   // @NOTE D3d11 has no streaming buffers so no distiction here
         D3D11_USAGE::D3D11_USAGE_STAGING
     };
 
@@ -496,7 +496,7 @@ namespace gfx
         for (UINT i = 0; i < GFX_MAX_VERTEX_ATTRIBS; ++i) {
             if (desc->vertexLayout.attribs[i].format != VertexFormat::VERTEX_FORMAT_INVALID) {
                 auto& attrib = desc->vertexLayout.attribs[i];
-                inputElements[i] = { attrib.name, attrib.index, g_vertexFormatTable[(uint8_t)attrib.format], 0, attrib.offset, D3D11_INPUT_PER_VERTEX_DATA, 0};
+                inputElements[i] = { attrib.name, attrib.index, g_vertexFormatTable[(uint8_t)attrib.format], attrib.slot, attrib.offset, D3D11_INPUT_PER_VERTEX_DATA, 0};
                 numInputElements++;
             }
             else {

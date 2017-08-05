@@ -862,11 +862,18 @@ int win32_main(int argc, char* argv[])
         math::float4 color;
     };
 
+    struct VertexWeight
+    {
+        float value = 1.0f;
+    };
+
     Vertex triangleVertices[] = {
         { { 0.0f, 0.5f, 0.0f, 1.0f },{ 1.0f, 0.0f, 0.0f, 1.0f } },
         { { 0.45f, -0.5, 0.0f, 1.0f },{ 0.0f, 1.0f, 0.0f, 1.0f } },
         { { -0.45f, -0.5f, 0.0f, 1.0f },{ 0.0f, 0.0f, 1.0f, 1.0f } }
     };
+
+    VertexWeight triangleWeights[] = { 1.0f, 0.3f, 0.6f };
 
     uint16_t triangleIndices[] = {
         0, 1, 2
@@ -956,6 +963,17 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create vertex buffer");
     }
 
+    gfx::BufferDesc vWeightBufferDesc;
+    vWeightBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    vWeightBufferDesc.byteWidth = sizeof(triangleWeights);
+    vWeightBufferDesc.initialData = triangleWeights;
+    vWeightBufferDesc.initialDataSize = sizeof(triangleWeights);
+    vWeightBufferDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+    gfx::Buffer vWeightBuffer = gfx::CreateBuffer(gfxDevice, &vWeightBufferDesc);
+    if (!GFX_CHECK_RESOURCE(vWeightBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create vertex weight buffer");
+    }
+
     gfx::BufferDesc iBufferDesc;
     iBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
     iBufferDesc.byteWidth = sizeof(triangleIndices);
@@ -1001,9 +1019,9 @@ int win32_main(int argc, char* argv[])
     pipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
     pipelineStateDesc.vertexShader = vShader;
     pipelineStateDesc.pixelShader = pShader;
-    pipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT4 };
-    pipelineStateDesc.vertexLayout.attribs[1] = { "COLOR", 0, sizeof(math::float4), gfx::VertexFormat::VERTEX_FORMAT_FLOAT4 };
-    pipelineStateDesc.vertexLayout.stride = sizeof(Vertex);
+    pipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT4 };
+    pipelineStateDesc.vertexLayout.attribs[1] = { "COLOR", 0, sizeof(math::float4), 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT4 };
+    pipelineStateDesc.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT };
     gfx::PipelineState pipeline = gfx::CreatePipelineState(gfxDevice, &pipelineStateDesc);
     if (!GFX_CHECK_RESOURCE(pipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state");
@@ -1013,6 +1031,9 @@ int win32_main(int argc, char* argv[])
     triangleDrawCall.vertexBuffers[0] = vBuffer;
     triangleDrawCall.vertexOffsets[0] = 0;
     triangleDrawCall.vertexStrides[0] = sizeof(Vertex);
+    triangleDrawCall.vertexBuffers[1] = vWeightBuffer;
+    triangleDrawCall.vertexOffsets[1] = 0;
+    triangleDrawCall.vertexStrides[1] = sizeof(VertexWeight);
     triangleDrawCall.numElements = 3;
     triangleDrawCall.pipelineState = pipeline;
     triangleDrawCall.vsConstantInputs[0] = cBuffer;
@@ -1305,17 +1326,29 @@ int win32_main(int argc, char* argv[])
                 transform.transform[4 * 3 + i] = positionOffset[i];
             }
 
+            for (int i = 0; i < 3; ++i) {
+                triangleWeights[i].value -= 0.001f;
+                triangleWeights[i].value = triangleWeights[i].value < 0.0f ? triangleWeights[i].value : (triangleWeights[i].value > 1.0f ? 1.0f : triangleWeights[i].value);
+            }
             /* End sim frame */
             //ImGui::Render();
             t += dt;
             accumulator -= dt;
         }
         if (didUpdate) {
-            // stuff we wanna do at the start of every render frame, but ONLY if there was one or more updates, but only once
+            // upload transformation to constant buffer only once per update -> render transition
             void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
             if (cBufferMem != nullptr) {
                 memcpy(cBufferMem, &transform, sizeof(transform));
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
+            }
+            
+
+            // upload new weights to weight vertex buffer
+            void* vWeightBufferMem = gfx::MapBuffer(gfxDevice, vWeightBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+            if (vWeightBufferMem != nullptr) {
+                memcpy(vWeightBufferMem, triangleWeights, sizeof(triangleWeights));
+                gfx::UnmapBuffer(gfxDevice, vWeightBuffer);
             }
         }
 
