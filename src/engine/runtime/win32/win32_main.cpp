@@ -869,6 +869,10 @@ namespace util
 }
 
 
+#pragma warning(push, 0)    // lots of warnings in here  
+#define PAR_SHAPES_IMPLEMENTATION
+#include <engine/runtime/par_shapes-h.h>
+#pragma warning(pop)
 
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
@@ -1024,6 +1028,12 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
     }
 
+    size_t vCubeShaderCodeSize = 0;
+    char* vCubeShaderCode = static_cast<char*>(LoadFileContents("VertexShaderCube.cso", &applicationArena, &vCubeShaderCodeSize));
+    if (!vCubeShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
+    }
+
     size_t pShaderCodeSize = 0;
     char* pShaderCode = static_cast<char*>(LoadFileContents("PixelShader.cso", &applicationArena, &pShaderCodeSize));
     if (!pShaderCode) {
@@ -1070,7 +1080,7 @@ int win32_main(int argc, char* argv[])
 
     gfx::SwapChain secondSwapChain;
     {
-        gfx::SwapChainDesc swapChainDesc;
+        gfx::SwapChainDesc swapChainDesc; 
         swapChainDesc.width = WINDOW_WIDTH;
         swapChainDesc.height = WINDOW_HEIGHT;
         swapChainDesc.window = secondaryWindow;
@@ -1090,6 +1100,41 @@ int win32_main(int argc, char* argv[])
         transform.transform[4 * i + i] = 1.0f;
     }
     //transform.transform[4 * 3 + 3] = 1.0f;
+    auto cubeMesh = par_shapes_create_cube();
+    par_shapes_translate(cubeMesh, -0.5f, -0.5f, -0.5f);
+
+    float* cubeVertices = cubeMesh->points;
+    PAR_SHAPES_T* cubeIndices = cubeMesh->triangles;
+    int numCubeVertices = cubeMesh->npoints;
+    int numCubeIndices = cubeMesh->ntriangles * 3;
+    for (int i = 0; i < cubeMesh->ntriangles; ++i) {
+        int j = i + 1; 
+        int k = j + 1;
+        PAR_SHAPES_T swap = cubeIndices[i];
+        //cubeIndices[i] = cubeIndices[k];
+        //cubeIndices[k] = swap;
+    }
+
+
+    gfx::BufferDesc cubeVertexBufferDesc;
+    cubeVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    cubeVertexBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 3;
+    cubeVertexBufferDesc.initialData = cubeVertices;
+    cubeVertexBufferDesc.initialDataSize = cubeVertexBufferDesc.byteWidth;
+    gfx::Buffer cubeVertexBuffer = gfx::CreateBuffer(gfxDevice, &cubeVertexBufferDesc);
+    if (!GFX_CHECK_RESOURCE(cubeVertexBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create cube vertex buffer");
+    }
+
+    gfx::BufferDesc cubeIndexBufferDesc;
+    cubeIndexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
+    cubeIndexBufferDesc.byteWidth = sizeof(PAR_SHAPES_T) * numCubeIndices;
+    cubeIndexBufferDesc.initialData = cubeIndices;
+    cubeIndexBufferDesc.initialDataSize = cubeIndexBufferDesc.byteWidth;
+    gfx::Buffer cubeIndexBuffer = gfx::CreateBuffer(gfxDevice, &cubeIndexBufferDesc);
+    if (!GFX_CHECK_RESOURCE(cubeIndexBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create cube index buffer");
+    }
 
 
     gfx::BufferDesc vBufferDesc;
@@ -1114,7 +1159,7 @@ int win32_main(int argc, char* argv[])
     }
 
     gfx::BufferDesc iBufferDesc;
-    iBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    iBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
     iBufferDesc.byteWidth = sizeof(triangleIndices);
     iBufferDesc.initialData = triangleIndices;
     iBufferDesc.initialDataSize = sizeof(triangleIndices);
@@ -1138,6 +1183,11 @@ int win32_main(int argc, char* argv[])
     vShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
     vShaderDesc.code = vShaderCode;
     vShaderDesc.codeSize = vShaderCodeSize;
+
+    gfx::ShaderDesc vCubeShaderDesc;
+    vCubeShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
+    vCubeShaderDesc.code = vCubeShaderCode;
+    vCubeShaderDesc.codeSize = vCubeShaderCodeSize;
     
     gfx::ShaderDesc pShaderDesc;
     pShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
@@ -1146,6 +1196,11 @@ int win32_main(int argc, char* argv[])
 
     gfx::Shader vShader = gfx::CreateShader(gfxDevice, &vShaderDesc);
     if (!GFX_CHECK_RESOURCE(vShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
+    }
+
+    gfx::Shader vCubeShader = gfx::CreateShader(gfxDevice, &vCubeShaderDesc);
+    if (!GFX_CHECK_RESOURCE(vCubeShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
     }
 
@@ -1165,7 +1220,17 @@ int win32_main(int argc, char* argv[])
     if (!GFX_CHECK_RESOURCE(pipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state");
     }
- 
+
+    gfx::PipelineStateDesc cubePipelineStateDesc;
+    cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+    cubePipelineStateDesc.vertexShader = vCubeShader;
+    cubePipelineStateDesc.pixelShader = pShader;
+    cubePipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    gfx::PipelineState cubePipeline = gfx::CreatePipelineState(gfxDevice, &cubePipelineStateDesc);
+    if (!GFX_CHECK_RESOURCE(cubePipeline)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cube");
+    }
+
     gfx::DrawCall triangleDrawCall;
     triangleDrawCall.vertexBuffers[0] = vBuffer;
     triangleDrawCall.vertexOffsets[0] = 0;
@@ -1177,6 +1242,15 @@ int win32_main(int argc, char* argv[])
     triangleDrawCall.numElements = ARRAYSIZE(triangleIndices);
     triangleDrawCall.pipelineState = pipeline;
     triangleDrawCall.vsConstantInputs[0] = cBuffer;
+
+    gfx::DrawCall cubeDrawCall;
+    cubeDrawCall.vertexBuffers[0] = cubeVertexBuffer;
+    cubeDrawCall.vertexOffsets[0] = 0;
+    cubeDrawCall.vertexStrides[0] = sizeof(float) * 3;
+    cubeDrawCall.indexBuffer = cubeIndexBuffer;
+    cubeDrawCall.numElements = numCubeIndices;
+    cubeDrawCall.pipelineState = cubePipeline;
+    cubeDrawCall.vsConstantInputs[0] = cBuffer;
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
@@ -1471,10 +1545,10 @@ int win32_main(int argc, char* argv[])
             rotation += 0.03f;
 
             util::Make4x4FloatTranslationMatrix(translate, translation);
-            util::Make4x4FloatRotationMatrix(rotate, { 0.0f, 0.0f, 1.0f }, rotation);
+            util::Make4x4FloatRotationMatrix(rotate, { 0.0f, 1.0f, 0.0f }, rotation);
         
             util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH / WINDOW_HEIGHT, 0.1f, 1000.0f);
-            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, 0.0f, 5.0f });
+            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -1.0f, 5.0f });
             
             float modelView[16];
 
@@ -1532,7 +1606,7 @@ int win32_main(int argc, char* argv[])
 
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, secondSwapChain, &clearAllAction);
         gfx::SetViewport(gfxDevice, cmdBuffer, { (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT });
-        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &triangleDrawCall);
+        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
         GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
