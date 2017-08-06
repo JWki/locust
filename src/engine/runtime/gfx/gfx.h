@@ -130,8 +130,8 @@ namespace gfx
     enum class FilterMode : uint8_t
     {
         _DEFAULT = 0,
-        FILTER_NEAREST,
         FILTER_LINEAR,
+        FILTER_NEAREST,
         FILTER_NEAREST_MIPMAP_NEAREST,
         FILTER_NEAREST_MIPMAP_LINEAR,
         FILTER_LINEAR_MIPMAP_NEAREST,
@@ -222,7 +222,7 @@ namespace gfx
         
         PixelFormat     pixelFormat = PixelFormat::_DEFAULT;
         FilterMode      minFilter   = FilterMode::FILTER_LINEAR;
-        FilterMode      maxFilter   = FilterMode::FILTER_LINEAR;
+        FilterMode      magFilter   = FilterMode::FILTER_LINEAR;
 
         WrapMode        wrapU               = WrapMode::WRAP_REPEAT;
         WrapMode        wrapV               = WrapMode::WRAP_REPEAT;

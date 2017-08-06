@@ -1108,8 +1108,10 @@ int win32_main(int argc, char* argv[])
     //transform.transform[4 * 3 + 3] = 1.0f;
     auto cubeMesh = par_shapes_create_cube();
     par_shapes_translate(cubeMesh, -0.5f, -0.5f, -0.5f);
-
+    par_shapes_compute_normals(cubeMesh);
+    
     float* cubeVertices = cubeMesh->points;
+    float* cubeNormals = cubeMesh->normals;
     PAR_SHAPES_T* cubeIndices = cubeMesh->triangles;
     int numCubeVertices = cubeMesh->npoints;
     int numCubeIndices = cubeMesh->ntriangles * 3;
@@ -1154,6 +1156,16 @@ int win32_main(int argc, char* argv[])
     gfx::Buffer cubeVertexBuffer = gfx::CreateBuffer(gfxDevice, &cubeVertexBufferDesc);
     if (!GFX_CHECK_RESOURCE(cubeVertexBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create cube vertex buffer");
+    }
+
+    gfx::BufferDesc cubeNormalBufferDesc;
+    cubeNormalBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    cubeNormalBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 3;
+    cubeNormalBufferDesc.initialData = cubeNormals;
+    cubeNormalBufferDesc.initialDataSize = cubeNormalBufferDesc.byteWidth;
+    gfx::Buffer cubeNormalBuffer = gfx::CreateBuffer(gfxDevice, &cubeNormalBufferDesc);
+    if (!GFX_CHECK_RESOURCE(cubeNormalBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create cube normal buffer");
     }
 
     gfx::BufferDesc cubeIndexBufferDesc;
@@ -1256,6 +1268,7 @@ int win32_main(int argc, char* argv[])
     cubePipelineStateDesc.vertexShader = vCubeShader;
     cubePipelineStateDesc.pixelShader = pShader;
     cubePipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    cubePipelineStateDesc.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
     gfx::PipelineState cubePipeline = gfx::CreatePipelineState(gfxDevice, &cubePipelineStateDesc);
     if (!GFX_CHECK_RESOURCE(cubePipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cube");
@@ -1277,6 +1290,9 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.vertexBuffers[0] = cubeVertexBuffer;
     cubeDrawCall.vertexOffsets[0] = 0;
     cubeDrawCall.vertexStrides[0] = sizeof(float) * 3;
+    cubeDrawCall.vertexBuffers[1] = cubeNormalBuffer;
+    cubeDrawCall.vertexOffsets[1] = 0;
+    cubeDrawCall.vertexStrides[1] = sizeof(float) * 3;
     cubeDrawCall.indexBuffer = cubeIndexBuffer;
     cubeDrawCall.numElements = numCubeIndices;
     cubeDrawCall.pipelineState = cubePipeline;
@@ -1585,8 +1601,8 @@ int win32_main(int argc, char* argv[])
             util::Make4x4FloatTranslationMatrix(translate, translation);
             util::Make4x4FloatRotationMatrix(rotate, { 0.0f, 1.0f, 0.0f }, rotation);
         
-            util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH / WINDOW_HEIGHT, 0.1f, 1000.0f);
-            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -1.0f, 5.0f });
+            util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH / WINDOW_HEIGHT, 0.01f, 1000.0f);
+            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -1.0f, 2.75f });
             
             float modelView[16];
 
