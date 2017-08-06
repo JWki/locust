@@ -33,7 +33,17 @@ namespace gfx
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
         ImageDesc       desc;
-        // @TODO
+        
+        ID3D11ShaderResourceView* SRV;
+
+        union {
+            ID3D11Texture2D*    as_2DTexture;
+            ID3D11Texture2D*    as_cubeTexture;     // @TODO: merge w/2D texture?
+            ID3D11Texture3D*    as_3DTexture;
+            // @TODO: ARRAY TEXTURES
+        };
+
+        // @TODO: cubemaps
     };
 
 
@@ -137,6 +147,11 @@ namespace gfx
                 shader->as_vertexShader->Release();
                 break;
         }
+    }
+
+    void D3D11ReleaseResource(D3D11Image* image)
+    {
+        // @TODO don't leak the resource here
     }
 
     void D3D11ReleaseResource(D3D11RenderPass* renderPass)
@@ -447,6 +462,135 @@ namespace gfx
     }
 
 
+    DXGI_FORMAT g_pixelFormatTable[] = {
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UINT,
+        DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_UINT,
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
+        DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UINT,
+        DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_UINT
+    };
+
+    UINT g_pixelFormatComponentCount[] = {
+        4, 4, 4, 4, 4, 4
+    };
+
+    UINT g_pixelFormatComponentSize[] = {
+        1, 1, 1, 2, 1, 2
+    };
+
+    D3D11_SRV_DIMENSION g_imageSRVDimensionTable[] = {
+        D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D,
+        D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2D,
+        D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURECUBE,
+        D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE3D,
+        D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2DARRAY
+    };
+
+    Image CreateImage(Device* device, ImageDesc* desc)
+    {
+        D3D11Image* image = nullptr;
+        Image result{ gfx::INVALID_ID };
+        if (!device->interf->imagePool.Allocate(&image, &result.id)) {
+            return { gfx::INVALID_ID };
+        }
+        
+        D3D11_TEXTURE2D_DESC texDesc;
+        texDesc.Width = desc->width;
+        texDesc.Height = desc->height;
+        texDesc.MipLevels = desc->numMipmaps;
+        texDesc.ArraySize = 1;    // @TODO
+        texDesc.Format = g_pixelFormatTable[(uint8_t)desc->pixelFormat];
+
+        ResourceUsage usage = desc->usage == ResourceUsage::_DEFAULT ? ResourceUsage::USAGE_IMMUTABLE : desc->usage;
+
+        texDesc.CPUAccessFlags = 0;
+        if (usage != ResourceUsage::USAGE_IMMUTABLE) {
+            texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+        }
+        if (usage == ResourceUsage::USAGE_STAGING) {
+            texDesc.CPUAccessFlags |= D3D11_CPU_ACCESS_READ;
+        }
+        texDesc.SampleDesc.Count = 1;   // @TODO: Sample count
+        texDesc.SampleDesc.Quality = 0;
+
+        texDesc.Usage = g_resUsageTable[(uint8_t)usage];
+        texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        if (desc->isRenderTarget) {
+            texDesc.BindFlags |= D3D11_BIND_RENDER_TARGET;
+            // @TODO: bind as depth/stencil attachment
+        }
+
+        texDesc.MiscFlags = 0;
+        if (desc->numMipmaps > 1) {
+            texDesc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+        }
+        if (desc->type == ImageType::IMAGE_TYPE_CUBE) {
+            texDesc.MiscFlags |= D3D11_RESOURCE_MISC_TEXTURECUBE;
+        }
+
+        size_t numDataItems = desc->numDataItems;
+        if (desc->type == ImageType::IMAGE_TYPE_CUBE || true) {     // @HACK
+            assert(numDataItems <= 6);
+        }
+        D3D11_SUBRESOURCE_DATA pData[6];    // @TODO: Support more than 6?
+        D3D11_SUBRESOURCE_DATA* pDataPtr = numDataItems > 0 ? &pData[0] : nullptr;
+        UINT numComponents = g_pixelFormatComponentCount[(uint8_t)desc->pixelFormat];
+        UINT componentSize = g_pixelFormatComponentSize[(uint8_t)desc->pixelFormat];
+        for (int i = 0; i < numDataItems; ++i) {
+            pData[i].pSysMem = desc->initialData[i];
+            pData[i].SysMemPitch = desc->width * numComponents * componentSize;
+            pData[i].SysMemSlicePitch = pData[i].SysMemPitch * desc->height;  // @TODO: Verify?
+        }
+        assert(!(usage == ResourceUsage::USAGE_IMMUTABLE && pDataPtr == nullptr));
+        
+        HRESULT res = S_OK;
+        switch (desc->type) {
+        case ImageType::IMAGE_TYPE_2D: {
+            res = device->d3dDevice->CreateTexture2D(&texDesc, pDataPtr, &image->as_2DTexture);
+        } break;
+        default: {
+                assert(false);  // @TODO
+            } break;
+        }
+        if (FAILED(res)) {
+            device->interf->imagePool.Free(result.id);
+            return { gfx::INVALID_ID };
+        }
+        
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+        ZeroMemory(&srvDesc, sizeof(srvDesc));
+        srvDesc.Format = texDesc.Format;
+        srvDesc.ViewDimension = g_imageSRVDimensionTable[(uint8_t)desc->type];
+        switch (desc->type) {
+        case ImageType::IMAGE_TYPE_2D: {
+            srvDesc.Texture2D.MipLevels = desc->numMipmaps;
+            srvDesc.Texture2D.MostDetailedMip = 0;
+        } break;
+        default: {
+            assert(false);  // @TODO
+        } break;
+        }
+        // @TODO: avoid aliasing the I3D11TextureXXX union here
+        res = device->d3dDevice->CreateShaderResourceView(image->as_2DTexture, &srvDesc, &image->SRV);
+        if (FAILED(res)) {
+            device->interf->imagePool.Free(result.id);
+            return { gfx::INVALID_ID };
+        }
+
+        image->associatedDevice = device;
+        image->resState = _ResourceState::STATE_VALID;
+        image->desc = *desc;
+        image->desc.usage = usage;
+        image->desc.numDataItems = numDataItems;
+        return result;
+    }
+
+
     DXGI_FORMAT g_vertexFormatTable[] = {
         DXGI_FORMAT::DXGI_FORMAT_UNKNOWN,
         DXGI_FORMAT::DXGI_FORMAT_R32_FLOAT,
@@ -701,6 +845,12 @@ namespace gfx
         }
         if (numDSConstantBuffers > 0) {
             cmdBuf->d3dDC->DSSetConstantBuffers(0, numDSConstantBuffers, dsConstantBuffers);
+        }
+
+        // @HACK, just to see something
+        if (GFX_CHECK_RESOURCE(drawCall->psImageInputs[0])) {
+            auto srv = device->interf->imagePool.Get(drawCall->psImageInputs[0].id)->SRV;
+            cmdBuf->d3dDC->PSSetShaderResources(0, 1, &srv);
         }
 
         cmdBuf->d3dDC->VSSetShader(pipelineState->vertexShader->as_vertexShader, nullptr, 0);

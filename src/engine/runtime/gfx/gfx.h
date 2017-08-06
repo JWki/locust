@@ -105,7 +105,7 @@ namespace gfx
         IMAGE_TYPE_2D,
         IMAGE_TYPE_CUBE,
         IMAGE_TYPE_3D,
-        IMAGE_TYPE_ARRAY
+        IMAGE_TYPE_2DARRAY
     };
 
     enum class ShaderType : uint8_t
@@ -147,7 +147,15 @@ namespace gfx
     };
 
     // @TODO: Pixel formats
-
+    enum class PixelFormat : uint8_t
+    {
+        _DEFAULT = 0,
+        PIXEL_FORMAT_NONE,
+        PIXEL_FORMAT_R8G8B8A8_UNORM,
+        PIXEL_FORMAT_R16G16B16A16_FLOAT,
+        PIXEL_FORMAT_R8G8B8A8_UINT,
+        PIXEL_FORMAT_R16G16B16A16_UINT
+    };
 
     /* interface contexts */
 
@@ -203,6 +211,26 @@ namespace gfx
 
     struct ImageDesc
     {
+        ImageType   type            = ImageType::_DEFAULT;
+        bool        isRenderTarget    = false;
+        
+        uint16_t    width           = 0;
+        uint16_t    height          = 0;
+        uint16_t    numMipmaps      = 1;
+
+        ResourceUsage   usage       = ResourceUsage::_DEFAULT;
+        
+        PixelFormat     pixelFormat = PixelFormat::_DEFAULT;
+        FilterMode      minFilter   = FilterMode::FILTER_LINEAR;
+        FilterMode      maxFilter   = FilterMode::FILTER_LINEAR;
+
+        WrapMode        wrapU               = WrapMode::WRAP_REPEAT;
+        WrapMode        wrapV               = WrapMode::WRAP_REPEAT;
+        WrapMode        wrapW               = WrapMode::WRAP_REPEAT;
+
+        size_t          numDataItems        = 0;
+        void**          initialData         = nullptr;
+        size_t*         initialDataSizes    = nullptr;
         // @TODO
     };
 

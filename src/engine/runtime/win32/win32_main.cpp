@@ -874,6 +874,10 @@ namespace util
 #include <engine/runtime/par_shapes-h.h>
 #pragma warning(pop)
 
+#define STB_IMAGE_IMPLEMENTATION
+//#define STBI_NO_STDIO
+#include <stb/stb_image.h>
+
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
 {
@@ -1116,7 +1120,31 @@ int win32_main(int argc, char* argv[])
         //cubeIndices[i] = cubeIndices[k];
         //cubeIndices[k] = swap;
     }
+    
+    int width, height, numComponents;
+    auto image = stbi_load("../../texture.png", &width, &height, &numComponents, 4);
+    //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+    if (image == NULL) {
+        GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../texture.png", stbi_failure_reason());
+    }
+    //assert(numComponents == 4);
 
+    gfx::ImageDesc cubeTextureDesc;
+    //cubeTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+    cubeTextureDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    cubeTextureDesc.width = width;
+    cubeTextureDesc.height = height;
+    cubeTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+    cubeTextureDesc.numDataItems = 1;
+    void* data[] = { image };
+    size_t size = sizeof(stbi_uc) * width * height * 4;
+    cubeTextureDesc.initialData = data;
+    cubeTextureDesc.initialDataSizes = &size;
+    gfx::Image cubeTexture = gfx::CreateImage(gfxDevice, &cubeTextureDesc);
+    if (!GFX_CHECK_RESOURCE(cubeTexture)) {
+        GT_LOG_ERROR("Renderer", "Failed to create texture");
+    }
+    stbi_image_free(image);
 
     gfx::BufferDesc cubeVertexBufferDesc;
     cubeVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
@@ -1253,6 +1281,7 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.numElements = numCubeIndices;
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
+    cubeDrawCall.psImageInputs[0] = cubeTexture;
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
