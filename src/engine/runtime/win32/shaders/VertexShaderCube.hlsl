@@ -25,5 +25,6 @@ PixelInput main(Vertex vertex)
     output.color = float4(1.0f, 1.0f, 1.0f, 1.0f);
     output.normal = vertex.normal;
     output.uv = vertex.pos.xy;
+
     return output;
 }
