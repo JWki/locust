@@ -362,6 +362,23 @@ bool    ImGui_ImplDX11_CreateDeviceObjects()
     // create the pipeline
 
     gfx::PipelineStateDesc pipelineDesc;
+
+    // blend state setup
+    pipelineDesc.blendState.enableBlend = true;
+    pipelineDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+    pipelineDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
+    pipelineDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
+    pipelineDesc.blendState.srcBlendAlpha = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
+    pipelineDesc.blendState.dstBlendAlpha = gfx::BlendFactor::BLEND_ZERO;
+    pipelineDesc.blendState.blendOpAlpha = gfx::BlendOp::BLEND_OP_ADD;
+
+    // rasterizer state setup
+    pipelineDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
+    pipelineDesc.rasterState.enableScissor = true;
+    
+    // depth stencil state setup - NONE becasue nothing to do here, we have smart defaults!
+
+    // shaders + input assembly 
     pipelineDesc.vertexShader = g_pVertexShader;
     pipelineDesc.pixelShader = g_pPixelShader;
     pipelineDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;

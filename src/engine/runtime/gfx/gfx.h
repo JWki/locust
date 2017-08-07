@@ -259,6 +259,143 @@ namespace gfx
         VertexAttribDesc    attribs[GFX_MAX_VERTEX_ATTRIBS];
     };
 
+    // @NOTE maybe expose those as resource objects - maybe just let implementation cache
+
+    struct DepthStateDesc
+    {
+
+    };
+
+    enum class BlendFactor : uint8_t 
+    {
+        BLEND_ZERO,
+        BLEND_ONE,
+        BLEND_SRC_COLOR,
+        BLEND_INV_SRC_COLOR,
+        BLEND_SRC_ALPHA,
+        BLEND_INV_SRC_ALPHA,
+        BLEND_DEST_ALPHA,
+        BLEND_INV_DEST_ALPHA,
+        BLEND_DEST_COLOR,
+        BLEND_INV_DEST_COLOR,
+        BLEND_SRC_ALPHA_SAT,
+        BLEND_BLEND_FACTOR,
+        BLEND_INV_BLEND_FACTOR,
+        BLEND_SRC1_COLOR,
+        BLEND_INV_SRC1_COLOR,
+        BLEND_SRC1_ALPHA,
+        BLEND_INV_SRC1_ALPHA
+    };
+
+    enum class BlendOp : uint8_t
+    {
+        BLEND_OP_ADD,
+        BLEND_OP_SUBTRACT,
+        BLEND_OP_REV_SUBTRACT,
+        BLEND_OP_MIN,
+        BLEND_OP_MAX
+    };
+
+    // @NOTE revisit defaults
+    struct BlendStateDesc
+    {
+        // @TODO independent blend
+        bool            alphaToCoverage = false;    // @NOTE no-op atm
+        bool            enableBlend     = false;
+        BlendFactor     srcBlend        = BlendFactor::BLEND_ONE; 
+        BlendFactor     dstBlend        = BlendFactor::BLEND_ZERO;
+        BlendOp         blendOp         = BlendOp::BLEND_OP_ADD;
+        BlendFactor     srcBlendAlpha   = BlendFactor::BLEND_ONE;
+        BlendFactor     dstBlendAlpha   = BlendFactor::BLEND_ZERO;
+        BlendOp         blendOpAlpha    = BlendOp::BLEND_OP_ADD;
+        uint8_t         writeMask       = 0xf;  // @TODO: real write mask 
+        
+        float           color[4]        = { 0.0f, 0.0f, 0.0f, 0.0f };
+    };
+
+    enum class FillMode : uint8_t
+    {
+        FILL_WIREFRAME,
+        FILL_SOLID
+    };
+
+    enum class CullMode : uint8_t
+    {
+        CULL_NONE,
+        CULL_FRONT,
+        CULL_BACK
+    };
+
+    enum class CullOrder : uint8_t
+    {
+        CULL_ORDER_CLOCKWISE,
+        CULL_ORDER_CCLOCKWISE
+    };
+
+    struct RasterizerStateDesc
+    {
+        FillMode    fillMode    = FillMode::FILL_SOLID;
+        CullMode    cullMode    = CullMode::CULL_BACK;
+        CullOrder   cullOrder   = CullOrder::CULL_ORDER_CLOCKWISE;
+        uint32_t    depthBias = 0;
+        float       depthBiasClamp = 0.0f;
+        float       slopeScaledDepthBias = 0.0f;
+        bool        enableDepthClip = true;
+        bool        enableScissor = false;
+        bool        enableMultisample = false;
+        bool        enableAALine = false;
+    };
+
+    enum class CompareFunc : uint8_t 
+    {
+        COMPARE_NEVER,
+        COMPARE_LESS,
+        COMPARE_EQUAL,
+        COMPARE_LESS_EQUAL,
+        COMPARE_GREATER,
+        COMPARE_NOT_EQUAL,
+        COMPARE_GREATER_EQUAL,
+        COMPARE_ALWAYS
+    };
+
+    enum class DepthWriteMask : uint8_t
+    {
+        DEPTH_WRITE_MASK_ZERO,
+        DEPTH_WRITE_MASK_ALL
+    };
+
+    enum class StencilOp : uint8_t
+    {
+        STENCIL_OP_KEEP,
+        STENCIL_OP_ZERO,
+        STENCIL_OP_REPLACE,
+        STENCIL_OP_INCR_SAT,
+        STENCIL_OP_DECR_SAT,
+        STENCIL_OP_INVERT,
+        STENCIL_OP_INCR,
+        STENCIL_OP_DECR
+    };
+
+    struct DepthStencilOpDesc
+    {
+        StencilOp   stencilFailOp = StencilOp::STENCIL_OP_KEEP;
+        StencilOp   stencilDepthFailOp = StencilOp::STENCIL_OP_KEEP;
+        StencilOp   stencilPassOp = StencilOp::STENCIL_OP_KEEP;
+        CompareFunc stencilFunc = CompareFunc::COMPARE_ALWAYS;
+    };
+
+    struct DepthStencilStateDesc
+    {
+        bool                enableDepth         = true;
+        bool                enableStencil       = false;
+        DepthWriteMask      depthWriteMask      = DepthWriteMask::DEPTH_WRITE_MASK_ALL;
+        CompareFunc         depthFunc           = CompareFunc::COMPARE_LESS;
+        uint8_t             stencilReadMask     = 0xff;
+        uint8_t             stencilWriteMask    = 0xff;
+        DepthStencilOpDesc  frontFace;
+        DepthStencilOpDesc  backFace;
+    };
+
     struct PipelineStateDesc
     {
         Shader      vertexShader;
@@ -271,6 +408,10 @@ namespace gfx
 
         PrimitiveType   primitiveType = PrimitiveType::_DEFAULT;
         IndexFormat     indexFormat = IndexFormat::INDEX_FORMAT_NONE;
+
+        BlendStateDesc          blendState;
+        RasterizerStateDesc     rasterState;
+        DepthStencilStateDesc   depthStencilState;
         // @TODO
     };
     
