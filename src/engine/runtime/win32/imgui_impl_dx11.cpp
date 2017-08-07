@@ -29,6 +29,8 @@ static gfx::Buffer              g_pVertexConstantBuffer;
 static ID3D10Blob*              g_pVertexShaderBlob = NULL;
 static ID3D10Blob *             g_pPixelShaderBlob = NULL;
 
+static gfx::Image               g_fontImage;
+
 static bool g_fontsLoaded = false;  // @HACK nasty hack
 
 
@@ -115,7 +117,6 @@ void ImGui_ImplDX11_RenderDrawLists(ImDrawData* draw_data, gfx::CommandBuffer* c
     gfx::Viewport vp;
     vp.width = ImGui::GetIO().DisplaySize.x;
     vp.height = ImGui::GetIO().DisplaySize.y;
-    gfx::SetViewport(device, *commandBuffer, vp);
 
     // prepare the draw call
     unsigned int stride = sizeof(ImDrawVert);
@@ -128,7 +129,7 @@ void ImGui_ImplDX11_RenderDrawLists(ImDrawData* draw_data, gfx::CommandBuffer* c
     drawCall.indexBuffer = g_pIB;
     drawCall.pipelineState = g_pipelineState;
     drawCall.vsConstantInputs[0] = g_pVertexConstantBuffer;
-
+    
     /*
     ctx->IASetInputLayout(g_pInputLayout);
     ctx->IASetVertexBuffers(0, 1, &g_pVB, &stride, &offset);
@@ -162,14 +163,19 @@ void ImGui_ImplDX11_RenderDrawLists(ImDrawData* draw_data, gfx::CommandBuffer* c
             else
             {
                 
-                const gfx::Rect r = { (uint32_t)pcmd->ClipRect.x, (uint32_t)pcmd->ClipRect.y, (uint32_t)pcmd->ClipRect.z, (uint32_t)pcmd->ClipRect.w };
-                //ctx->PSSetShaderResources(0, 1, (ID3D11ShaderResourceView**)&pcmd->TextureId);
-                gfx::SetScissor(device, *commandBuffer, r);
+                gfx::Rect r = { (uint32_t)pcmd->ClipRect.x, (uint32_t)pcmd->ClipRect.y, (uint32_t)pcmd->ClipRect.z, (uint32_t)pcmd->ClipRect.w };
+                gfx::Image tex = { (uint32_t)(uintptr_t)pcmd->TextureId };
+                if (GFX_CHECK_RESOURCE(tex)) {
+                    drawCall.psImageInputs[0] = tex;
+                }
+                else {
+                    drawCall.psImageInputs[0] = { gfx::INVALID_ID };
+                }
                 drawCall.numElements = pcmd->ElemCount;
-                drawCall.startVertexLocation = idx_offset;
+                drawCall.elementOffset = idx_offset;
                 //assert((idx_offset % 2 == 0));
                 drawCall.startVertexLocation = vtx_offset;
-                gfx::SubmitDrawCall(device, *commandBuffer, &drawCall);
+                gfx::SubmitDrawCall(device, *commandBuffer, &drawCall, &vp, &r);
                 //ctx->DrawIndexed(pcmd->ElemCount, idx_offset, vtx_offset);
             }
             idx_offset += pcmd->ElemCount;
@@ -234,63 +240,29 @@ static void ImGui_ImplDX11_CreateFontsTexture()
     io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
 
     // Upload texture to graphics system
-    {
-        /*D3D11_TEXTURE2D_DESC desc;
-        ZeroMemory(&desc, sizeof(desc));
-        desc.Width = width;
-        desc.Height = height;
-        desc.MipLevels = 1;
-        desc.ArraySize = 1;
-        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        desc.SampleDesc.Count = 1;
-        desc.Usage = D3D11_USAGE_DEFAULT;
-        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-        desc.CPUAccessFlags = 0;
-
-        ID3D11Texture2D *pTexture = NULL;
-        D3D11_SUBRESOURCE_DATA subResource;
-        subResource.pSysMem = pixels;
-        subResource.SysMemPitch = desc.Width * 4;
-        subResource.SysMemSlicePitch = 0;
-        g_pd3dDevice->CreateTexture2D(&desc, &subResource, &pTexture);
-
-         Create texture view
-        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
-        ZeroMemory(&srvDesc, sizeof(srvDesc));
-        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
-        srvDesc.Texture2D.MipLevels = desc.MipLevels;
-        srvDesc.Texture2D.MostDetailedMip = 0;
-        g_pd3dDevice->CreateShaderResourceView(pTexture, &srvDesc, &g_pFontTextureView);
-        pTexture->Release();
-    }
-
-     Store our identifier
-    io.Fonts->TexID = (void *)g_pFontTextureView;
-
-     Create texture sampler
-    {
-        D3D11_SAMPLER_DESC desc;
-        ZeroMemory(&desc, sizeof(desc));
-        desc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-        desc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-        desc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-        desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-        desc.MipLODBias = 0.f;
-        desc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-        desc.MinLOD = 0.f;
-        desc.MaxLOD = 0.f;
-        g_pd3dDevice->CreateSamplerState(&desc, &g_pFontSampler);*/
-    }
+    
+    gfx::ImageDesc desc;
+    desc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    desc.width = width;
+    desc.height = height;
+    desc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+    desc.numDataItems = 1;
+    desc.initialData = (void**)&pixels;
+    size_t size = width * height * 4;
+    desc.initialDataSizes = &size;
+    g_fontImage = gfx::CreateImage(g_gfxDevice, &desc);
+       
+    // Store our identifier
+    io.Fonts->TexID = (void*)(uintptr_t)g_fontImage.id;
 }
 
 bool    ImGui_ImplDX11_CreateDeviceObjects()
 {
     if (!g_gfxDevice)
         return false;
-   /* if (g_pFontSampler)
+    if (!GFX_CHECK_RESOURCE(g_fontImage))
         ImGui_ImplDX11_InvalidateDeviceObjects();
-        */
+        
     // By using D3DCompile() from <d3dcompiler.h> / d3dcompiler.lib, we introduce a dependency to a given version of d3dcompiler_XX.dll (see D3DCOMPILER_DLL_A)
     // If you would like to use this DX11 sample code but remove this dependency you can: 
     //  1) compile once, save the compiled shader blobs into a file or source code and pass them to CreateVertexShader()/CreatePixelShader() [preferred solution]
@@ -450,7 +422,7 @@ void    ImGui_ImplDX11_InvalidateDeviceObjects()
     if (!g_gfxDevice)
         return;
 
-    //if (g_pFontSampler) { g_pFontSampler->Release(); g_pFontSampler = NULL; }
+    if (GFX_CHECK_RESOURCE(g_fontImage)) { gfx::DestroyImage(g_gfxDevice, g_fontImage); g_fontImage = gfx::Image(); }
     //if (g_pFontTextureView) { g_pFontTextureView->Release(); g_pFontTextureView = NULL; ImGui::GetIO().Fonts->TexID = NULL; } // We copied g_pFontTextureView to io.Fonts->TexID so let's clear that as well.
     if (GFX_CHECK_RESOURCE(g_pIB)) { gfx::DestroyBuffer(g_gfxDevice, g_pIB); g_pIB = gfx::Buffer(); }
     if (GFX_CHECK_RESOURCE(g_pVB)) { gfx::DestroyBuffer(g_gfxDevice, g_pVB); g_pVB = gfx::Buffer(); }

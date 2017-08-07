@@ -92,6 +92,12 @@ namespace gfx
         _ResourceState  resState = _ResourceState::STATE_EMPTY;
 
         RenderPassDesc  desc;
+
+        // @HACK only needed for default render passes (swap chain render passes)
+        // @TODO make this proper so a swap chain actually contains a fully formed image resource object
+        ID3D11RenderTargetView* backbuffer = nullptr;
+        uint32_t        width = 0;;
+        uint32_t        height = 0;
         // @TODO
     };
 
@@ -103,7 +109,7 @@ namespace gfx
 
         ID3D11DeviceContext*    d3dDC = nullptr;
 
-        bool            inRenderPass = false;
+        D3D11RenderPass*        renderPass = nullptr;
         // @TODO
     };
 
@@ -115,8 +121,9 @@ namespace gfx
 
         SwapChainDesc   desc;
 
-        IDXGISwapChain*             swapChain   = nullptr;
-        ID3D11RenderTargetView*     rtv         = nullptr;
+        IDXGISwapChain*             swapChain           = nullptr;
+        ID3D11RenderTargetView*     rtv                 = nullptr;
+        D3D11RenderPass*            defaultRenderPass   = nullptr;
         // @TODO
     };
 
@@ -263,6 +270,8 @@ namespace gfx
         ID3D11Device*           d3dDevice   = nullptr;
         ID3D11DeviceContext*    d3dDC       = nullptr;
         CommandBuffer           dcAsCmdBuffer;
+
+        PipelineState           pipelineStateCache;
     };
 
 
@@ -742,6 +751,7 @@ namespace gfx
         }
 
         // create render target view for this swapchain
+        //  @TODO actually create an image object (as attachment) and expose that to the API user?
         ID3D11Texture2D* pBackBuffer;
         D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
         ZeroMemory(&render_target_view_desc, sizeof(render_target_view_desc));
@@ -749,12 +759,22 @@ namespace gfx
         render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
         res = swapChain->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
         if (res != S_OK) {
-            swapChain->swapChain->Release();
-            device->interf->swapChainPool.Free(result.id);
-            return { gfx::INVALID_ID };
+            
         }
         res = device->d3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &swapChain->rtv);
         pBackBuffer->Release();
+
+        //  create a default render pass for this swap chain
+        uint32_t id = 0;
+        if(!device->interf->passPool.Allocate(&swapChain->defaultRenderPass, &id)) {
+            swapChain->swapChain->Release();
+            swapChain->rtv->Release();
+            device->interf->swapChainPool.Free(result.id);
+            return { gfx::INVALID_ID };
+        }
+        swapChain->defaultRenderPass->width = desc->width;
+        swapChain->defaultRenderPass->height = desc->height;
+        swapChain->defaultRenderPass->backbuffer = swapChain->rtv;
 
         swapChain->associatedDevice = device;
         swapChain->desc = *desc;
@@ -804,8 +824,10 @@ namespace gfx
     {
         D3D11SwapChain* swpCh = device->interf->swapChainPool.Get(swapChain.id);
         D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
-        assert(!cmdBuf->inRenderPass);
-        cmdBuf->inRenderPass = true;
+        assert(cmdBuf->renderPass == nullptr);
+        cmdBuf->renderPass = swpCh->defaultRenderPass;
+        assert(cmdBuf->renderPass != nullptr);
+
         cmdBuf->d3dDC->OMSetRenderTargets(1, &swpCh->rtv, nullptr);
         if (action->colors[0].action == Action::ACTION_CLEAR) {
             cmdBuf->d3dDC->ClearRenderTargetView(swpCh->rtv, action->colors[0].color);
@@ -815,8 +837,8 @@ namespace gfx
     void EndRenderPass(Device* device, CommandBuffer cmdBuffer)
     {
         D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
-        assert(cmdBuf->inRenderPass);
-        cmdBuf->inRenderPass = false;
+        assert(cmdBuf->renderPass != nullptr);
+        cmdBuf->renderPass = nullptr;
     }
     
     DXGI_FORMAT g_indexFormatTable[] = {
@@ -826,11 +848,37 @@ namespace gfx
         DXGI_FORMAT::DXGI_FORMAT_R32_UINT,
     };
 
-    void SubmitDrawCall(Device* device, CommandBuffer cmdBuffer, DrawCall* drawCall)
+    void SubmitDrawCall(Device* device, CommandBuffer cmdBuffer, DrawCall* drawCall, Viewport* viewport, Rect* scissorRect)
     {
         D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
-        assert(cmdBuf->inRenderPass);
-        
+        assert(cmdBuf->renderPass != nullptr);
+      
+        if (drawCall->pipelineState.id != device->pipelineStateCache.id) {
+            // @NOTE / @TODO: is this too expensive? can we just do that
+            // we should probably only reset state we don't want to keep?
+            cmdBuf->d3dDC->ClearState();
+        }
+
+        // @TODO this is awkward to do, due to ClearState()....
+        D3D11_RECT scissor{ 0, 0, (LONG)cmdBuf->renderPass->width, (LONG)cmdBuf->renderPass->height };
+        D3D11_VIEWPORT vp;
+        ZeroMemory(&vp, sizeof(vp));
+        vp.Width = (float)cmdBuf->renderPass->width;
+        vp.Height = (float)cmdBuf->renderPass->height;
+
+        if (viewport != nullptr) { vp.Width = viewport->width; vp.Height = viewport->height; }
+        if (scissorRect != nullptr) { 
+            scissor.top = scissorRect->top; scissor.bottom = scissorRect->bottom; 
+            scissor.left = scissorRect->left; scissor.right = scissorRect->right;
+        }
+
+        cmdBuf->d3dDC->RSSetScissorRects(1, &scissor);
+        cmdBuf->d3dDC->RSSetViewports(1, &vp);
+        // @HACK 
+        if (cmdBuf->renderPass->backbuffer != nullptr) {
+            cmdBuf->d3dDC->OMSetRenderTargets(1, &cmdBuf->renderPass->backbuffer, nullptr);
+        }
+
         D3D11PipelineState* pipelineState = device->interf->pipelineStatePool.Get(drawCall->pipelineState.id);
 
         uint32_t numVertexBuffers = 0;
@@ -847,8 +895,57 @@ namespace gfx
         cmdBuf->d3dDC->IASetVertexBuffers(0, numVertexBuffers, vertexBuffers, drawCall->vertexStrides, drawCall->vertexOffsets);
         if (pipelineState->desc.indexFormat != IndexFormat::INDEX_FORMAT_NONE) {
             ID3D11Buffer* indexBuffer = device->interf->bufferPool.Get(drawCall->indexBuffer.id)->buffer;
-            cmdBuf->d3dDC->IASetIndexBuffer(indexBuffer, g_indexFormatTable[(uint8_t)pipelineState->desc.indexFormat], drawCall->elementOffset);
+            cmdBuf->d3dDC->IASetIndexBuffer(indexBuffer, g_indexFormatTable[(uint8_t)pipelineState->desc.indexFormat], 0);  // @NOTE allow offset here?
         }
+
+        // @HACK
+        {
+            D3D11_BLEND_DESC desc;
+            ZeroMemory(&desc, sizeof(desc));
+            desc.AlphaToCoverageEnable = false;
+            desc.RenderTarget[0].BlendEnable = true;
+            desc.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+            desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+            desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+            desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+            desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+            desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+            desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+            ID3D11BlendState* blendState;
+            device->d3dDevice->CreateBlendState(&desc, &blendState);
+            const float blend_factor[4] = { 0.f, 0.f, 0.f, 0.f };
+            cmdBuf->d3dDC->OMSetBlendState(blendState, blend_factor, 0xffffffff);
+        }
+
+        // Create the rasterizer state
+        {
+            D3D11_RASTERIZER_DESC desc;
+            ZeroMemory(&desc, sizeof(desc));
+            desc.FillMode = D3D11_FILL_SOLID;
+            desc.CullMode = D3D11_CULL_NONE;
+            desc.ScissorEnable = true;
+            desc.DepthClipEnable = true;
+            ID3D11RasterizerState* rasterState;
+            device->d3dDevice->CreateRasterizerState(&desc, &rasterState);
+            cmdBuf->d3dDC->RSSetState(rasterState);
+        }
+
+        // Create depth-stencil State
+        {
+            D3D11_DEPTH_STENCIL_DESC desc;
+            ZeroMemory(&desc, sizeof(desc));
+            desc.DepthEnable = false;
+            desc.DepthWriteMask = D3D11_DEPTH_WRITE_MASK_ALL;
+            desc.DepthFunc = D3D11_COMPARISON_ALWAYS;
+            desc.StencilEnable = false;
+            desc.FrontFace.StencilFailOp = desc.FrontFace.StencilDepthFailOp = desc.FrontFace.StencilPassOp = D3D11_STENCIL_OP_KEEP;
+            desc.FrontFace.StencilFunc = D3D11_COMPARISON_ALWAYS;
+            desc.BackFace = desc.FrontFace;
+            ID3D11DepthStencilState* dsState;
+            device->d3dDevice->CreateDepthStencilState(&desc, &dsState);
+            cmdBuf->d3dDC->OMSetDepthStencilState(dsState, 0);
+        }
+
 
         uint32_t numVSConstantBuffers = 0;
         ID3D11Buffer* vsConstantBuffers[GFX_MAX_CONSTANT_INPUTS_PER_STAGE];
@@ -923,18 +1020,30 @@ namespace gfx
         cmdBuf->d3dDC->IASetPrimitiveTopology(g_primitiveTypeTable[(uint8_t)pipelineState->desc.primitiveType]);
         cmdBuf->d3dDC->IASetInputLayout(pipelineState->inputLayout);
         if (pipelineState->desc.indexFormat != IndexFormat::INDEX_FORMAT_NONE) {
-            cmdBuf->d3dDC->DrawIndexedInstanced(drawCall->numElements, drawCall->numInstances, drawCall->elementOffset, drawCall->startVertexLocation, drawCall->startInstanceLocation);
+            if (drawCall->numInstances > 1) {
+                cmdBuf->d3dDC->DrawIndexedInstanced(drawCall->numElements, drawCall->numInstances, drawCall->elementOffset, drawCall->startVertexLocation, drawCall->startInstanceLocation);
+            }
+            else {
+                cmdBuf->d3dDC->DrawIndexed(drawCall->numElements, drawCall->elementOffset, drawCall->startVertexLocation);
+            }
         }
         else {
-            cmdBuf->d3dDC->DrawInstanced(drawCall->numElements, drawCall->numInstances, drawCall->startVertexLocation, drawCall->startInstanceLocation);
+            if (drawCall->numInstances > 1) {
+                cmdBuf->d3dDC->DrawInstanced(drawCall->numElements, drawCall->numInstances, drawCall->startVertexLocation, drawCall->startInstanceLocation);
+            }
+            else {
+                cmdBuf->d3dDC->Draw(drawCall->numElements, drawCall->startVertexLocation);
+            }
         }
+
+    
     }
 
 
     void SetViewport(Device* device, CommandBuffer cmdBuffer, Viewport viewport)
     {
         D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
-        assert(cmdBuf->inRenderPass);
+        assert(cmdBuf->renderPass != nullptr);
 
         D3D11_VIEWPORT vp;
         ZeroMemory(&vp, sizeof(D3D11_VIEWPORT));
@@ -949,7 +1058,7 @@ namespace gfx
     void SetScissor(Device* device, CommandBuffer cmdBuffer, Rect scissorRect)
     {
         D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
-        assert(cmdBuf->inRenderPass);
+        assert(cmdBuf->renderPass != nullptr);
 
         D3D11_RECT r = { (LONG)scissorRect.left, (LONG)scissorRect.top, (LONG)scissorRect.right, (LONG)scissorRect.bottom };
         cmdBuf->d3dDC->RSSetScissorRects(1, &r);
@@ -995,5 +1104,10 @@ namespace gfx
     void DestroyBuffer(Device* device, Buffer buffer)
     {
         device->interf->bufferPool.Free(buffer.id);
+    }
+
+    void DestroyImage(Device* device, Image image)
+    {
+        device->interf->imagePool.Free(image.id);
     }
 }

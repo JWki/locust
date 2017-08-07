@@ -1530,6 +1530,7 @@ int win32_main(int argc, char* argv[])
 
             } ImGui::End();
 
+            ImGui::Image((ImTextureID)(uintptr_t)cubeTexture.id, ImVec2(2048, 2048));
 
             if (ImGui::Begin("Networking", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 Port port = 0;
@@ -1654,12 +1655,10 @@ int win32_main(int argc, char* argv[])
         memcpy(clearAllAction.colors[0].color, blue, sizeof(float) * 4);
         
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
-        gfx::SetViewport(gfxDevice, cmdBuffer, { (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT });
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &triangleDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, secondSwapChain, &clearAllAction);
-        gfx::SetViewport(gfxDevice, cmdBuffer, { (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT });
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
@@ -1672,7 +1671,6 @@ int win32_main(int argc, char* argv[])
             uiPassAction.colors[0].action = gfx::Action::ACTION_LOAD;
             
             gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &uiPassAction);
-            gfx::SetViewport(gfxDevice, cmdBuffer, { (float)WINDOW_WIDTH, (float)WINDOW_HEIGHT });
             ImGui_ImplDX11_RenderDrawLists(uiDrawData, &cmdBuffer);
             gfx::EndRenderPass(gfxDevice, cmdBuffer);
         }

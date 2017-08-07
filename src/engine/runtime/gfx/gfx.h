@@ -381,6 +381,7 @@ namespace gfx
     SwapChain CreateSwapChain(Device* device, SwapChainDesc* desc);
 
     void DestroyBuffer(Device* device, Buffer buffer);
+    void DestroyImage(Device* device, Image image);
 
     BufferDesc GetBufferDesc(Device* device, Buffer buffer);
     ImageDesc GetImageDesc(Device* device, Image image);
@@ -410,9 +411,8 @@ namespace gfx
 
     void BeginDefaultRenderPass(Device* device, CommandBuffer cmdBuffer, SwapChain swapChain, RenderPassAction* action);
     void BeginRenderPass(Device* device, CommandBuffer cmdBuffer, RenderPass renderPass, RenderPassAction* action);
-    void SubmitDrawCall(Device* device, CommandBuffer cmdBuffer, DrawCall* drawCall);
-    void SetViewport(Device* device, CommandBuffer cmdBuffer, Viewport viewport);
-    void SetScissor(Device* device, CommandBuffer cmdBuffer, Rect scissorRect);
+    // @NOTE might regret default arguments for viewport, scissor rect
+    void SubmitDrawCall(Device* device, CommandBuffer cmdBuffer, DrawCall* drawCall, Viewport* viewport = nullptr, Rect* scissorRect = nullptr);
     void EndRenderPass(Device* device, CommandBuffer cmdBuffer);
 
     void PresentSwapChain(Device* device, SwapChain swapChain);
