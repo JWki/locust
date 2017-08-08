@@ -12,6 +12,9 @@
 #include <stdio.h>
 #include <malloc.h>
 
+#include <fontawesome/IconsFontAwesome.h>
+#include <fontawesome/IconsMaterialDesign.h>
+
 #include <foundation/int_types.h>
 #include <foundation/memory/memory.h>
 #include <foundation/memory/allocators.h>
@@ -894,35 +897,36 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
         mCurrentGizmoOperation = ImGuizmo::ROTATE;
     if (ImGui::IsKeyPressed(82)) // r Key
         mCurrentGizmoOperation = ImGuizmo::SCALE;
-    if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
+    if (ImGui::RadioButton(" " ICON_FA_ARROWS "  Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
         mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
     ImGui::SameLine();
-    if (ImGui::RadioButton("Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
+    if (ImGui::RadioButton(" " ICON_FA_REFRESH "  Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
         mCurrentGizmoOperation = ImGuizmo::ROTATE;
     ImGui::SameLine();
-    if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
+    if (ImGui::RadioButton(" " ICON_FA_EXPAND "  Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
         mCurrentGizmoOperation = ImGuizmo::SCALE;
     fnd::math::float3 matrixTranslation, matrixRotation, matrixScale;
     ImGuizmo::DecomposeMatrixToComponents(matrix, (float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale);
-    ImGui::DragFloat3("Tr", (float*)matrixTranslation, 0.1f);
-    ImGui::SameLine(); if (ImGui::Button("Reset##translation")) { matrixTranslation = {0.0f, 0.0f, 0.0f}; }
-    ImGui::DragFloat3("Rt", (float*)matrixRotation, 0.1f);
-    ImGui::SameLine(); if (ImGui::Button("Reset##rotation")) { matrixRotation = { 0.0f, 0.0f, 0.0f }; }
-    ImGui::DragFloat3("Sc", (float*)matrixScale, 0.1f);
-    ImGui::SameLine(); if (ImGui::Button("Reset##scale")) { matrixScale = { 1.0f, 1.0f, 1.0f }; }
+    ImGui::DragFloat3(" " ICON_FA_ARROWS, (float*)matrixTranslation, 0.1f);
+    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##translation")) { matrixTranslation = {0.0f, 0.0f, 0.0f}; }
+    ImGui::DragFloat3(" " ICON_FA_REFRESH, (float*)matrixRotation, 0.1f);
+    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##rotation")) { matrixRotation = { 0.0f, 0.0f, 0.0f }; }
+    ImGui::DragFloat3(" " ICON_FA_ARROWS_ALT, (float*)matrixScale, 0.1f);
+    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##scale")) { matrixScale = { 1.0f, 1.0f, 1.0f }; }
     ImGuizmo::RecomposeMatrixFromComponents((float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale, matrix);
 
     if (mCurrentGizmoOperation != ImGuizmo::SCALE)
     {
-        if (ImGui::RadioButton("Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
+        if (ImGui::RadioButton(" " ICON_FA_CUBE "  Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
             mCurrentGizmoMode = ImGuizmo::LOCAL;
         ImGui::SameLine();
-        if (ImGui::RadioButton("World", mCurrentGizmoMode == ImGuizmo::WORLD))
+        if (ImGui::RadioButton(" " ICON_FA_GLOBE "  World", mCurrentGizmoMode == ImGuizmo::WORLD))
             mCurrentGizmoMode = ImGuizmo::WORLD;
     }
     static bool useSnap(false);
     if (ImGui::IsKeyPressed(83))
         useSnap = !useSnap;
+    // lol
     ImGui::Checkbox("##snap", &useSnap);
     ImGui::SameLine();
     static fnd::math::float3 snap = { 0.1f, 0.1f, 0.1f };
@@ -930,15 +934,15 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
     {
     case ImGuizmo::TRANSLATE:
         //snap = fnd::math::float3(0.1f);
-        ImGui::InputFloat3("Snap", &snap.x);
+        ImGui::InputFloat3(" " ICON_FA_TH "  Snap", &snap.x);
         break;
     case ImGuizmo::ROTATE:
         //snap = fnd::math::float3(0.1f);
-        ImGui::InputFloat("Angle Snap", &snap.x);
+        ImGui::InputFloat(" " ICON_FA_TH "  Snap", &snap.x);
         break;
     case ImGuizmo::SCALE:
         //snap = fnd::math::float3(0.1f);
-        ImGui::InputFloat("Scale Snap", &snap.x);
+        ImGui::InputFloat(" " ICON_FA_TH "  Snap", &snap.x);
         break;
     }
     ImGuiIO& io = ImGui::GetIO();
@@ -1359,6 +1363,16 @@ int win32_main(int argc, char* argv[])
 
     ImGui_ImplDX11_Init(g_hwnd, gfxDevice);
 
+    ImGuiIO& io = ImGui::GetIO();   // load a nice font
+    io.Fonts->AddFontFromFileTTF("../../extra_fonts/Roboto-Medium.ttf", 18.0f, NULL, io.Fonts->GetGlyphRangesDefault());
+    ImFontConfig icons_config; icons_config.MergeMode = true; icons_config.PixelSnapH = true;
+    {   // merge in icons from Font Awesome
+        static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+        io.Fonts->AddFontFromFileTTF("../../extra_fonts/fontawesome-webfont.ttf", 16.0f, &icons_config, icons_ranges);
+    }
+
+
+
     ImGui_Style_SetDark(0.8f);
 
     GT_LOG_INFO("Application", "Initialized UI");
@@ -1602,7 +1616,7 @@ int win32_main(int argc, char* argv[])
                 }
                 else {
                     ImGui::Text("Listening on port %d", port);
-                    if (ImGui::Button("Disconnect")) {
+                    if (ImGui::Button(ICON_FA_WINDOW_CLOSE " Disconnect")) {
                         socket.Close();
                         GT_LOG_INFO("Network", "closed UDP socket");
                     } ImGui::SameLine();
@@ -1642,12 +1656,12 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
-            ImGui::Begin("Object"); {
-                if (ImGui::TreeNode("Transform")) {
+            ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
+                if (ImGui::TreeNode(ICON_FA_COMPASS "    Transform")) {
                     EditTransform(camera, proj, model);
                     ImGui::TreePop();
                 }
-                if (ImGui::TreeNode("Material")) {
+                if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "   Material")) {
                     ImGuiColorEditFlags ceditFlags = ImGuiColorEditFlags_PickerHueWheel;
                     ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
                     ImGui::TreePop();
