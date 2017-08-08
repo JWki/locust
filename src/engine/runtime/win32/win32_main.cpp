@@ -897,13 +897,13 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
         mCurrentGizmoOperation = ImGuizmo::ROTATE;
     if (ImGui::IsKeyPressed(82)) // r Key
         mCurrentGizmoOperation = ImGuizmo::SCALE;
-    if (ImGui::RadioButton(" " ICON_FA_ARROWS "  Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
+    if (ImGui::RadioButton(" " ICON_FA_ARROWS "  Translation", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
         mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
     ImGui::SameLine();
-    if (ImGui::RadioButton(" " ICON_FA_REFRESH "  Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
+    if (ImGui::RadioButton(" " ICON_FA_REFRESH "  Rotation", mCurrentGizmoOperation == ImGuizmo::ROTATE))
         mCurrentGizmoOperation = ImGuizmo::ROTATE;
     ImGui::SameLine();
-    if (ImGui::RadioButton(" " ICON_FA_EXPAND "  Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
+    if (ImGui::RadioButton(" " ICON_FA_EXPAND "  Scaling", mCurrentGizmoOperation == ImGuizmo::SCALE))
         mCurrentGizmoOperation = ImGuizmo::SCALE;
     fnd::math::float3 matrixTranslation, matrixRotation, matrixScale;
     ImGuizmo::DecomposeMatrixToComponents(matrix, (float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale);
@@ -1657,11 +1657,18 @@ int win32_main(int argc, char* argv[])
             ImGui::End();
 
             ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
-                if (ImGui::TreeNode(ICON_FA_COMPASS "    Transform")) {
+                if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
+                    static char namebuf[512] = "Generic Object";
+                    if (ImGui::InputText(" " ICON_FA_TAG " Name", namebuf, 512, ImGuiInputTextFlags_EnterReturnsTrue)) {
+
+                    }
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNode(ICON_FA_LOCATION_ARROW "    Transform")) {
                     EditTransform(camera, proj, model);
                     ImGui::TreePop();
                 }
-                if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "   Material")) {
+                if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "    Material")) {
                     ImGuiColorEditFlags ceditFlags = ImGuiColorEditFlags_PickerHueWheel;
                     ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
                     ImGui::TreePop();
