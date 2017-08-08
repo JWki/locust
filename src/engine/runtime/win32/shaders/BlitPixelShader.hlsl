@@ -9,5 +9,5 @@ sampler   sampler0;
 
 float4 main(PixelInput input) : SV_Target
 {
-    return texture0.Sample(sampler0, input.uv.xy);
+    return texture0.Sample(sampler0, input.uv);
 }

@@ -22,8 +22,8 @@
 #include <foundation/math/math.h>
 #define IS_POW_OF_TWO(n) ((n & (n - 1)) == 0)
 
-int WINDOW_WIDTH = 1280;
-int WINDOW_HEIGHT = 720;
+int WINDOW_WIDTH = 1920;
+int WINDOW_HEIGHT = 1080;
 
 class SimpleMemoryTracker
 {
@@ -761,7 +761,7 @@ namespace util
     }
 
 
-    void Make4x4FloatProjectionMatrixLH(float* mat, float fovInRadians, float aspect, float near, float far)
+    /*void Make4x4FloatProjectionMatrixLH(float* mat, float fovInRadians, float aspect, float near, float far)
     {
         Make4x4FloatMatrixIdentity(mat);
 
@@ -773,6 +773,20 @@ namespace util
         
         Set4x4FloatMatrixValue(mat, 2, 2, (far * near) / (far - near));
         Set4x4FloatMatrixValue(mat, 3, 2, -(2.0f * far * near) / (far - near));
+    }*/
+    void Make4x4FloatProjectionMatrixLH(float* mat, float fovInRadians, float width, float height, float near, float far)
+    {
+        Make4x4FloatMatrixIdentity(mat);
+        
+        float yScale = 1 / tanf(fovInRadians / 2.0f);
+        float xScale = yScale / (width / height);
+
+        Set4x4FloatMatrixValue(mat, 0, 0, xScale);
+        Set4x4FloatMatrixValue(mat, 1, 1, yScale);
+        Set4x4FloatMatrixValue(mat, 2, 2, far / (far - near));
+        Set4x4FloatMatrixValue(mat, 3, 2, -near * far / (far - near));
+        Set4x4FloatMatrixValue(mat, 2, 3, 1.0f);
+        Set4x4FloatMatrixValue(mat, 3, 3, 0.0f);
     }
 
     void Make4x4FloatMatrixTranspose(float* mat, float* result)
@@ -869,6 +883,68 @@ namespace util
     }
 }
 
+#include <engine/runtime/ImGuizmo/ImGuizmo.h>
+void EditTransform(float camera[16], float projection[16], float matrix[16])
+{
+    static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::ROTATE);
+    static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::WORLD);
+    if (ImGui::IsKeyPressed(90)) 
+        mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+    if (ImGui::IsKeyPressed(69))
+        mCurrentGizmoOperation = ImGuizmo::ROTATE;
+    if (ImGui::IsKeyPressed(82)) // r Key
+        mCurrentGizmoOperation = ImGuizmo::SCALE;
+    if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
+        mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Rotate", mCurrentGizmoOperation == ImGuizmo::ROTATE))
+        mCurrentGizmoOperation = ImGuizmo::ROTATE;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Scale", mCurrentGizmoOperation == ImGuizmo::SCALE))
+        mCurrentGizmoOperation = ImGuizmo::SCALE;
+    fnd::math::float3 matrixTranslation, matrixRotation, matrixScale;
+    ImGuizmo::DecomposeMatrixToComponents(matrix, (float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale);
+    ImGui::DragFloat3("Tr", (float*)matrixTranslation, 0.1f);
+    ImGui::SameLine(); if (ImGui::Button("Reset##translation")) { matrixTranslation = {0.0f, 0.0f, 0.0f}; }
+    ImGui::DragFloat3("Rt", (float*)matrixRotation, 0.1f);
+    ImGui::SameLine(); if (ImGui::Button("Reset##rotation")) { matrixRotation = { 0.0f, 0.0f, 0.0f }; }
+    ImGui::DragFloat3("Sc", (float*)matrixScale, 0.1f);
+    ImGui::SameLine(); if (ImGui::Button("Reset##scale")) { matrixScale = { 1.0f, 1.0f, 1.0f }; }
+    ImGuizmo::RecomposeMatrixFromComponents((float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale, matrix);
+
+    if (mCurrentGizmoOperation != ImGuizmo::SCALE)
+    {
+        if (ImGui::RadioButton("Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
+            mCurrentGizmoMode = ImGuizmo::LOCAL;
+        ImGui::SameLine();
+        if (ImGui::RadioButton("World", mCurrentGizmoMode == ImGuizmo::WORLD))
+            mCurrentGizmoMode = ImGuizmo::WORLD;
+    }
+    static bool useSnap(false);
+    if (ImGui::IsKeyPressed(83))
+        useSnap = !useSnap;
+    ImGui::Checkbox("##snap", &useSnap);
+    ImGui::SameLine();
+    static fnd::math::float3 snap = { 0.1f, 0.1f, 0.1f };
+    switch (mCurrentGizmoOperation)
+    {
+    case ImGuizmo::TRANSLATE:
+        //snap = fnd::math::float3(0.1f);
+        ImGui::InputFloat3("Snap", &snap.x);
+        break;
+    case ImGuizmo::ROTATE:
+        //snap = fnd::math::float3(0.1f);
+        ImGui::InputFloat("Angle Snap", &snap.x);
+        break;
+    case ImGuizmo::SCALE:
+        //snap = fnd::math::float3(0.1f);
+        ImGui::InputFloat("Scale Snap", &snap.x);
+        break;
+    }
+    ImGuiIO& io = ImGui::GetIO();
+    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+    ImGuizmo::Manipulate(camera, projection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap.x : NULL);
+}
 
 #pragma warning(push, 0)    // lots of warnings in here  
 #define PAR_SHAPES_IMPLEMENTATION
@@ -966,10 +1042,8 @@ int win32_main(int argc, char* argv[])
 
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, LoadCursor(NULL, IDC_ARROW), NULL, NULL, _T("GTRuntimeWindowClass"), NULL };
     RegisterClassEx(&wc);
-    g_hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
-    
-    HWND secondaryWindow = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, 100, 100, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
-
+    g_hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
+   
     RECT r;
     GetClientRect(g_hwnd, &r);
     WINDOW_WIDTH = r.right - r.left;
@@ -999,40 +1073,7 @@ int win32_main(int argc, char* argv[])
     // Show the window
     ShowWindow(g_hwnd, SW_SHOWDEFAULT);
     UpdateWindow(g_hwnd);
-
-    ShowWindow(secondaryWindow, SW_SHOWDEFAULT);
-    UpdateWindow(secondaryWindow);
-
     //
-    
-    struct Vertex
-    {
-        math::float4 position;
-        math::float4 color;
-    };
-
-    struct VertexWeight
-    {
-        float value = 1.0f;
-    };
-
-    Vertex triangleVertices[] = {
-        { { 0.0f, 0.5f, 0.0f, 1.0f },{ 1.0f, 0.0f, 0.0f, 1.0f } },
-        { { 0.45f, -0.5, 0.0f, 1.0f },{ 0.0f, 1.0f, 0.0f, 1.0f } },
-        { { -0.45f, -0.5f, 0.0f, 1.0f },{ 0.0f, 0.0f, 1.0f, 1.0f } }
-    };
-
-    VertexWeight triangleWeights[] = { 1.0f, 1.0f, 1.0f };
-
-    uint16_t triangleIndices[] = {
-        0, 1, 2, 2, 1, 0
-    };
-
-    size_t vShaderCodeSize = 0;
-    char* vShaderCode = static_cast<char*>(LoadFileContents("VertexShader.cso", &applicationArena, &vShaderCodeSize));
-    if (!vShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
-    }
 
     size_t vCubeShaderCodeSize = 0;
     char* vCubeShaderCode = static_cast<char*>(LoadFileContents("VertexShaderCube.cso", &applicationArena, &vCubeShaderCodeSize));
@@ -1097,28 +1138,21 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create swap chain");
     }
 
-    gfx::SwapChain secondSwapChain;
-    {
-        gfx::SwapChainDesc swapChainDesc; 
-        swapChainDesc.width = WINDOW_WIDTH;
-        swapChainDesc.height = WINDOW_HEIGHT;
-        swapChainDesc.window = secondaryWindow;
-        secondSwapChain = gfx::CreateSwapChain(gfxDevice, &swapChainDesc);
-        if (!GFX_CHECK_RESOURCE(secondSwapChain)) {
-            GT_LOG_ERROR("Renderer", "Failed to create swap chain");
-        }
-    }
-
     struct ConstantData {
         float transform[16];
+        math::float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
     };
 
-    ConstantData transform;
-    memset(&transform, 0x0, sizeof(ConstantData));
-    for (int i = 0; i < 4; ++i) {
-        transform.transform[4 * i + i] = 1.0f;
-    }
-    //transform.transform[4 * 3 + 3] = 1.0f;
+    float proj[16];
+    float camera[16];
+    util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH,  (float)WINDOW_HEIGHT, 0.1f, 1000.0f);
+    util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -0.4f, 2.75f });
+
+    ConstantData object;
+    util::Make4x4FloatMatrixIdentity(object.transform);
+
+
+    //object.transform[4 * 3 + 3] = 1.0f;
     auto cubeMesh = par_shapes_create_cube();
     par_shapes_translate(cubeMesh, -0.5f, -0.5f, -0.5f);
     par_shapes_compute_normals(cubeMesh);
@@ -1192,52 +1226,16 @@ int win32_main(int argc, char* argv[])
     }
 
 
-    gfx::BufferDesc vBufferDesc;
-    vBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    vBufferDesc.byteWidth = sizeof(triangleVertices);
-    vBufferDesc.initialData = triangleVertices;
-    vBufferDesc.initialDataSize = sizeof(triangleVertices);
-    gfx::Buffer vBuffer = gfx::CreateBuffer(gfxDevice, &vBufferDesc);
-    if (!GFX_CHECK_RESOURCE(vBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create vertex buffer");
-    }
-
-    gfx::BufferDesc vWeightBufferDesc;
-    vWeightBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    vWeightBufferDesc.byteWidth = sizeof(triangleWeights);
-    vWeightBufferDesc.initialData = triangleWeights;
-    vWeightBufferDesc.initialDataSize = sizeof(triangleWeights);
-    vWeightBufferDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-    gfx::Buffer vWeightBuffer = gfx::CreateBuffer(gfxDevice, &vWeightBufferDesc);
-    if (!GFX_CHECK_RESOURCE(vWeightBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create vertex weight buffer");
-    }
-
-    gfx::BufferDesc iBufferDesc;
-    iBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
-    iBufferDesc.byteWidth = sizeof(triangleIndices);
-    iBufferDesc.initialData = triangleIndices;
-    iBufferDesc.initialDataSize = sizeof(triangleIndices);
-    gfx::Buffer iBuffer = gfx::CreateBuffer(gfxDevice, &iBufferDesc);
-    if (!GFX_CHECK_RESOURCE(iBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create index buffer");
-    }
-
     gfx::BufferDesc cBufferDesc;
     cBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
     cBufferDesc.byteWidth = sizeof(ConstantData);
-    cBufferDesc.initialData = &transform;
-    cBufferDesc.initialDataSize = sizeof(transform);
+    cBufferDesc.initialData = &object;
+    cBufferDesc.initialDataSize = sizeof(object);
     cBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
     gfx::Buffer cBuffer = gfx::CreateBuffer(gfxDevice, &cBufferDesc);
     if (!GFX_CHECK_RESOURCE(cBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
     }
-
-    gfx::ShaderDesc vShaderDesc;
-    vShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
-    vShaderDesc.code = vShaderCode;
-    vShaderDesc.codeSize = vShaderCodeSize;
 
     gfx::ShaderDesc vCubeShaderDesc;
     vCubeShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
@@ -1257,11 +1255,6 @@ int win32_main(int argc, char* argv[])
     pBlitShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
     pBlitShaderDesc.code = pBlitShaderCode;
     pBlitShaderDesc.codeSize = pBlitShaderCodeSize;
-
-    gfx::Shader vShader = gfx::CreateShader(gfxDevice, &vShaderDesc);
-    if (!GFX_CHECK_RESOURCE(vShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
-    }
 
     gfx::Shader vCubeShader = gfx::CreateShader(gfxDevice, &vCubeShaderDesc);
     if (!GFX_CHECK_RESOURCE(vCubeShader)) {
@@ -1283,19 +1276,13 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
     }
 
-    gfx::PipelineStateDesc pipelineStateDesc;
-    pipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
-    pipelineStateDesc.vertexShader = vShader;
-    pipelineStateDesc.pixelShader = pShader;
-    pipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT4 };
-    pipelineStateDesc.vertexLayout.attribs[1] = { "COLOR", 0, sizeof(math::float4), 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT4 };
-    pipelineStateDesc.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT };
-    gfx::PipelineState pipeline = gfx::CreatePipelineState(gfxDevice, &pipelineStateDesc);
-    if (!GFX_CHECK_RESOURCE(pipeline)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state");
-    }
 
     gfx::PipelineStateDesc cubePipelineStateDesc;
+    cubePipelineStateDesc.blendState.enableBlend = true;
+    cubePipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+    cubePipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
+    cubePipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+
     cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     cubePipelineStateDesc.vertexShader = vCubeShader;
     cubePipelineStateDesc.pixelShader = pShader;
@@ -1322,19 +1309,6 @@ int win32_main(int argc, char* argv[])
     if (!GFX_CHECK_RESOURCE(blitPipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
     }
-
-    gfx::DrawCall triangleDrawCall;
-    triangleDrawCall.vertexBuffers[0] = vBuffer;
-    triangleDrawCall.vertexOffsets[0] = 0;
-    triangleDrawCall.vertexStrides[0] = sizeof(Vertex);
-    triangleDrawCall.vertexBuffers[1] = vWeightBuffer;
-    triangleDrawCall.vertexOffsets[1] = 0;
-    triangleDrawCall.vertexStrides[1] = sizeof(VertexWeight);
-    triangleDrawCall.indexBuffer = iBuffer;
-    triangleDrawCall.numElements = ARRAYSIZE(triangleIndices);
-    triangleDrawCall.pipelineState = pipeline;
-    triangleDrawCall.vsConstantInputs[0] = cBuffer;
-
    
     gfx::ImageDesc uiRenderTargetDesc;
     uiRenderTargetDesc.isRenderTarget = true;
@@ -1357,7 +1331,7 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.numElements = numCubeIndices;
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
-    cubeDrawCall.psImageInputs[0] = uiRenderTarget;
+    cubeDrawCall.psImageInputs[0] = cubeTexture;
 
     gfx::DrawCall blitDrawCall;
     blitDrawCall.pipelineState = blitPipeline;
@@ -1390,8 +1364,9 @@ int win32_main(int argc, char* argv[])
 
     double currentTime = GetCounter();
     double accumulator = 0.0;
-    
-   
+    float model[16];
+    util::Make4x4FloatMatrixIdentity(model);
+
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
@@ -1438,7 +1413,7 @@ int win32_main(int argc, char* argv[])
             if (msg.message == WM_QUIT) { exitFlag = true; }
 
             ImGui_ImplDX11_NewFrame();
-
+            ImGuizmo::BeginFrame();
 
 #ifdef GT_DEVELOPMENT
             if (ImGui::Begin("Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1659,73 +1634,35 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
-            float fCounter = static_cast<float>(GetCounter());
-           
-            static math::float3 translation;
-            static float rotation = 0.0f;
-            static bool autorotate = false;
             ImGui::Begin("Object"); {
-                if (ImGui::Checkbox("Auto Rotate", &autorotate)) {}
-                ImGui::DragFloat("Rotation", &rotation, 0.1f);
-                ImGui::DragFloat3("Translation", (float*)translation, 0.1f);
+                if (ImGui::TreeNode("Transform")) {
+                    EditTransform(camera, proj, model);
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNode("Material")) {
+                    ImGuiColorEditFlags ceditFlags = ImGuiColorEditFlags_PickerHueWheel;
+                    ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
+                    ImGui::TreePop();
+                }
             } ImGui::End();
 
-            if (autorotate) {
-                rotation += 0.03f;
-            }
-
-            float proj[16];
-            float camera[16];
-            float model[16];
-
-            float translate[16];
-            float rotate[16];
-
-            float scaling[16]; 
-            util::Make4x4FloatMatrixIdentity(scaling);
-            for (int i = 0; i < 3; ++i) {
-                scaling[4 * i + i] *= 4.0f;
-            }
-            util::Make4x4FloatTranslationMatrix(translate, translation);
-            util::Make4x4FloatRotationMatrix(rotate, { 0.0f, 1.0f, 0.0f }, rotation);
-        
-            util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH / WINDOW_HEIGHT, 0.01f, 1000.0f);
-            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -0.4f, 2.75f });
-            
             float modelView[16];
-            
-            float scaled[16];
-            util::MultiplyMatrices(scaling, rotate, scaled);
-            util::MultiplyMatrices(scaled, translate, model);
-            //util::Copy4x4FloatMatrix(rotate, model);
             util::MultiplyMatrices(model, camera, modelView);
-            util::MultiplyMatrices(modelView, proj, transform.transform);
-            //util::Copy4x4FloatMatrix(model, transform.transform);
+            util::MultiplyMatrices(modelView, proj, object.transform);
 
-            for (int i = 0; i < 3; ++i) {
-                //triangleWeights[i].value -= 0.001f;
-                triangleWeights[i].value = triangleWeights[i].value < 0.0f ? triangleWeights[i].value : (triangleWeights[i].value > 1.0f ? 1.0f : triangleWeights[i].value);
-            }
             /* End sim frame */
             ImGui::Render();
             t += dt;
             accumulator -= dt;
         }
         if (didUpdate) {
-            // upload transformation to constant buffer only once per update -> render transition
+            // upload objectation to constant buffer only once per update -> render transition
             void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
             if (cBufferMem != nullptr) {
-                memcpy(cBufferMem, &transform, sizeof(transform));
+                memcpy(cBufferMem, &object, sizeof(object));
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
-            
-
-            // upload new weights to weight vertex buffer
-            void* vWeightBufferMem = gfx::MapBuffer(gfxDevice, vWeightBuffer, gfx::MapType::MAP_WRITE_DISCARD);
-            if (vWeightBufferMem != nullptr) {
-                memcpy(vWeightBufferMem, triangleWeights, sizeof(triangleWeights));
-                gfx::UnmapBuffer(gfxDevice, vWeightBuffer);
-            }
+           
         }
 
         /* Begin render frame*/
@@ -1744,12 +1681,9 @@ int win32_main(int argc, char* argv[])
         memcpy(clearAllAction.colors[0].color, blue, sizeof(float) * 4);
         
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
-        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &triangleDrawCall);
-        gfx::EndRenderPass(gfxDevice, cmdBuffer);
-
-        gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, secondSwapChain, &clearAllAction);
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
+
 
         GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
        
@@ -1787,8 +1721,7 @@ int win32_main(int argc, char* argv[])
         /* Present render frame*/
         auto presentTimerStart = GetCounter();
         gfx::PresentSwapChain(gfxDevice, swapChain);
-        gfx::PresentSwapChain(gfxDevice, secondSwapChain);
-
+ 
         GT_LOG_INFO("RenderProfile", "Present took %f ms", 1000.0 * (GetCounter() - presentTimerStart));
         GT_LOG_INFO("RenderProfile", "Render frame took %f ms", 1000.0 * (GetCounter() - renderFrameTimerStart));
     } while (!exitFlag);

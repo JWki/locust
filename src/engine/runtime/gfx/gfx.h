@@ -146,7 +146,7 @@ namespace gfx
         WRAP_MIRRORED_REPEAT
     };
 
-    // @TODO: Pixel formats
+    // @TODO: MORE Pixel formats
     enum class PixelFormat : uint8_t
     {
         _DEFAULT = 0,

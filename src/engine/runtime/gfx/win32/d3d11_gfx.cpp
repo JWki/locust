@@ -34,10 +34,10 @@ namespace gfx
 
         ImageDesc       desc;
         
-        ID3D11ShaderResourceView*   SRV = nullptr;
+        ID3D11ShaderResourceView*   srv = nullptr;
         ID3D11RenderTargetView*     rtv = nullptr;
         ID3D11DepthStencilView*     dsv = nullptr;
-        ID3D11SamplerState*         sampler;
+        ID3D11SamplerState*         sampler;    // @TODO split this out into own resource 
 
         union {
             ID3D11Texture2D*    as_2DTexture;
@@ -640,7 +640,7 @@ namespace gfx
         } break;
         }
         // @TODO: avoid aliasing the I3D11TextureXXX union here
-        res = device->d3dDevice->CreateShaderResourceView(image->as_2DTexture, &srvDesc, &image->SRV);
+        res = device->d3dDevice->CreateShaderResourceView(image->as_2DTexture, &srvDesc, &image->srv);
         if (FAILED(res)) {
             device->interf->imagePool.Free(result.id);
             return { gfx::INVALID_ID };
@@ -1138,7 +1138,8 @@ namespace gfx
         ZeroMemory(&vp, sizeof(vp));
         vp.Width = (float)cmdBuf->renderPass->width;
         vp.Height = (float)cmdBuf->renderPass->height;
-
+        vp.MinDepth = 0.0f;
+        vp.MaxDepth = 1.0f;
         if (viewport != nullptr) { vp.Width = viewport->width; vp.Height = viewport->height; }
         if (scissorRect != nullptr) { 
             scissor.top = scissorRect->top; scissor.bottom = scissorRect->bottom; 
@@ -1245,7 +1246,7 @@ namespace gfx
         // @HACK, just to see something
         if (GFX_CHECK_RESOURCE(drawCall->psImageInputs[0])) {
             auto imageObj = device->interf->imagePool.Get(drawCall->psImageInputs[0].id);
-            auto srv = imageObj->SRV;
+            auto srv = imageObj->srv;
             auto sampler = imageObj->sampler;
             cmdBuf->d3dDC->PSSetSamplers(0, 1, &sampler);
             cmdBuf->d3dDC->PSSetShaderResources(0, 1, &srv);

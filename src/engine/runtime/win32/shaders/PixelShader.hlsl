@@ -12,5 +12,5 @@ sampler   sampler0;
 float4 main(PixelInput input) : SV_TARGET
 {
     float4 n = normalize(input.normal) * 0.5f + 0.5f;
-	return input.color * texture0.Sample(sampler0, input.uv.xy);
+    return input.color * texture0.Sample(sampler0, input.uv.xy);
 }
