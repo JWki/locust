@@ -296,6 +296,15 @@ namespace gfx
         BLEND_OP_MAX
     };
 
+    enum COLOR_WRITE_MASK : uint8_t {
+        COLOR_WRITE_MASK_RED = 1,
+        COLOR_WRITE_MASK_GREEN = 2,
+        COLOR_WRITE_MASK_BLUE = 4,
+        COLOR_WRITE_MASK_ALPHA = 8,
+        COLOR_WRITE_MASK_COLOR = ((COLOR_WRITE_MASK_RED | COLOR_WRITE_MASK_GREEN) | COLOR_WRITE_MASK_BLUE),
+        COLOR_WRITE_MASK_ALL = (((COLOR_WRITE_MASK_RED | COLOR_WRITE_MASK_GREEN) | COLOR_WRITE_MASK_BLUE) | COLOR_WRITE_MASK_ALPHA)
+    };
+
     // @NOTE revisit defaults
     struct BlendStateDesc
     {
@@ -308,7 +317,7 @@ namespace gfx
         BlendFactor     srcBlendAlpha   = BlendFactor::BLEND_ONE;
         BlendFactor     dstBlendAlpha   = BlendFactor::BLEND_ZERO;
         BlendOp         blendOpAlpha    = BlendOp::BLEND_OP_ADD;
-        uint8_t         writeMask       = 0xf;  // @TODO: real write mask 
+        uint8_t         writeMask       = COLOR_WRITE_MASK_ALL;
         
         float           color[4]        = { 0.0f, 0.0f, 0.0f, 0.0f };
     };
@@ -414,6 +423,9 @@ namespace gfx
         DepthStencilStateDesc   depthStencilState;
         // @TODO
     };
+
+    
+
     
     struct ShaderDesc
     {

@@ -907,10 +907,15 @@ namespace gfx
                 break;
             }
         }
-        HRESULT res = device->d3dDevice->CreateInputLayout(inputElements, numInputElements, state->vertexShader->desc.code, state->vertexShader->desc.codeSize, &state->inputLayout);
-        if (FAILED(res)) {
-            device->interf->pipelineStatePool.ReleaseIndex(result.id);
-            return { gfx::INVALID_ID };
+        if (numInputElements > 0) {
+            HRESULT res = device->d3dDevice->CreateInputLayout(inputElements, numInputElements, state->vertexShader->desc.code, state->vertexShader->desc.codeSize, &state->inputLayout);
+            if (FAILED(res)) {
+                device->interf->pipelineStatePool.ReleaseIndex(result.id);
+                return { gfx::INVALID_ID };
+            }
+        }
+        else {
+            state->inputLayout = nullptr;
         }
         return result;
     }

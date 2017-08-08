@@ -489,6 +489,7 @@ double GetCounter()
     return double(li.QuadPart - CounterStart) / PCFreq;
 }
 
+bool g_renderUIOffscreen = false;
 
 extern LRESULT ImGui_ImplDX11_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1045,6 +1046,18 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
     }
 
+    size_t vBlitShaderCodeSize = 0;
+    char* vBlitShaderCode = static_cast<char*>(LoadFileContents("BlitVertexShader.cso", &applicationArena, &vBlitShaderCodeSize));
+    if (!vBlitShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
+    }
+
+    size_t pBlitShaderCodeSize = 0;
+    char* pBlitShaderCode = static_cast<char*>(LoadFileContents("BlitPixelShader.cso", &applicationArena, &pBlitShaderCodeSize));
+    if (!pBlitShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
+    }
+
     //
  
     gfx::Interface* gfxInterface = nullptr;
@@ -1236,6 +1249,15 @@ int win32_main(int argc, char* argv[])
     pShaderDesc.code = pShaderCode;
     pShaderDesc.codeSize = pShaderCodeSize;
 
+    gfx::ShaderDesc vBlitShaderDesc;
+    vBlitShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
+    vBlitShaderDesc.code = vBlitShaderCode;
+    vBlitShaderDesc.codeSize = vBlitShaderCodeSize;
+    gfx::ShaderDesc pBlitShaderDesc;
+    pBlitShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+    pBlitShaderDesc.code = pBlitShaderCode;
+    pBlitShaderDesc.codeSize = pBlitShaderCodeSize;
+
     gfx::Shader vShader = gfx::CreateShader(gfxDevice, &vShaderDesc);
     if (!GFX_CHECK_RESOURCE(vShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
@@ -1248,6 +1270,16 @@ int win32_main(int argc, char* argv[])
 
     gfx::Shader pShader = gfx::CreateShader(gfxDevice, &pShaderDesc);
     if (!GFX_CHECK_RESOURCE(pShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+    }
+
+    gfx::Shader vBlitShader = gfx::CreateShader(gfxDevice, &vBlitShaderDesc);
+    if (!GFX_CHECK_RESOURCE(vBlitShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
+    }
+
+    gfx::Shader pBlitShader = gfx::CreateShader(gfxDevice, &pBlitShaderDesc);
+    if (!GFX_CHECK_RESOURCE(pBlitShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
     }
 
@@ -1272,6 +1304,23 @@ int win32_main(int argc, char* argv[])
     gfx::PipelineState cubePipeline = gfx::CreatePipelineState(gfxDevice, &cubePipelineStateDesc);
     if (!GFX_CHECK_RESOURCE(cubePipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cube");
+    }
+
+    gfx::PipelineStateDesc blitPipelineStateDesc;
+    blitPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+    blitPipelineStateDesc.vertexShader = vBlitShader;
+    blitPipelineStateDesc.pixelShader = pBlitShader;
+    blitPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
+    
+    blitPipelineStateDesc.depthStencilState.enableDepth = false;
+    blitPipelineStateDesc.blendState.enableBlend = true;
+    blitPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_ONE;
+    blitPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+    blitPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
+    blitPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+    gfx::PipelineState blitPipeline = gfx::CreatePipelineState(gfxDevice, &blitPipelineStateDesc);
+    if (!GFX_CHECK_RESOURCE(blitPipeline)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
     }
 
     gfx::DrawCall triangleDrawCall;
@@ -1299,15 +1348,22 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
     cubeDrawCall.psImageInputs[0] = cubeTexture;
 
+    
+
     gfx::ImageDesc uiRenderTargetDesc;
     uiRenderTargetDesc.isRenderTarget = true;
     uiRenderTargetDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    uiRenderTargetDesc.width = 1280;
-    uiRenderTargetDesc.height = 720;
+    uiRenderTargetDesc.width = WINDOW_WIDTH;
+    uiRenderTargetDesc.height = WINDOW_HEIGHT;
     gfx::Image uiRenderTarget = gfx::CreateImage(gfxDevice, &uiRenderTargetDesc);
     if (!GFX_CHECK_RESOURCE(uiRenderTarget)) {
         GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
     }
+
+    gfx::DrawCall blitDrawCall;
+    blitDrawCall.pipelineState = blitPipeline;
+    blitDrawCall.numElements = 4;
+    blitDrawCall.psImageInputs[0] = uiRenderTarget;
 
     gfx::RenderPassDesc uiPassDesc;
     uiPassDesc.colorAttachments[0].image = uiRenderTarget;
@@ -1594,7 +1650,10 @@ int win32_main(int argc, char* argv[])
                 }
             } ImGui::End();
 
-
+            
+            ImGui::Begin("Foo"); {
+                ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
+            } ImGui::End();
             /* Basic UI: frame statistics */
             ImGui::SetNextWindowPos(ImVec2(10.0f, ImGui::GetIO().DisplaySize.y - 50));
             ImGui::Begin("#framestatistics", (bool*)0, ImVec2(0, 0), 0.45f, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
@@ -1685,10 +1744,30 @@ int win32_main(int argc, char* argv[])
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {
             gfx::RenderPassAction uiPassAction;
-            uiPassAction.colors[0].action = gfx::Action::ACTION_LOAD;
             
-            gfx::BeginRenderPass(gfxDevice, cmdBuffer, uiPass, &uiPassAction);
+            
+            if (g_renderUIOffscreen) {
+                uiPassAction.colors[0].color[0] = 0.0f;
+                uiPassAction.colors[0].color[1] = 0.0f;
+                uiPassAction.colors[0].color[2] = 0.0f;
+                uiPassAction.colors[0].color[3] = 1.0f;
+                uiPassAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+                gfx::BeginRenderPass(gfxDevice, cmdBuffer, uiPass, &uiPassAction);
+            }
+            else {
+                uiPassAction.colors[0].action = gfx::Action::ACTION_LOAD;
+                gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &uiPassAction);
+            }
             ImGui_ImplDX11_RenderDrawLists(uiDrawData, &cmdBuffer);
+            gfx::EndRenderPass(gfxDevice, cmdBuffer);
+        }
+
+        gfx::RenderPassAction blitAction;
+        blitAction.colors[0].action = gfx::Action::ACTION_LOAD;
+
+        if (g_renderUIOffscreen) {
+            gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
+            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blitDrawCall);
             gfx::EndRenderPass(gfxDevice, cmdBuffer);
         }
 
