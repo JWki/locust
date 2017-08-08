@@ -1335,6 +1335,17 @@ int win32_main(int argc, char* argv[])
     triangleDrawCall.pipelineState = pipeline;
     triangleDrawCall.vsConstantInputs[0] = cBuffer;
 
+   
+    gfx::ImageDesc uiRenderTargetDesc;
+    uiRenderTargetDesc.isRenderTarget = true;
+    uiRenderTargetDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    uiRenderTargetDesc.width = WINDOW_WIDTH;
+    uiRenderTargetDesc.height = WINDOW_HEIGHT;
+    gfx::Image uiRenderTarget = gfx::CreateImage(gfxDevice, &uiRenderTargetDesc);
+    if (!GFX_CHECK_RESOURCE(uiRenderTarget)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
+    }
+
     gfx::DrawCall cubeDrawCall;
     cubeDrawCall.vertexBuffers[0] = cubeVertexBuffer;
     cubeDrawCall.vertexOffsets[0] = 0;
@@ -1346,19 +1357,7 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.numElements = numCubeIndices;
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
-    cubeDrawCall.psImageInputs[0] = cubeTexture;
-
-    
-
-    gfx::ImageDesc uiRenderTargetDesc;
-    uiRenderTargetDesc.isRenderTarget = true;
-    uiRenderTargetDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    uiRenderTargetDesc.width = WINDOW_WIDTH;
-    uiRenderTargetDesc.height = WINDOW_HEIGHT;
-    gfx::Image uiRenderTarget = gfx::CreateImage(gfxDevice, &uiRenderTargetDesc);
-    if (!GFX_CHECK_RESOURCE(uiRenderTarget)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
-    }
+    cubeDrawCall.psImageInputs[0] = uiRenderTarget;
 
     gfx::DrawCall blitDrawCall;
     blitDrawCall.pipelineState = blitPipeline;
@@ -1662,9 +1661,18 @@ int win32_main(int argc, char* argv[])
 
             float fCounter = static_cast<float>(GetCounter());
            
-            math::float3 translation;
-            translation.x = 5.0f;//math::Sin(fCounter) * 1.0f;
-            translation.y = 0.0;//-math::Cos(fCounter) * 1.0f;
+            static math::float3 translation;
+            static float rotation = 0.0f;
+            static bool autorotate = false;
+            ImGui::Begin("Object"); {
+                if (ImGui::Checkbox("Auto Rotate", &autorotate)) {}
+                ImGui::DragFloat("Rotation", &rotation, 0.1f);
+                ImGui::DragFloat3("Translation", (float*)translation, 0.1f);
+            } ImGui::End();
+
+            if (autorotate) {
+                rotation += 0.03f;
+            }
 
             float proj[16];
             float camera[16];
@@ -1672,19 +1680,24 @@ int win32_main(int argc, char* argv[])
 
             float translate[16];
             float rotate[16];
-            static float rotation = 0.0f;
-            rotation += 0.03f;
 
+            float scaling[16]; 
+            util::Make4x4FloatMatrixIdentity(scaling);
+            for (int i = 0; i < 3; ++i) {
+                scaling[4 * i + i] *= 4.0f;
+            }
             util::Make4x4FloatTranslationMatrix(translate, translation);
             util::Make4x4FloatRotationMatrix(rotate, { 0.0f, 1.0f, 0.0f }, rotation);
         
             util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH / WINDOW_HEIGHT, 0.01f, 1000.0f);
-            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -1.0f, 2.75f });
+            util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -0.4f, 2.75f });
             
             float modelView[16];
-
-            util::MultiplyMatrices(translate, rotate, model);
-            util::Copy4x4FloatMatrix(rotate, model);
+            
+            float scaled[16];
+            util::MultiplyMatrices(scaling, rotate, scaled);
+            util::MultiplyMatrices(scaled, translate, model);
+            //util::Copy4x4FloatMatrix(rotate, model);
             util::MultiplyMatrices(model, camera, modelView);
             util::MultiplyMatrices(modelView, proj, transform.transform);
             //util::Copy4x4FloatMatrix(model, transform.transform);

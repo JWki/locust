@@ -24,7 +24,7 @@ PixelInput main(Vertex vertex)
     output.pos = mul(WorldMatrix, vertex.pos);
     output.color = float4(1.0f, 1.0f, 1.0f, 1.0f);
     output.normal = vertex.normal;
-    output.uv = vertex.pos.xy;
-
+    output.uv = (vertex.pos.xy + 0.5f);
+    output.uv.y = -output.uv.y;
     return output;
 }
