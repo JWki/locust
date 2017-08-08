@@ -1042,7 +1042,14 @@ int win32_main(int argc, char* argv[])
 
     WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, LoadCursor(NULL, IDC_ARROW), NULL, NULL, _T("GTRuntimeWindowClass"), NULL };
     RegisterClassEx(&wc);
-    g_hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, 0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, NULL, NULL, wc.hInstance, NULL);
+
+    RECT windowRect;
+    windowRect.left = 0;
+    windowRect.top = 0;
+    windowRect.right = WINDOW_WIDTH;
+    windowRect.bottom = WINDOW_HEIGHT;
+    AdjustWindowRectEx(&windowRect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_OVERLAPPEDWINDOW);
+    g_hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, windowRect.left, windowRect.top, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, NULL, NULL, wc.hInstance, NULL);
    
     RECT r;
     GetClientRect(g_hwnd, &r);
@@ -1631,6 +1638,7 @@ int win32_main(int argc, char* argv[])
             /* Basic UI: frame statistics */
             ImGui::SetNextWindowPos(ImVec2(10.0f, ImGui::GetIO().DisplaySize.y - 50));
             ImGui::Begin("#framestatistics", (bool*)0, ImVec2(0, 0), 0.45f, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
+            ImGui::Text("Window dimensions = %ix%i", WINDOW_WIDTH, WINDOW_HEIGHT);
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
