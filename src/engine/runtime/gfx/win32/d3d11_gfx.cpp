@@ -34,7 +34,9 @@ namespace gfx
 
         ImageDesc       desc;
         
-        ID3D11ShaderResourceView*   SRV;
+        ID3D11ShaderResourceView*   SRV = nullptr;
+        ID3D11RenderTargetView*     rtv = nullptr;
+        ID3D11DepthStencilView*     dsv = nullptr;
         ID3D11SamplerState*         sampler;
 
         union {
@@ -130,6 +132,7 @@ namespace gfx
 
         IDXGISwapChain*             swapChain           = nullptr;
         ID3D11RenderTargetView*     rtv                 = nullptr;
+        ID3D11DepthStencilView*     dsv                 = nullptr;
         D3D11RenderPass*            defaultRenderPass   = nullptr;
         // @TODO
     };
@@ -508,6 +511,14 @@ namespace gfx
         D3D11_SRV_DIMENSION::D3D11_SRV_DIMENSION_TEXTURE2DARRAY
     };
 
+    D3D11_RTV_DIMENSION g_imageRTVDimensionTable[] = {
+        D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D,
+        D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2D,
+        D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_UNKNOWN,   // @NOTE
+        D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE3D,
+        D3D11_RTV_DIMENSION::D3D11_RTV_DIMENSION_TEXTURE2DARRAY
+    };
+
     D3D11_TEXTURE_ADDRESS_MODE g_imageWrapModeTable[] = {
         D3D11_TEXTURE_ADDRESS_MODE::D3D11_TEXTURE_ADDRESS_WRAP,
         D3D11_TEXTURE_ADDRESS_MODE::D3D11_TEXTURE_ADDRESS_WRAP,
@@ -572,7 +583,8 @@ namespace gfx
         texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
         if (desc->isRenderTarget) {
             texDesc.BindFlags |= D3D11_BIND_RENDER_TARGET;
-            // @TODO: bind as depth/stencil attachment
+            texDesc.Usage = D3D11_USAGE_DEFAULT;
+            // @TODO: specify if bindable as depth target?
         }
 
         texDesc.MiscFlags = 0;
@@ -596,7 +608,7 @@ namespace gfx
             pData[i].SysMemPitch = desc->width * numComponents * componentSize;
             pData[i].SysMemSlicePitch = pData[i].SysMemPitch * desc->height;  // @TODO: Verify?
         }
-        assert(!(usage == ResourceUsage::USAGE_IMMUTABLE && pDataPtr == nullptr));
+        assert(desc->isRenderTarget || !(usage == ResourceUsage::USAGE_IMMUTABLE && pDataPtr == nullptr));
         
         // Create the texture
         HRESULT res = S_OK;
@@ -649,6 +661,27 @@ namespace gfx
         if (FAILED(res)) {
             device->interf->imagePool.Free(result.id);
             return { gfx::INVALID_ID };
+        }
+
+        // Create a render target view if we need to
+        if (desc->isRenderTarget) {
+            D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
+            ZeroMemory(&render_target_view_desc, sizeof(render_target_view_desc));
+            render_target_view_desc.Format = texDesc.Format;
+            render_target_view_desc.ViewDimension = g_imageRTVDimensionTable[(uint8_t)desc->type];
+            switch (desc->type) {
+            case ImageType::IMAGE_TYPE_2D: {
+                render_target_view_desc.Texture2D.MipSlice = 0;
+            } break;
+            default:
+                assert(false);
+                break;
+            }
+            res = device->d3dDevice->CreateRenderTargetView(image->as_2DTexture, &render_target_view_desc, &image->rtv);
+            if (FAILED(res)) {
+                device->interf->imagePool.Free(result.id);
+                return { gfx::INVALID_ID };
+            }
         }
 
         image->associatedDevice = device;
@@ -916,22 +949,38 @@ namespace gfx
         // create render target view for this swapchain
         //  @TODO actually create an image object (as attachment) and expose that to the API user?
         ID3D11Texture2D* pBackBuffer;
-        D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
+        D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc; 
         ZeroMemory(&render_target_view_desc, sizeof(render_target_view_desc));
         render_target_view_desc.Format = d3d11Desc.BufferDesc.Format;
         render_target_view_desc.ViewDimension = D3D11_RTV_DIMENSION_TEXTURE2D;
         res = swapChain->swapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pBackBuffer);
         if (res != S_OK) {
-            
+            swapChain->swapChain->Release();
+            device->interf->swapChainPool.Free(result.id);
+            return { gfx::INVALID_ID };
         }
         res = device->d3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &swapChain->rtv);
-        pBackBuffer->Release();
 
+        // create depth stencil view for this swap chain
+        /*D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
+        ZeroMemory(&dsvDesc, sizeof(dsvDesc));
+        dsvDesc.Format = d3d11Desc.BufferDesc.Format;
+        dsvDesc.ViewDimension = D3D11_DSV_DIMENSION::D3D11_DSV_DIMENSION_TEXTURE2D;
+        res = device->d3dDevice->CreateDepthStencilView(pBackBuffer, &dsvDesc, &swapChain->dsv);
+        if (FAILED(res)) {
+            swapChain->swapChain->Release();
+            swapChain->rtv->Release();
+            device->interf->swapChainPool.Free(result.id);
+            return { gfx::INVALID_ID };
+        }*/
+
+        pBackBuffer->Release();
         //  create a default render pass for this swap chain
         uint32_t id = 0;
         if(!device->interf->passPool.Allocate(&swapChain->defaultRenderPass, &id)) {
             swapChain->swapChain->Release();
             swapChain->rtv->Release();
+            swapChain->dsv->Release();
             device->interf->swapChainPool.Free(result.id);
             return { gfx::INVALID_ID };
         }
@@ -978,6 +1027,20 @@ namespace gfx
         if (!device->interf->passPool.Allocate(&renderPass, &result.id)) {
             return { gfx::INVALID_ID };
         }
+        if (GFX_CHECK_RESOURCE(desc->depthStencilAttachment.image)) {
+            D3D11Image* image = device->interf->imagePool.Get(desc->depthStencilAttachment.image.id);
+            // create a depth stencil view
+            D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
+            ZeroMemory(&dsvDesc, sizeof(dsvDesc));
+            dsvDesc.Format = g_pixelFormatTable[(uint8_t)image->desc.pixelFormat];
+            dsvDesc.ViewDimension = D3D11_DSV_DIMENSION::D3D11_DSV_DIMENSION_TEXTURE2D;
+            HRESULT res = device->d3dDevice->CreateDepthStencilView(image->as_2DTexture, &dsvDesc, &image->dsv);
+            if (FAILED(res)) {
+                device->interf->passPool.Free(result.id);
+                return { gfx::INVALID_ID };
+            }
+        }
+
         renderPass->desc = *desc;
         return result;
     }
@@ -991,9 +1054,51 @@ namespace gfx
         cmdBuf->renderPass = swpCh->defaultRenderPass;
         assert(cmdBuf->renderPass != nullptr);
 
-        cmdBuf->d3dDC->OMSetRenderTargets(1, &swpCh->rtv, nullptr);
+        //cmdBuf->d3dDC->OMSetRenderTargets(1, &swpCh->rtv, nullptr);
         if (action->colors[0].action == Action::ACTION_CLEAR) {
             cmdBuf->d3dDC->ClearRenderTargetView(swpCh->rtv, action->colors[0].color);
+            
+        }
+        if (swpCh->dsv != nullptr) {
+            UINT dsClearFlags = 0;
+            if (action->depth.action == Action::ACTION_CLEAR) {
+                dsClearFlags |= D3D11_CLEAR_DEPTH;
+            }
+            if (action->stencil.action == Action::ACTION_CLEAR) {
+                dsClearFlags |= D3D11_CLEAR_STENCIL;
+            }
+            cmdBuf->d3dDC->ClearDepthStencilView(swpCh->dsv, dsClearFlags, action->depth.value, action->stencil.value);
+        }
+    }
+
+    void BeginRenderPass(Device* device, CommandBuffer cmdBuffer, RenderPass renderPass, RenderPassAction* action)
+    {
+        D3D11RenderPass* pass = device->interf->passPool.Get(renderPass.id);
+        D3D11CommandBuffer* cmdBuf = device->interf->cmdBufferPool.Get(cmdBuffer.id);
+        assert(cmdBuf->renderPass == nullptr);
+        cmdBuf->renderPass = pass;
+        assert(cmdBuf->renderPass != nullptr);
+        // @TODO store D3D11Image pointers in render pass when creating it instead of looking them up here?
+        // @NOTE actually no, this detects stale data
+        for (int i = 0; i < GFX_MAX_COLOR_ATTACHMENTS; ++i) {
+            if (!GFX_CHECK_RESOURCE(pass->desc.colorAttachments[i].image)) {
+                break;
+            }
+            D3D11Image* colorAttachment = device->interf->imagePool.Get(pass->desc.colorAttachments[i].image.id);
+            if (action->colors[0].action == Action::ACTION_CLEAR) {
+                cmdBuf->d3dDC->ClearRenderTargetView(colorAttachment->rtv, action->colors[0].color);
+            }
+        }
+        if (GFX_CHECK_RESOURCE(pass->desc.depthStencilAttachment.image)) {
+            D3D11Image* depthAttachment = device->interf->imagePool.Get(pass->desc.depthStencilAttachment.image.id);
+            UINT dsClearFlags = 0;
+            if (action->depth.action == Action::ACTION_CLEAR) {
+                dsClearFlags |= D3D11_CLEAR_DEPTH;
+            }
+            if (action->stencil.action == Action::ACTION_CLEAR) {
+                dsClearFlags |= D3D11_CLEAR_STENCIL;
+            }
+            cmdBuf->d3dDC->ClearDepthStencilView(depthAttachment->dsv, dsClearFlags, action->depth.value, action->stencil.value);
         }
     }
 
@@ -1040,6 +1145,23 @@ namespace gfx
         // @HACK 
         if (cmdBuf->renderPass->backbuffer != nullptr) {
             cmdBuf->d3dDC->OMSetRenderTargets(1, &cmdBuf->renderPass->backbuffer, nullptr);
+        }
+        else {
+            ID3D11RenderTargetView* renderTargets[GFX_MAX_COLOR_ATTACHMENTS];
+            UINT numRenderTargets = 0;
+            for (int i = 0; i < GFX_MAX_COLOR_ATTACHMENTS; ++i) {
+                if (!GFX_CHECK_RESOURCE(cmdBuf->renderPass->desc.colorAttachments[i].image)) {
+                    break;
+                }
+                D3D11Image* colorAttachment = device->interf->imagePool.Get(cmdBuf->renderPass->desc.colorAttachments[i].image.id);
+                renderTargets[numRenderTargets++] = colorAttachment->rtv;
+            }
+            ID3D11DepthStencilView* dsv = nullptr;
+            if (GFX_CHECK_RESOURCE(cmdBuf->renderPass->desc.depthStencilAttachment.image)) {
+                D3D11Image* depthImage = device->interf->imagePool.Get(cmdBuf->renderPass->desc.depthStencilAttachment.image.id);
+                ID3D11DepthStencilView* dsv = depthImage->dsv;
+            }
+            cmdBuf->d3dDC->OMSetRenderTargets(numRenderTargets, renderTargets, dsv);
         }
 
         D3D11PipelineState* pipelineState = device->interf->pipelineStatePool.Get(drawCall->pipelineState.id);

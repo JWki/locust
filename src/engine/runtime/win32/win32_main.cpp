@@ -1299,6 +1299,23 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
     cubeDrawCall.psImageInputs[0] = cubeTexture;
 
+    gfx::ImageDesc uiRenderTargetDesc;
+    uiRenderTargetDesc.isRenderTarget = true;
+    uiRenderTargetDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    uiRenderTargetDesc.width = 1280;
+    uiRenderTargetDesc.height = 720;
+    gfx::Image uiRenderTarget = gfx::CreateImage(gfxDevice, &uiRenderTargetDesc);
+    if (!GFX_CHECK_RESOURCE(uiRenderTarget)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
+    }
+
+    gfx::RenderPassDesc uiPassDesc;
+    uiPassDesc.colorAttachments[0].image = uiRenderTarget;
+    gfx::RenderPass uiPass = gfx::CreateRenderPass(gfxDevice, &uiPassDesc);
+    if (!GFX_CHECK_RESOURCE(uiPass)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
+    }
+
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
     gfx::CommandBuffer cmdBuffer = gfx::GetImmediateCommandBuffer(gfxDevice);
@@ -1670,7 +1687,7 @@ int win32_main(int argc, char* argv[])
             gfx::RenderPassAction uiPassAction;
             uiPassAction.colors[0].action = gfx::Action::ACTION_LOAD;
             
-            gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &uiPassAction);
+            gfx::BeginRenderPass(gfxDevice, cmdBuffer, uiPass, &uiPassAction);
             ImGui_ImplDX11_RenderDrawLists(uiDrawData, &cmdBuffer);
             gfx::EndRenderPass(gfxDevice, cmdBuffer);
         }
