@@ -9,6 +9,8 @@
 #include <engine/runtime/ImGui/imgui.h>
 #include "imgui_impl_dx11.h"
 
+#include <foundation/logging/logging.h>
+
 #define DIRECTINPUT_VERSION 0x0800
 #include <dinput.h>
 #include <d3dcompiler.h>
@@ -299,7 +301,11 @@ bool    ImGui_ImplDX11_CreateDeviceObjects()
             return output;\
             }";
 
-        D3DCompile(vertexShader, strlen(vertexShader), NULL, NULL, NULL, "main", "vs_4_0", 0, 0, &g_pVertexShaderBlob, NULL);
+        ID3D10Blob* pErrorBlob = nullptr;
+        D3DCompile(vertexShader, strlen(vertexShader), NULL, NULL, NULL, "main", "vs_4_0", 0, 0, &g_pVertexShaderBlob, &pErrorBlob);
+        if (pErrorBlob) {
+            GT_LOG_ERROR("%s\n", (char*)pErrorBlob->GetBufferPointer());
+        }
         if (g_pVertexShaderBlob == NULL) // NB: Pass ID3D10Blob* pErrorBlob to D3DCompile() to get error showing in (const char*)pErrorBlob->GetBufferPointer(). Make sure to Release() the blob!
             return false;
 

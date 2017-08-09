@@ -1034,6 +1034,8 @@ namespace gfx
         }
         if (GFX_CHECK_RESOURCE(desc->depthStencilAttachment.image)) {
             D3D11Image* image = device->interf->imagePool.Get(desc->depthStencilAttachment.image.id);
+            renderPass->width = image->desc.width;
+            renderPass->height = image->desc.height;
             // create a depth stencil view
             D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
             ZeroMemory(&dsvDesc, sizeof(dsvDesc));
@@ -1045,7 +1047,13 @@ namespace gfx
                 return { gfx::INVALID_ID };
             }
         }
-
+        if (GFX_CHECK_RESOURCE(desc->colorAttachments[0].image)) {
+            D3D11Image* colorMain = device->interf->imagePool.Get(desc->colorAttachments[0].image.id);
+            renderPass->width = colorMain->desc.width;
+            renderPass->height = colorMain->desc.height;
+        }
+        renderPass->resState = _ResourceState::STATE_VALID;
+        renderPass->associatedDevice = device;
         renderPass->desc = *desc;
         return result;
     }
@@ -1244,12 +1252,14 @@ namespace gfx
         }
 
         // @HACK, just to see something
-        if (GFX_CHECK_RESOURCE(drawCall->psImageInputs[0])) {
-            auto imageObj = device->interf->imagePool.Get(drawCall->psImageInputs[0].id);
-            auto srv = imageObj->srv;
-            auto sampler = imageObj->sampler;
-            cmdBuf->d3dDC->PSSetSamplers(0, 1, &sampler);
-            cmdBuf->d3dDC->PSSetShaderResources(0, 1, &srv);
+        for (int i = 0; i < GFX_MAX_IMAGE_INPUTS_PER_STAGE; ++i) {
+            if (GFX_CHECK_RESOURCE(drawCall->psImageInputs[i])) {
+                auto imageObj = device->interf->imagePool.Get(drawCall->psImageInputs[i].id);
+                auto srv = imageObj->srv;
+                auto sampler = imageObj->sampler;
+                cmdBuf->d3dDC->PSSetSamplers(i, 1, &sampler);
+                cmdBuf->d3dDC->PSSetShaderResources(i, 1, &srv);
+            }
         }
 
         cmdBuf->d3dDC->VSSetShader(pipelineState->vertexShader->as_vertexShader, nullptr, 0);

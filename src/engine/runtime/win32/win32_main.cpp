@@ -492,7 +492,7 @@ double GetCounter()
     return double(li.QuadPart - CounterStart) / PCFreq;
 }
 
-bool g_renderUIOffscreen = false;
+bool g_renderUIOffscreen = true;
 
 extern LRESULT ImGui_ImplDX11_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -889,7 +889,7 @@ namespace util
 #include <engine/runtime/ImGuizmo/ImGuizmo.h>
 void EditTransform(float camera[16], float projection[16], float matrix[16])
 {
-    static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::ROTATE);
+    static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
     static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::WORLD);
     if (ImGui::IsKeyPressed(90)) 
         mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
@@ -908,10 +908,10 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
     fnd::math::float3 matrixTranslation, matrixRotation, matrixScale;
     ImGuizmo::DecomposeMatrixToComponents(matrix, (float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale);
     ImGui::DragFloat3(" " ICON_FA_ARROWS, (float*)matrixTranslation, 0.1f);
-    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##translation")) { matrixTranslation = {0.0f, 0.0f, 0.0f}; }
+    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##translate")) { matrixTranslation = {0.0f, 0.0f, 0.0f}; }
     ImGui::DragFloat3(" " ICON_FA_REFRESH, (float*)matrixRotation, 0.1f);
     ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##rotation")) { matrixRotation = { 0.0f, 0.0f, 0.0f }; }
-    ImGui::DragFloat3(" " ICON_FA_ARROWS_ALT, (float*)matrixScale, 0.1f);
+    ImGui::DragFloat3(" " ICON_FA_EXPAND, (float*)matrixScale, 0.1f);
     ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##scale")) { matrixScale = { 1.0f, 1.0f, 1.0f }; }
     ImGuizmo::RecomposeMatrixFromComponents((float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale, matrix);
 
@@ -1068,7 +1068,7 @@ int win32_main(int argc, char* argv[])
     GT_LOG_INFO("Application", "Created application window");
 
     const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
-
+    bool paint = false;
     // Initialize Direct3D
     /*if (CreateDeviceD3D(g_hwnd) < 0)
     {
@@ -1108,6 +1108,18 @@ int win32_main(int argc, char* argv[])
     char* pBlitShaderCode = static_cast<char*>(LoadFileContents("BlitPixelShader.cso", &applicationArena, &pBlitShaderCodeSize));
     if (!pBlitShaderCode) {
         GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
+    }
+
+    size_t vPaintShaderCodeSize = 0;
+    char* vPaintShaderCode = static_cast<char*>(LoadFileContents("PaintVertexShader.cso", &applicationArena, &vPaintShaderCodeSize));
+    if (!vPaintShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
+    }
+
+    size_t pPaintShaderCodeSize = 0;
+    char* pPaintShaderCode = static_cast<char*>(LoadFileContents("PaintPixelShader.cso", &applicationArena, &pPaintShaderCodeSize));
+    if (!pPaintShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
     }
 
     //
@@ -1164,22 +1176,16 @@ int win32_main(int argc, char* argv[])
 
 
     //object.transform[4 * 3 + 3] = 1.0f;
-    auto cubeMesh = par_shapes_create_cube();
-    par_shapes_translate(cubeMesh, -0.5f, -0.5f, -0.5f);
-    par_shapes_compute_normals(cubeMesh);
+    auto cubeMesh = par_shapes_create_parametric_sphere(35, 35);
+    //par_shapes_translate(cubeMesh, 0.5f, 0.5f, 0.5f);
+    //par_shapes_compute_normals(cubeMesh);
     
     float* cubeVertices = cubeMesh->points;
     float* cubeNormals = cubeMesh->normals;
+    float* cubeTexcoords = cubeMesh->tcoords;
     PAR_SHAPES_T* cubeIndices = cubeMesh->triangles;
     int numCubeVertices = cubeMesh->npoints;
     int numCubeIndices = cubeMesh->ntriangles * 3;
-    for (int i = 0; i < cubeMesh->ntriangles; ++i) {
-        int j = i + 1; 
-        int k = j + 1;
-        PAR_SHAPES_T swap = cubeIndices[i];
-        //cubeIndices[i] = cubeIndices[k];
-        //cubeIndices[k] = swap;
-    }
     
     int width, height, numComponents;
     auto image = stbi_load("../../texture.png", &width, &height, &numComponents, 4);
@@ -1226,6 +1232,16 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create cube normal buffer");
     }
 
+    gfx::BufferDesc cubeUVBufferDesc;
+    cubeUVBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    cubeUVBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 2;
+    cubeUVBufferDesc.initialData = cubeTexcoords;
+    cubeUVBufferDesc.initialDataSize = cubeUVBufferDesc.byteWidth;
+    gfx::Buffer cubeUVBuffer = gfx::CreateBuffer(gfxDevice, &cubeUVBufferDesc);
+    if (!GFX_CHECK_RESOURCE(cubeUVBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create cube uv buffer");
+    }
+
     gfx::BufferDesc cubeIndexBufferDesc;
     cubeIndexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
     cubeIndexBufferDesc.byteWidth = sizeof(PAR_SHAPES_T) * numCubeIndices;
@@ -1236,6 +1252,24 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create cube index buffer");
     }
 
+    struct PaintConstantData
+    {
+        float modelToViewMatrix[16];
+        math::float2 cursorPos;
+        math::float2 _padding;
+        math::float4 color;
+    } paintConstantData;
+
+    gfx::BufferDesc cPaintBufferDesc;
+    cPaintBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
+    cPaintBufferDesc.byteWidth = sizeof(PaintConstantData);
+    cPaintBufferDesc.initialData = &paintConstantData;
+    cPaintBufferDesc.initialDataSize = sizeof(paintConstantData);
+    cPaintBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
+    gfx::Buffer cPaintBuffer = gfx::CreateBuffer(gfxDevice, &cPaintBufferDesc);
+    if (!GFX_CHECK_RESOURCE(cPaintBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
+    }
 
     gfx::BufferDesc cBufferDesc;
     cBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
@@ -1267,6 +1301,15 @@ int win32_main(int argc, char* argv[])
     pBlitShaderDesc.code = pBlitShaderCode;
     pBlitShaderDesc.codeSize = pBlitShaderCodeSize;
 
+    gfx::ShaderDesc vPaintShaderDesc;
+    vPaintShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
+    vPaintShaderDesc.code = vPaintShaderCode;
+    vPaintShaderDesc.codeSize = vPaintShaderCodeSize;
+    gfx::ShaderDesc pPaintShaderDesc;
+    pPaintShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+    pPaintShaderDesc.code = pPaintShaderCode;
+    pPaintShaderDesc.codeSize = pPaintShaderCodeSize;
+
     gfx::Shader vCubeShader = gfx::CreateShader(gfxDevice, &vCubeShaderDesc);
     if (!GFX_CHECK_RESOURCE(vCubeShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
@@ -1287,6 +1330,16 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
     }
 
+    gfx::Shader vPaintShader = gfx::CreateShader(gfxDevice, &vPaintShaderDesc);
+    if (!GFX_CHECK_RESOURCE(vPaintShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
+    }
+
+    gfx::Shader pPaintShader = gfx::CreateShader(gfxDevice, &pPaintShaderDesc);
+    if (!GFX_CHECK_RESOURCE(pPaintShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+    }
+
 
     gfx::PipelineStateDesc cubePipelineStateDesc;
     cubePipelineStateDesc.blendState.enableBlend = true;
@@ -1294,11 +1347,14 @@ int win32_main(int argc, char* argv[])
     cubePipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
     cubePipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
 
+    cubePipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
     cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     cubePipelineStateDesc.vertexShader = vCubeShader;
     cubePipelineStateDesc.pixelShader = pShader;
     cubePipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
     cubePipelineStateDesc.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    cubePipelineStateDesc.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 2, gfx::VertexFormat::VERTEX_FORMAT_FLOAT2 };
+
     gfx::PipelineState cubePipeline = gfx::CreatePipelineState(gfxDevice, &cubePipelineStateDesc);
     if (!GFX_CHECK_RESOURCE(cubePipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cube");
@@ -1331,6 +1387,41 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
     }
 
+    gfx::ImageDesc paintRTDesc;
+    paintRTDesc.isRenderTarget = true;
+    paintRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    paintRTDesc.width = WINDOW_WIDTH;
+    paintRTDesc.height = WINDOW_HEIGHT;
+    gfx::Image paintRT = gfx::CreateImage(gfxDevice, &paintRTDesc);
+    if (!GFX_CHECK_RESOURCE(paintRT)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
+    }
+
+    gfx::PipelineStateDesc paintObjPipelineStateDesc;
+    paintObjPipelineStateDesc.blendState.enableBlend = true;
+    paintObjPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_ONE;
+    paintObjPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_ONE;
+    paintObjPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
+    paintObjPipelineStateDesc.blendState.srcBlendAlpha = gfx::BlendFactor::BLEND_ONE;
+    paintObjPipelineStateDesc.blendState.dstBlendAlpha = gfx::BlendFactor::BLEND_ZERO;
+    paintObjPipelineStateDesc.blendState.blendOpAlpha = gfx::BlendOp::BLEND_OP_ADD;
+
+    paintObjPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_ALL;
+
+    paintObjPipelineStateDesc.depthStencilState.enableDepth = false;
+    paintObjPipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
+    paintObjPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+    paintObjPipelineStateDesc.vertexShader = vPaintShader;
+    paintObjPipelineStateDesc.pixelShader = pPaintShader;
+    paintObjPipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    paintObjPipelineStateDesc.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    paintObjPipelineStateDesc.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 2, gfx::VertexFormat::VERTEX_FORMAT_FLOAT2 };
+
+    gfx::PipelineState paintObjPipelineState = gfx::CreatePipelineState(gfxDevice, &paintObjPipelineStateDesc);
+    if (!GFX_CHECK_RESOURCE(paintObjPipelineState)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for painting");
+    }
+
     gfx::DrawCall cubeDrawCall;
     cubeDrawCall.vertexBuffers[0] = cubeVertexBuffer;
     cubeDrawCall.vertexOffsets[0] = 0;
@@ -1338,11 +1429,31 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.vertexBuffers[1] = cubeNormalBuffer;
     cubeDrawCall.vertexOffsets[1] = 0;
     cubeDrawCall.vertexStrides[1] = sizeof(float) * 3;
+    cubeDrawCall.vertexBuffers[2] = cubeUVBuffer;
+    cubeDrawCall.vertexOffsets[2] = 0;
+    cubeDrawCall.vertexStrides[2] = sizeof(float) * 2;
     cubeDrawCall.indexBuffer = cubeIndexBuffer;
     cubeDrawCall.numElements = numCubeIndices;
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
     cubeDrawCall.psImageInputs[0] = cubeTexture;
+    cubeDrawCall.psImageInputs[1] = paintRT;
+
+    gfx::DrawCall cubePaintDrawCall;
+    cubePaintDrawCall.vertexBuffers[0] = cubeVertexBuffer;
+    cubePaintDrawCall.vertexOffsets[0] = 0;
+    cubePaintDrawCall.vertexStrides[0] = sizeof(float) * 3;
+    cubePaintDrawCall.vertexBuffers[1] = cubeNormalBuffer;
+    cubePaintDrawCall.vertexOffsets[1] = 0;
+    cubePaintDrawCall.vertexStrides[1] = sizeof(float) * 3;
+    cubePaintDrawCall.vertexBuffers[2] = cubeUVBuffer;
+    cubePaintDrawCall.vertexOffsets[2] = 0;
+    cubePaintDrawCall.vertexStrides[2] = sizeof(float) * 2;
+    cubePaintDrawCall.indexBuffer = cubeIndexBuffer;
+    cubePaintDrawCall.numElements = numCubeIndices;
+    cubePaintDrawCall.pipelineState = paintObjPipelineState;
+    cubePaintDrawCall.vsConstantInputs[0] = cPaintBuffer;
+    cubePaintDrawCall.psConstantInputs[0] = cPaintBuffer;
 
     gfx::DrawCall blitDrawCall;
     blitDrawCall.pipelineState = blitPipeline;
@@ -1354,6 +1465,13 @@ int win32_main(int argc, char* argv[])
     gfx::RenderPass uiPass = gfx::CreateRenderPass(gfxDevice, &uiPassDesc);
     if (!GFX_CHECK_RESOURCE(uiPass)) {
         GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
+    }
+
+    gfx::RenderPassDesc paintPassDesc;
+    paintPassDesc.colorAttachments[0].image = paintRT;
+    gfx::RenderPass paintPass = gfx::CreateRenderPass(gfxDevice, &paintPassDesc);
+    if (!GFX_CHECK_RESOURCE(paintPass)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render pass for painting");
     }
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
@@ -1391,6 +1509,18 @@ int win32_main(int argc, char* argv[])
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
+    gfx::RenderPassAction clearAllAction;
+    clearAllAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+    float blue[] = { bgColor[0], bgColor[1], bgColor[2], 1.0f };
+    memcpy(clearAllAction.colors[0].color, blue, sizeof(float) * 4);
+
+    gfx::RenderPassAction clearMaybeAction;
+    clearMaybeAction.colors[0].color[0] = 0.0f;
+    clearMaybeAction.colors[0].color[1] = 0.0f;
+    clearMaybeAction.colors[0].color[2] = 0.0f;
+    clearMaybeAction.colors[0].color[3] = 1.0f;
+    clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
+   
    
     GT_LOG_INFO("Application", "Starting main loop");
     do {
@@ -1598,7 +1728,8 @@ int win32_main(int argc, char* argv[])
 
             } ImGui::End();
 
-            ImGui::Image((ImTextureID)(uintptr_t)cubeTexture.id, ImVec2(2048, 2048));
+
+            ImGui::Image((ImTextureID)(uintptr_t)paintRT.id, ImVec2(512, 512));
 
             if (ImGui::Begin("Networking", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 Port port = 0;
@@ -1649,10 +1780,14 @@ int win32_main(int argc, char* argv[])
             ImGui::Begin("Foo"); {
                 ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
             } ImGui::End();
+
+            math::float3 mousePosScreen(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
+
             /* Basic UI: frame statistics */
             ImGui::SetNextWindowPos(ImVec2(10.0f, ImGui::GetIO().DisplaySize.y - 50));
             ImGui::Begin("#framestatistics", (bool*)0, ImVec2(0, 0), 0.45f, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
             ImGui::Text("Window dimensions = %ix%i", WINDOW_WIDTH, WINDOW_HEIGHT);
+            ImGui::Text("Mouse Screen Pos: %f, %f", mousePosScreen.x, mousePosScreen.y);
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
@@ -1675,9 +1810,23 @@ int win32_main(int argc, char* argv[])
                 }
             } ImGui::End();
 
+            
+
             float modelView[16];
             util::MultiplyMatrices(model, camera, modelView);
             util::MultiplyMatrices(modelView, proj, object.transform);
+
+            // upload objectation to constant buffer only once per update -> render transition
+            void* cBufferMem = gfx::MapBuffer(gfxDevice, cPaintBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+            if (cBufferMem != nullptr) {
+                PaintConstantData* data = (PaintConstantData*)cBufferMem;
+                data->cursorPos = mousePosScreen.xy;
+                memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
+                data->color = object.color;
+                gfx::UnmapBuffer(gfxDevice, cBuffer);
+            }
+
+            paint = ImGui::IsMouseDown(1);
 
             /* End sim frame */
             ImGui::Render();
@@ -1692,23 +1841,24 @@ int win32_main(int argc, char* argv[])
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
            
+            
         }
 
         /* Begin render frame*/
 
         auto renderFrameTimerStart = GetCounter();
-        auto cmdRecordingTimerStart = GetCounter();
 
-        GT_LOG_INFO("RenderProfile", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
+        //GT_LOG_INFO("RenderProfile", "Command recording took %f ms", 1000.0 * (GetCounter() - cmdRecordingTimerStart));
         
         // draw geometry
         auto commandSubmissionTimerStart = GetCounter();
        
-        gfx::RenderPassAction clearAllAction;
-        clearAllAction.colors[0].action = gfx::Action::ACTION_CLEAR;
-        float blue[] = { bgColor[0], bgColor[1], bgColor[2], 1.0f };
-        memcpy(clearAllAction.colors[0].color, blue, sizeof(float) * 4);
-        
+       
+        if (paint) {
+            gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
+            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubePaintDrawCall);
+            gfx::EndRenderPass(gfxDevice, cmdBuffer);
+        }
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
