@@ -16,5 +16,5 @@ float4 main(PixelInput input) : SV_TARGET
 {
     float4 n = normalize(input.normal) * 0.5f + 0.5f;
     float4 paintColor = texture1.Sample(sampler1, input.uv.xy);
-    return texture0.Sample(sampler0, input.uv.xy) + paintColor;
+    return texture0.Sample(sampler0, input.uv.xy) * (1.0f - paintColor.a) + paintColor.a * float4(paintColor.rgb, 1.0f);
 }

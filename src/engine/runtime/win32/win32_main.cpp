@@ -1258,6 +1258,8 @@ int win32_main(int argc, char* argv[])
         math::float2 cursorPos;
         math::float2 _padding;
         math::float4 color;
+        float brushSize;
+        float _padding2[3];
     } paintConstantData;
 
     gfx::BufferDesc cPaintBufferDesc;
@@ -1399,11 +1401,11 @@ int win32_main(int argc, char* argv[])
 
     gfx::PipelineStateDesc paintObjPipelineStateDesc;
     paintObjPipelineStateDesc.blendState.enableBlend = true;
-    paintObjPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_ONE;
-    paintObjPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_ONE;
+    paintObjPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+    paintObjPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
     paintObjPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
-    paintObjPipelineStateDesc.blendState.srcBlendAlpha = gfx::BlendFactor::BLEND_ONE;
-    paintObjPipelineStateDesc.blendState.dstBlendAlpha = gfx::BlendFactor::BLEND_ZERO;
+    paintObjPipelineStateDesc.blendState.srcBlendAlpha = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
+    paintObjPipelineStateDesc.blendState.dstBlendAlpha = gfx::BlendFactor::BLEND_ONE;
     paintObjPipelineStateDesc.blendState.blendOpAlpha = gfx::BlendOp::BLEND_OP_ADD;
 
     paintObjPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_ALL;
@@ -1518,7 +1520,7 @@ int win32_main(int argc, char* argv[])
     clearMaybeAction.colors[0].color[0] = 0.0f;
     clearMaybeAction.colors[0].color[1] = 0.0f;
     clearMaybeAction.colors[0].color[2] = 0.0f;
-    clearMaybeAction.colors[0].color[3] = 1.0f;
+    clearMaybeAction.colors[0].color[3] = 0.0f;
     clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
    
    
@@ -1729,6 +1731,12 @@ int win32_main(int argc, char* argv[])
             } ImGui::End();
 
 
+            if (ImGui::Button("Clear")) {
+                clearMaybeAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+                gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
+                gfx::EndRenderPass(gfxDevice, cmdBuffer);
+                clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
+            }
             ImGui::Image((ImTextureID)(uintptr_t)paintRT.id, ImVec2(512, 512));
 
             if (ImGui::Begin("Networking", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1791,6 +1799,7 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
+            static float brushSize = 100.0f;
             ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
                 if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
                     static char namebuf[512] = "Generic Object";
@@ -1804,6 +1813,16 @@ int win32_main(int argc, char* argv[])
                     ImGui::TreePop();
                 }
                 if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "    Material")) {
+                    ImGui::SliderFloat("Brush Size", &brushSize, 10.0f, 300.0f);
+                    ImGui::SameLine();
+         
+                    auto drawList = ImGui::GetWindowDrawList();
+                    ImVec2 circleCenter = ImGui::GetCursorScreenPos();
+                    circleCenter.x += 25.0f;
+                    circleCenter.y += 25.0f * 0.5f;
+                    drawList->AddCircle(circleCenter, 25.0f * (brushSize / 300.0f), ImColor(1.0f, 1.0f, 1.0f, 1.0f), 64, 2.5f);
+                    
+                    ImGui::Dummy(ImVec2(100.0f, 50.0f));
                     ImGuiColorEditFlags ceditFlags = ImGuiColorEditFlags_PickerHueWheel;
                     ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
                     ImGui::TreePop();
@@ -1823,10 +1842,17 @@ int win32_main(int argc, char* argv[])
                 data->cursorPos = mousePosScreen.xy;
                 memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
                 data->color = object.color;
+                data->brushSize = brushSize;
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
 
             paint = ImGui::IsMouseDown(1);
+
+            if (paint) {
+                gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
+                gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubePaintDrawCall);
+                gfx::EndRenderPass(gfxDevice, cmdBuffer);
+            }
 
             /* End sim frame */
             ImGui::Render();
@@ -1844,6 +1870,7 @@ int win32_main(int argc, char* argv[])
             
         }
 
+        
         /* Begin render frame*/
 
         auto renderFrameTimerStart = GetCounter();
@@ -1852,13 +1879,9 @@ int win32_main(int argc, char* argv[])
         
         // draw geometry
         auto commandSubmissionTimerStart = GetCounter();
-       
-       
-        if (paint) {
-            gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
-            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubePaintDrawCall);
-            gfx::EndRenderPass(gfxDevice, cmdBuffer);
-        }
+      
+        
+
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
