@@ -1067,7 +1067,8 @@ int win32_main(int argc, char* argv[])
 
     GT_LOG_INFO("Application", "Created application window");
 
-    const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
+    //const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
+    const float bgColor[] = { 0.0f, 0.0f, 0.0f };
     bool paint = false;
     // Initialize Direct3D
     /*if (CreateDeviceD3D(g_hwnd) < 0)
