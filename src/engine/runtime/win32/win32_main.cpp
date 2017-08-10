@@ -1189,30 +1189,64 @@ int win32_main(int argc, char* argv[])
     int numCubeVertices = cubeMesh->npoints;
     int numCubeIndices = cubeMesh->ntriangles * 3;
     
-    int width, height, numComponents;
-    auto image = stbi_load("../../texture.png", &width, &height, &numComponents, 4);
-    //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-    if (image == NULL) {
-        GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../texture.png", stbi_failure_reason());
-    }
-    //assert(numComponents == 4);
+    gfx::Image cubeTexture;
+    {
+        int width, height, numComponents;
+        auto image = stbi_load("../../texture.png", &width, &height, &numComponents, 4);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../texture.png", stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
 
-    gfx::ImageDesc cubeTextureDesc;
-    //cubeTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-    cubeTextureDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    cubeTextureDesc.width = width;
-    cubeTextureDesc.height = height;
-    cubeTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-    cubeTextureDesc.numDataItems = 1;
-    void* data[] = { image };
-    size_t size = sizeof(stbi_uc) * width * height * 4;
-    cubeTextureDesc.initialData = data;
-    cubeTextureDesc.initialDataSizes = &size;
-    gfx::Image cubeTexture = gfx::CreateImage(gfxDevice, &cubeTextureDesc);
-    if (!GFX_CHECK_RESOURCE(cubeTexture)) {
-        GT_LOG_ERROR("Renderer", "Failed to create texture");
+        gfx::ImageDesc cubeTextureDesc;
+        //cubeTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        cubeTextureDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        cubeTextureDesc.width = width;
+        cubeTextureDesc.height = height;
+        cubeTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        cubeTextureDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+        cubeTextureDesc.initialData = data;
+        cubeTextureDesc.initialDataSizes = &size;
+        cubeTexture = gfx::CreateImage(gfxDevice, &cubeTextureDesc);
+        if (!GFX_CHECK_RESOURCE(cubeTexture)) {
+            GT_LOG_ERROR("Renderer", "Failed to create texture");
+        }
+        stbi_image_free(image);
     }
-    stbi_image_free(image);
+
+    const size_t NUM_PAINT_TEXTURES = 4;
+    gfx::Image paintTexture[NUM_PAINT_TEXTURES];
+    char fileNameBuf[512] = "";
+    for(size_t i = 0; i < NUM_PAINT_TEXTURES; ++i) {
+        int width, height, numComponents;
+        snprintf(fileNameBuf, 512, "../../texture%llu.png", i);
+        auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::ImageDesc paintTextureDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        paintTextureDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        paintTextureDesc.width = width;
+        paintTextureDesc.height = height;
+        paintTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        paintTextureDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+        paintTextureDesc.initialData = data;
+        paintTextureDesc.initialDataSizes = &size;
+        paintTexture[i] = gfx::CreateImage(gfxDevice, &paintTextureDesc);
+        if (!GFX_CHECK_RESOURCE(paintTexture[i])) {
+            GT_LOG_ERROR("Renderer", "Failed to create texture");
+        }
+        stbi_image_free(image);
+    }
 
     gfx::BufferDesc cubeVertexBufferDesc;
     cubeVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
@@ -1460,6 +1494,7 @@ int win32_main(int argc, char* argv[])
     cubePaintDrawCall.pipelineState = paintObjPipelineState;
     cubePaintDrawCall.vsConstantInputs[0] = cPaintBuffer;
     cubePaintDrawCall.psConstantInputs[0] = cPaintBuffer;
+    cubePaintDrawCall.psImageInputs[0] = paintTexture[0];
 
     gfx::DrawCall blitDrawCall;
     blitDrawCall.pipelineState = blitPipeline;
@@ -1859,6 +1894,29 @@ int win32_main(int argc, char* argv[])
                     ImGui::Dummy(ImVec2(100.0f, 50.0f));
                     ImGuiColorEditFlags ceditFlags = ImGuiColorEditFlags_PickerHueWheel;
                     ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
+
+                    ImGui::Spacing();
+
+                    static size_t selectionIndex = 0;
+
+                    for (size_t i = 0; i < NUM_PAINT_TEXTURES; ++i) {
+                        if (selectionIndex == i) {
+                            ImGui::Text(ICON_FA_LINK " texture%llu", i);
+                        }
+                        else {
+                            ImGui::Text(ICON_FA_CHAIN_BROKEN " texture%llu", i);
+                        }
+                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                            selectionIndex = i;
+                        }
+
+                        ImGui::Image((ImTextureID)(uintptr_t)paintTexture[i].id, ImVec2(256, 256));
+                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                            selectionIndex = i;
+                        }
+                    }
+                    cubePaintDrawCall.psImageInputs[0] = paintTexture[selectionIndex];
+
                     ImGui::TreePop();
                 }
             } ImGui::End();
