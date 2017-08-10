@@ -1164,6 +1164,7 @@ int win32_main(int argc, char* argv[])
     struct ConstantData {
         float transform[16];
         math::float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
+        math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 0.0f };
     };
 
     float proj[16];
@@ -1349,7 +1350,7 @@ int win32_main(int argc, char* argv[])
     cubePipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
     cubePipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
 
-    cubePipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
+    //cubePipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
     cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     cubePipelineStateDesc.vertexShader = vCubeShader;
     cubePipelineStateDesc.pixelShader = pShader;
@@ -1392,6 +1393,7 @@ int win32_main(int argc, char* argv[])
     gfx::ImageDesc paintRTDesc;
     paintRTDesc.isRenderTarget = true;
     paintRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    paintRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
     paintRTDesc.width = WINDOW_WIDTH;
     paintRTDesc.height = WINDOW_HEIGHT;
     gfx::Image paintRT = gfx::CreateImage(gfxDevice, &paintRTDesc);
@@ -1404,8 +1406,8 @@ int win32_main(int argc, char* argv[])
     paintObjPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
     paintObjPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
     paintObjPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
-    paintObjPipelineStateDesc.blendState.srcBlendAlpha = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
-    paintObjPipelineStateDesc.blendState.dstBlendAlpha = gfx::BlendFactor::BLEND_ONE;
+    paintObjPipelineStateDesc.blendState.srcBlendAlpha = gfx::BlendFactor::BLEND_ZERO;
+    paintObjPipelineStateDesc.blendState.dstBlendAlpha = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
     paintObjPipelineStateDesc.blendState.blendOpAlpha = gfx::BlendOp::BLEND_OP_ADD;
 
     paintObjPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_ALL;
@@ -1438,6 +1440,7 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.numElements = numCubeIndices;
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
+    cubeDrawCall.psConstantInputs[0] = cBuffer;
     cubeDrawCall.psImageInputs[0] = cubeTexture;
     cubeDrawCall.psImageInputs[1] = paintRT;
 
@@ -1520,9 +1523,13 @@ int win32_main(int argc, char* argv[])
     clearMaybeAction.colors[0].color[0] = 0.0f;
     clearMaybeAction.colors[0].color[1] = 0.0f;
     clearMaybeAction.colors[0].color[2] = 0.0f;
-    clearMaybeAction.colors[0].color[3] = 0.0f;
+    clearMaybeAction.colors[0].color[3] = 1.0f;
     clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
    
+    clearMaybeAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+    gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
+    gfx::EndRenderPass(gfxDevice, cmdBuffer);
+    clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
    
     GT_LOG_INFO("Application", "Starting main loop");
     do {
@@ -1789,7 +1796,33 @@ int win32_main(int argc, char* argv[])
                 ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
             } ImGui::End();
 
+            static math::float3 mousePosScreenCache(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
             math::float3 mousePosScreen(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
+
+            static float brushSizeSetting = 100.0f;
+            float brushSize = brushSizeSetting;
+            static bool modulateSizeWithRate = false;
+            static float maxRate = 50.0;
+            float rate = math::Length(mousePosScreen - mousePosScreenCache);
+            //rate = rate <= 1.0f ? rate : 1.0f;
+            if (modulateSizeWithRate) {
+                if (maxRate >= 0.0f) {
+                    brushSize = brushSizeSetting * ((maxRate - rate) / maxRate);
+                }
+                else {
+                    brushSize = brushSizeSetting * (1.0f + (rate / -maxRate));
+                }
+                brushSize = brushSize > brushSizeSetting * 0.1f ? brushSize : brushSizeSetting * 0.1f;
+            }
+            float stepSize = brushSize * 0.25f / rate;
+             
+            
+            ImGui::Begin("Brush Stats"); {
+                ImGui::Text("Rate : %f", rate);
+                ImGui::Text("Step Size : %f", stepSize);
+                ImGui::Checkbox("Modulate Size", &modulateSizeWithRate);
+                ImGui::DragFloat("Modulation Rate", &maxRate);
+            } ImGui::End();
 
             /* Basic UI: frame statistics */
             ImGui::SetNextWindowPos(ImVec2(10.0f, ImGui::GetIO().DisplaySize.y - 50));
@@ -1799,8 +1832,8 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
-            static float brushSize = 100.0f;
             ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
+                ImGui::SliderFloat3("Sun Direction", (float*)object.lightDir, -1.0f, 1.0f);
                 if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
                     static char namebuf[512] = "Generic Object";
                     if (ImGui::InputText(" " ICON_FA_TAG " Name", namebuf, 512, ImGuiInputTextFlags_EnterReturnsTrue)) {
@@ -1813,7 +1846,7 @@ int win32_main(int argc, char* argv[])
                     ImGui::TreePop();
                 }
                 if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "    Material")) {
-                    ImGui::SliderFloat("Brush Size", &brushSize, 10.0f, 300.0f);
+                    ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
                     ImGui::SameLine();
          
                     auto drawList = ImGui::GetWindowDrawList();
@@ -1835,24 +1868,30 @@ int win32_main(int argc, char* argv[])
             util::MultiplyMatrices(model, camera, modelView);
             util::MultiplyMatrices(modelView, proj, object.transform);
 
-            // upload objectation to constant buffer only once per update -> render transition
-            void* cBufferMem = gfx::MapBuffer(gfxDevice, cPaintBuffer, gfx::MapType::MAP_WRITE_DISCARD);
-            if (cBufferMem != nullptr) {
-                PaintConstantData* data = (PaintConstantData*)cBufferMem;
-                data->cursorPos = mousePosScreen.xy;
-                memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
-                data->color = object.color;
-                data->brushSize = brushSize;
-                gfx::UnmapBuffer(gfxDevice, cBuffer);
-            }
-
+            //
             paint = ImGui::IsMouseDown(1);
+            float steps = 0.0f;
+            while (steps < 1.0f) {
+                if (paint) {
+                    void* cBufferMem = gfx::MapBuffer(gfxDevice, cPaintBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+                    if (cBufferMem != nullptr) {
+                        PaintConstantData* data = (PaintConstantData*)cBufferMem;
+                        data->cursorPos = mousePosScreen.xy * steps + mousePosScreenCache.xy * (1.0f - steps);
+                        memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
+                        data->color = object.color;
+                        data->brushSize = brushSize;
+                        gfx::UnmapBuffer(gfxDevice, cBuffer);
+                    }
 
-            if (paint) {
-                gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
-                gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubePaintDrawCall);
-                gfx::EndRenderPass(gfxDevice, cmdBuffer);
+                    gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
+                    gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubePaintDrawCall);
+                    gfx::EndRenderPass(gfxDevice, cmdBuffer);
+                }
+                steps += stepSize;
             }
+            mousePosScreenCache = mousePosScreen;
+            if(paint)
+            GT_LOG_INFO("Paintshop", "Did %f steps", steps / stepSize);
 
             /* End sim frame */
             ImGui::Render();

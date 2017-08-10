@@ -19,5 +19,5 @@ float4 main(PixelInput vertex) : SV_TARGET
     float alpha = clamp((1.0f - dist* (1080.0f / BrushSize)), 0.0f, 1.0f);
     //return float4(vertex.screenPos.xy, 0.0f, dist);
     //return float4(float3(1.0f, 1.0f, 1.0f) * (1.0f - dist), 1.0f);
-	return float4(Color.rgb, alpha * Color.a * Color.a);
+	return float4(pow(Color.rgb, 2.2f), alpha * Color.a * Color.a);
 }

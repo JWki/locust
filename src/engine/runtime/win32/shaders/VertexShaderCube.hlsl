@@ -1,6 +1,7 @@
 cbuffer Object : register(cb0) {
     float4x4    WorldMatrix;
     float4      Color;
+    float4      LightDir;
 };
 
 struct Vertex
@@ -25,7 +26,7 @@ PixelInput main(Vertex vertex)
     PixelInput output;
     output.pos = mul(WorldMatrix, vertex.pos);
     output.color = Color;
-    output.normal = vertex.normal;
+    output.normal = mul(WorldMatrix, float4(vertex.normal.xyz, 0.0f));
     output.uv = vertex.uv;
     //output.uv = (vertex.pos.xy + 0.5f);
     //output.uv.y = -output.uv.y;

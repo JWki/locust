@@ -1,3 +1,9 @@
+cbuffer Object : register(cb0) {
+    float4x4    WorldMatrix;
+    float4      Color;
+    float4      LightDir;
+};
+
 struct PixelInput
 {
     float4 pos : SV_POSITION;
@@ -14,7 +20,12 @@ sampler   sampler1;
 
 float4 main(PixelInput input) : SV_TARGET
 {
-    float4 n = normalize(input.normal) * 0.5f + 0.5f;
+    float3 lightDir = normalize(LightDir.xyz);
+    float3 n = normalize(input.normal).xyz;
+    float lambert = dot(n, -lightDir);
+    float light = clamp(lambert, 0.0f, 1.0f) + 0.2f;
     float4 paintColor = texture1.Sample(sampler1, input.uv.xy);
-    return texture0.Sample(sampler0, input.uv.xy) * (1.0f - paintColor.a) + paintColor.a * float4(paintColor.rgb, 1.0f);
+    float4 albedo = (texture0.Sample(sampler0, input.uv.xy) * paintColor.a + float4(pow(paintColor.rgb, 1.0f / 2.2f), 1.0f));
+    //return float4(light, 0.0f, 0.0f, 1.0f);
+    return float4(light * albedo.rgb, 1.0f);
 }
