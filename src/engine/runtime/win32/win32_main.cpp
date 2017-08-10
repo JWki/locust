@@ -1863,8 +1863,7 @@ int win32_main(int argc, char* argv[])
                 }
             } ImGui::End();
 
-            
-
+           
             float modelView[16];
             util::MultiplyMatrices(model, camera, modelView);
             util::MultiplyMatrices(modelView, proj, object.transform);
@@ -1881,7 +1880,7 @@ int win32_main(int argc, char* argv[])
                         memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
                         data->color = object.color;
                         data->brushSize = brushSize;
-                        gfx::UnmapBuffer(gfxDevice, cBuffer);
+                        gfx::UnmapBuffer(gfxDevice, cPaintBuffer);
                     }
 
                     gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
@@ -1920,12 +1919,9 @@ int win32_main(int argc, char* argv[])
         // draw geometry
         auto commandSubmissionTimerStart = GetCounter();
       
-        
-
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
-
 
         GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
        

@@ -1,8 +1,10 @@
 cbuffer Object : register(cb0) {
     float4x4    ObjToViewMatrix;
     float2      CursorPos;
+    float2      _padding0;
     float4      Color;
     float       BrushSize;
+    float3      _padding1;
 };
 
 struct Vertex
