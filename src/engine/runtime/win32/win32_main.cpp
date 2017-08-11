@@ -1111,6 +1111,12 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
     }
 
+    size_t pBlurShaderCodeSize = 0;
+    char* pBlurShaderCode = static_cast<char*>(LoadFileContents("SelectiveBlurPixelShader.cso", &applicationArena, &pBlurShaderCodeSize));
+    if (!pBlurShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
+    }
+
     size_t vPaintShaderCodeSize = 0;
     char* vPaintShaderCode = static_cast<char*>(LoadFileContents("PaintVertexShader.cso", &applicationArena, &vPaintShaderCodeSize));
     if (!vPaintShaderCode) {
@@ -1340,6 +1346,11 @@ int win32_main(int argc, char* argv[])
     pBlitShaderDesc.code = pBlitShaderCode;
     pBlitShaderDesc.codeSize = pBlitShaderCodeSize;
 
+    gfx::ShaderDesc pBlurShaderDesc;
+    pBlurShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+    pBlurShaderDesc.code = pBlurShaderCode;
+    pBlurShaderDesc.codeSize = pBlurShaderCodeSize;
+
     gfx::ShaderDesc vPaintShaderDesc;
     vPaintShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
     vPaintShaderDesc.code = vPaintShaderCode;
@@ -1366,6 +1377,11 @@ int win32_main(int argc, char* argv[])
 
     gfx::Shader pBlitShader = gfx::CreateShader(gfxDevice, &pBlitShaderDesc);
     if (!GFX_CHECK_RESOURCE(pBlitShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+    }
+
+    gfx::Shader pBlurShader = gfx::CreateShader(gfxDevice, &pBlurShaderDesc);
+    if (!GFX_CHECK_RESOURCE(pBlurShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
     }
 
@@ -1415,6 +1431,24 @@ int win32_main(int argc, char* argv[])
     if (!GFX_CHECK_RESOURCE(blitPipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
     }
+
+    gfx::PipelineStateDesc blurPipelineStateDesc;
+    blurPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+    blurPipelineStateDesc.vertexShader = vBlitShader;
+    blurPipelineStateDesc.pixelShader = pBlurShader;
+    blurPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
+
+    blurPipelineStateDesc.depthStencilState.enableDepth = false;
+    blurPipelineStateDesc.blendState.enableBlend = false;
+    blurPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+    blurPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
+    blurPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
+    blurPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+    gfx::PipelineState blurPipeline = gfx::CreatePipelineState(gfxDevice, &blurPipelineStateDesc);
+    if (!GFX_CHECK_RESOURCE(blurPipeline)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
+    }
+
    
     gfx::ImageDesc uiRenderTargetDesc;
     uiRenderTargetDesc.isRenderTarget = true;
@@ -1435,6 +1469,17 @@ int win32_main(int argc, char* argv[])
     gfx::Image paintRT = gfx::CreateImage(gfxDevice, &paintRTDesc);
     if (!GFX_CHECK_RESOURCE(paintRT)) {
         GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
+    }
+
+    gfx::ImageDesc mainRTDesc;
+    mainRTDesc.isRenderTarget = true;
+    mainRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    mainRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+    mainRTDesc.width = WINDOW_WIDTH;
+    mainRTDesc.height = WINDOW_HEIGHT;
+    gfx::Image mainRT = gfx::CreateImage(gfxDevice, &mainRTDesc);
+    if (!GFX_CHECK_RESOURCE(mainRT)) {
+        GT_LOG_ERROR("Renderer", "Failed to create main render target");
     }
 
     gfx::PipelineStateDesc paintObjPipelineStateDesc;
@@ -1497,10 +1542,15 @@ int win32_main(int argc, char* argv[])
     cubePaintDrawCall.psConstantInputs[0] = cPaintBuffer;
     cubePaintDrawCall.psImageInputs[0] = paintTexture[0];
 
-    gfx::DrawCall blitDrawCall;
-    blitDrawCall.pipelineState = blitPipeline;
-    blitDrawCall.numElements = 4;
-    blitDrawCall.psImageInputs[0] = uiRenderTarget;
+    
+
+    // @TODO depth attachment
+    gfx::RenderPassDesc mainRenderPassDesc;
+    mainRenderPassDesc.colorAttachments[0].image = mainRT;
+    gfx::RenderPass mainPass = gfx::CreateRenderPass(gfxDevice, &mainRenderPassDesc);
+    if (!GFX_CHECK_RESOURCE(mainPass)) {
+        GT_LOG_ERROR("Renderer", "Failed to create main render pass");
+    }
 
     gfx::RenderPassDesc uiPassDesc;
     uiPassDesc.colorAttachments[0].image = uiRenderTarget;
@@ -1988,7 +2038,7 @@ int win32_main(int argc, char* argv[])
         // draw geometry
         auto commandSubmissionTimerStart = GetCounter();
       
-        gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &clearAllAction);
+        gfx::BeginRenderPass(gfxDevice, cmdBuffer, mainPass, &clearAllAction);
         gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
@@ -2017,9 +2067,32 @@ int win32_main(int argc, char* argv[])
         }
 
         gfx::RenderPassAction blitAction;
+        blitAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+        
+        gfx::DrawCall blitDrawCall;
+        blitDrawCall.pipelineState = blitPipeline;
+        blitDrawCall.numElements = 4;
+        blitDrawCall.psImageInputs[0] = mainRT;
+
+        gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
+        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blitDrawCall);
+        gfx::EndRenderPass(gfxDevice, cmdBuffer);
+
+
         blitAction.colors[0].action = gfx::Action::ACTION_LOAD;
 
+        gfx::DrawCall blurDrawCall;
+        blurDrawCall.pipelineState = blurPipeline;
+        blurDrawCall.numElements = 4;
+        blurDrawCall.psImageInputs[0] = mainRT;
+        blurDrawCall.psImageInputs[1] = uiRenderTarget;
+
+        gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
+        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blurDrawCall);
+        gfx::EndRenderPass(gfxDevice, cmdBuffer);
+
         if (g_renderUIOffscreen) {
+            blitDrawCall.psImageInputs[0] = uiRenderTarget;
             gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
             gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blitDrawCall);
             gfx::EndRenderPass(gfxDevice, cmdBuffer);
