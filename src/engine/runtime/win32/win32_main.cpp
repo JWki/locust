@@ -1892,13 +1892,20 @@ int win32_main(int argc, char* argv[])
                     drawList->AddCircle(circleCenter, 25.0f * (brushSize / 300.0f), ImColor(1.0f, 1.0f, 1.0f, 1.0f), 64, 2.5f);
                     
                     ImGui::Dummy(ImVec2(100.0f, 50.0f));
-                    ImGuiColorEditFlags ceditFlags = ImGuiColorEditFlags_PickerHueWheel;
+                    static int pickerMode = 0;
+                    const ImGuiColorEditFlags modes[] = { ImGuiColorEditFlags_PickerHueBar, ImGuiColorEditFlags_PickerHueWheel };
+                    const char* labels[] = { "Hue Bar", "Hue Wheel" };
+                    ImGui::Combo("Color Picker Mode", &pickerMode, labels, ARRAYSIZE(labels));
+                    ImGuiColorEditFlags ceditFlags = 0;
+                    ceditFlags |= modes[pickerMode];
+                    ImGui::Spacing();
                     ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
 
                     ImGui::Spacing();
 
                     static size_t selectionIndex = 0;
 
+                    paintTexture[3] = uiRenderTarget;   // hehe
                     for (size_t i = 0; i < NUM_PAINT_TEXTURES; ++i) {
                         if (selectionIndex == i) {
                             ImGui::Text(ICON_FA_LINK " texture%llu", i);
