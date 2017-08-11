@@ -1178,7 +1178,7 @@ int win32_main(int argc, char* argv[])
 
 
     //object.transform[4 * 3 + 3] = 1.0f;
-    auto cubeMesh = par_shapes_create_parametric_sphere(35, 35);
+    auto cubeMesh = par_shapes_create_klein_bottle(35, 35);
     //par_shapes_translate(cubeMesh, 0.5f, 0.5f, 0.5f);
     //par_shapes_compute_normals(cubeMesh);
     
@@ -1291,6 +1291,7 @@ int win32_main(int argc, char* argv[])
     struct PaintConstantData
     {
         float modelToViewMatrix[16];
+        float modelToProjMatrix[16];
         math::float2 cursorPos;
         math::float2 _padding;
         math::float4 color;
@@ -1552,6 +1553,7 @@ int win32_main(int argc, char* argv[])
 
     gfx::RenderPassAction clearAllAction;
     clearAllAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+    clearAllAction.depth.action = gfx::Action::ACTION_CLEAR;
     float blue[] = { bgColor[0], bgColor[1], bgColor[2], 1.0f };
     memcpy(clearAllAction.colors[0].color, blue, sizeof(float) * 4);
 
@@ -1905,7 +1907,7 @@ int win32_main(int argc, char* argv[])
 
                     static size_t selectionIndex = 0;
 
-                    paintTexture[3] = uiRenderTarget;   // hehe
+                    //paintTexture[3] = uiRenderTarget;   // hehe
                     for (size_t i = 0; i < NUM_PAINT_TEXTURES; ++i) {
                         if (selectionIndex == i) {
                             ImGui::Text(ICON_FA_LINK " texture%llu", i);
@@ -1942,7 +1944,9 @@ int win32_main(int argc, char* argv[])
                     if (cBufferMem != nullptr) {
                         PaintConstantData* data = (PaintConstantData*)cBufferMem;
                         data->cursorPos = mousePosScreen.xy * steps + mousePosScreenCache.xy * (1.0f - steps);
-                        memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
+                        //memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
+                        util::Copy4x4FloatMatrix(modelView, data->modelToViewMatrix);
+                        util::Copy4x4FloatMatrix(object.transform, data->modelToProjMatrix);
                         data->color = object.color;
                         data->brushSize = brushSize;
                         gfx::UnmapBuffer(gfxDevice, cPaintBuffer);

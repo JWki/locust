@@ -105,6 +105,7 @@ namespace gfx
         // @HACK only needed for default render passes (swap chain render passes)
         // @TODO make this proper so a swap chain actually contains a fully formed image resource object
         ID3D11RenderTargetView* backbuffer = nullptr;
+        ID3D11DepthStencilView* depthBuffer = nullptr;
         uint32_t        width = 0;;
         uint32_t        height = 0;
         // @TODO
@@ -130,6 +131,7 @@ namespace gfx
 
         SwapChainDesc   desc;
 
+        ID3D11Texture2D*            depthBuffer         = nullptr;
         IDXGISwapChain*             swapChain           = nullptr;
         ID3D11RenderTargetView*     rtv                 = nullptr;
         ID3D11DepthStencilView*     dsv                 = nullptr;
@@ -967,17 +969,34 @@ namespace gfx
         res = device->d3dDevice->CreateRenderTargetView(pBackBuffer, &render_target_view_desc, &swapChain->rtv);
 
         // create depth stencil view for this swap chain
-        /*D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
+        D3D11_TEXTURE2D_DESC Desc;
+        ZeroMemory(&Desc, sizeof(D3D10_TEXTURE2D_DESC));
+        Desc.ArraySize = 1;
+        Desc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+        Desc.Usage = D3D11_USAGE_DEFAULT;
+        Desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;    // @TODO make configurable
+        Desc.Width = desc->width;
+        Desc.Height = desc->height;
+        Desc.MipLevels = 1;
+        Desc.SampleDesc.Count = 1;
+
+        res = device->d3dDevice->CreateTexture2D(&Desc, NULL, &swapChain->depthBuffer);
+        if (FAILED(res)) {
+            swapChain->swapChain->Release();
+            device->interf->swapChainPool.Free(result.id);
+            return { gfx::INVALID_ID };
+        }
+        D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc;
         ZeroMemory(&dsvDesc, sizeof(dsvDesc));
-        dsvDesc.Format = d3d11Desc.BufferDesc.Format;
+        dsvDesc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
         dsvDesc.ViewDimension = D3D11_DSV_DIMENSION::D3D11_DSV_DIMENSION_TEXTURE2D;
-        res = device->d3dDevice->CreateDepthStencilView(pBackBuffer, &dsvDesc, &swapChain->dsv);
+        res = device->d3dDevice->CreateDepthStencilView(swapChain->depthBuffer, &dsvDesc, &swapChain->dsv);
         if (FAILED(res)) {
             swapChain->swapChain->Release();
             swapChain->rtv->Release();
             device->interf->swapChainPool.Free(result.id);
             return { gfx::INVALID_ID };
-        }*/
+        }
 
         pBackBuffer->Release();
         //  create a default render pass for this swap chain
@@ -1081,6 +1100,7 @@ namespace gfx
                 dsClearFlags |= D3D11_CLEAR_STENCIL;
             }
             cmdBuf->d3dDC->ClearDepthStencilView(swpCh->dsv, dsClearFlags, action->depth.value, action->stencil.value);
+            cmdBuf->renderPass->depthBuffer = swpCh->dsv;
         }
     }
 
@@ -1112,6 +1132,7 @@ namespace gfx
                 dsClearFlags |= D3D11_CLEAR_STENCIL;
             }
             cmdBuf->d3dDC->ClearDepthStencilView(depthAttachment->dsv, dsClearFlags, action->depth.value, action->stencil.value);
+            cmdBuf->renderPass->depthBuffer = depthAttachment->dsv;
         }
     }
 
@@ -1158,7 +1179,7 @@ namespace gfx
         cmdBuf->d3dDC->RSSetViewports(1, &vp);
         // @HACK 
         if (cmdBuf->renderPass->backbuffer != nullptr) {
-            cmdBuf->d3dDC->OMSetRenderTargets(1, &cmdBuf->renderPass->backbuffer, nullptr);
+            cmdBuf->d3dDC->OMSetRenderTargets(1, &cmdBuf->renderPass->backbuffer, cmdBuf->renderPass->depthBuffer);
         }
         else {
             ID3D11RenderTargetView* renderTargets[GFX_MAX_COLOR_ATTACHMENTS];

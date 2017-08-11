@@ -1,7 +1,8 @@
 cbuffer Object : register(cb0) {
     float4x4    ObjToViewMatrix;
+    float4x4    ObjToProjMatrix;
     float2      CursorPos;
-    float2      _padding0;
+    //float2      _padding0;
     float4      Color;
     float       BrushSize;
     //float3      _padding1;
@@ -12,6 +13,7 @@ struct PixelInput
     float4 pos : SV_POSITION;
     float4 screenPos : TEXCOORD0;
     float2 uv : TEXCOORD1;
+    float NdV : TEXCOORD2;
 };
 
 Texture2D texture0;
@@ -28,5 +30,5 @@ float4 main(PixelInput vertex) : SV_TARGET
     //return float4(float3(1.0f, 1.0f, 1.0f) * (1.0f - dist), 1.0f);
     float3 color = Color.rgb * texture0.Sample(sampler0, vertex.uv * 4.0f).rgb;
     //return float4(color, alpha * Color.a * Color.a);
-	return float4(pow(color, 2.2f), alpha * Color.a * Color.a);
+	return float4(pow(color, 2.2f), clamp(vertex.NdV, 0.0f, 1.0f) * alpha * Color.a * Color.a );
 }
