@@ -154,7 +154,8 @@ namespace gfx
         PIXEL_FORMAT_R8G8B8A8_UNORM,
         PIXEL_FORMAT_R16G16B16A16_FLOAT,
         PIXEL_FORMAT_R8G8B8A8_UINT,
-        PIXEL_FORMAT_R16G16B16A16_UINT
+        PIXEL_FORMAT_R16G16B16A16_UINT,
+        PIXEL_FORMAT_D32_FLOAT_S8X24_UINT   // for depth stencil targets
     };
 
     /* interface contexts */
@@ -212,8 +213,9 @@ namespace gfx
     struct ImageDesc
     {
         ImageType   type            = ImageType::_DEFAULT;
-        bool        isRenderTarget    = false;
-        
+        bool        isRenderTarget  = false;
+        bool        isDepthStencilTarget = false;
+
         uint16_t    width           = 0;
         uint16_t    height          = 0;
         uint16_t    numMipmaps      = 1;

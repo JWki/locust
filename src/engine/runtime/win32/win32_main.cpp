@@ -493,6 +493,7 @@ double GetCounter()
 }
 
 bool g_renderUIOffscreen = true;
+bool g_enableUIBlur = true;
 
 extern LRESULT ImGui_ImplDX11_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
@@ -1482,6 +1483,18 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create main render target");
     }
 
+    gfx::ImageDesc mainDepthBufferDesc;
+    //mainDepthBufferDesc.isRenderTarget = true;
+    mainDepthBufferDesc.isDepthStencilTarget = true;
+    mainDepthBufferDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    mainDepthBufferDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_D32_FLOAT_S8X24_UINT;
+    mainDepthBufferDesc.width = WINDOW_WIDTH;
+    mainDepthBufferDesc.height = WINDOW_HEIGHT;
+    gfx::Image mainDepthBuffer = gfx::CreateImage(gfxDevice, &mainDepthBufferDesc);
+    if (!GFX_CHECK_RESOURCE(mainDepthBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create main depth buffer target");
+    }
+
     gfx::PipelineStateDesc paintObjPipelineStateDesc;
     paintObjPipelineStateDesc.blendState.enableBlend = true;
     paintObjPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
@@ -1547,6 +1560,7 @@ int win32_main(int argc, char* argv[])
     // @TODO depth attachment
     gfx::RenderPassDesc mainRenderPassDesc;
     mainRenderPassDesc.colorAttachments[0].image = mainRT;
+    mainRenderPassDesc.depthStencilAttachment.image = mainDepthBuffer;
     gfx::RenderPass mainPass = gfx::CreateRenderPass(gfxDevice, &mainRenderPassDesc);
     if (!GFX_CHECK_RESOURCE(mainPass)) {
         GT_LOG_ERROR("Renderer", "Failed to create main render pass");
@@ -1882,6 +1896,7 @@ int win32_main(int argc, char* argv[])
             
             ImGui::Begin("Foo"); {
                 ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
+                ImGui::Checkbox("Enable UI Blur Effect", &g_enableUIBlur);
             } ImGui::End();
 
             static math::float3 mousePosScreenCache(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
@@ -2081,16 +2096,17 @@ int win32_main(int argc, char* argv[])
 
         blitAction.colors[0].action = gfx::Action::ACTION_LOAD;
 
-        gfx::DrawCall blurDrawCall;
-        blurDrawCall.pipelineState = blurPipeline;
-        blurDrawCall.numElements = 4;
-        blurDrawCall.psImageInputs[0] = mainRT;
-        blurDrawCall.psImageInputs[1] = uiRenderTarget;
+        if (g_enableUIBlur) {
+            gfx::DrawCall blurDrawCall;
+            blurDrawCall.pipelineState = blurPipeline;
+            blurDrawCall.numElements = 4;
+            blurDrawCall.psImageInputs[0] = mainRT;
+            blurDrawCall.psImageInputs[1] = uiRenderTarget;
 
-        gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
-        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blurDrawCall);
-        gfx::EndRenderPass(gfxDevice, cmdBuffer);
-
+            gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
+            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blurDrawCall);
+            gfx::EndRenderPass(gfxDevice, cmdBuffer);
+        }
         if (g_renderUIOffscreen) {
             blitDrawCall.psImageInputs[0] = uiRenderTarget;
             gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);

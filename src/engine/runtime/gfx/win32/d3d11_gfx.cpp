@@ -491,10 +491,7 @@ namespace gfx
         DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
         DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UINT,
         DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_UINT,
-        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
-        DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
-        DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UINT,
-        DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_UINT
+        DXGI_FORMAT::DXGI_FORMAT_D32_FLOAT_S8X24_UINT
     };
 
     UINT g_pixelFormatComponentCount[] = {
@@ -582,7 +579,13 @@ namespace gfx
         texDesc.SampleDesc.Quality = 0;
 
         texDesc.Usage = g_resUsageTable[(uint8_t)usage];
-        texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        if (!desc->isDepthStencilTarget) {
+            texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        }
+        else {
+            texDesc.BindFlags = D3D11_BIND_DEPTH_STENCIL;
+            texDesc.Usage = D3D11_USAGE_DEFAULT;
+        }
         if (desc->isRenderTarget) {
             texDesc.BindFlags |= D3D11_BIND_RENDER_TARGET;
             texDesc.Usage = D3D11_USAGE_DEFAULT;
@@ -610,7 +613,7 @@ namespace gfx
             pData[i].SysMemPitch = desc->width * numComponents * componentSize;
             pData[i].SysMemSlicePitch = pData[i].SysMemPitch * desc->height;  // @TODO: Verify?
         }
-        assert(desc->isRenderTarget || !(usage == ResourceUsage::USAGE_IMMUTABLE && pDataPtr == nullptr));
+        assert((desc->isRenderTarget || desc->isDepthStencilTarget) || !(usage == ResourceUsage::USAGE_IMMUTABLE && pDataPtr == nullptr));
         
         // Create the texture
         HRESULT res = S_OK;
@@ -627,44 +630,45 @@ namespace gfx
             return { gfx::INVALID_ID };
         }
         
-        // Create a shader resource view
-        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
-        ZeroMemory(&srvDesc, sizeof(srvDesc));
-        srvDesc.Format = texDesc.Format;
-        srvDesc.ViewDimension = g_imageSRVDimensionTable[(uint8_t)desc->type];
-        switch (desc->type) {
-        case ImageType::IMAGE_TYPE_2D: {
-            srvDesc.Texture2D.MipLevels = desc->numMipmaps;
-            srvDesc.Texture2D.MostDetailedMip = 0;
-        } break;
-        default: {
-            assert(false);  // @TODO
-        } break;
-        }
-        // @TODO: avoid aliasing the I3D11TextureXXX union here
-        res = device->d3dDevice->CreateShaderResourceView(image->as_2DTexture, &srvDesc, &image->srv);
-        if (FAILED(res)) {
-            device->interf->imagePool.Free(result.id);
-            return { gfx::INVALID_ID };
-        }
+        // Create a shader resource view if we're not a depth stencil buffer
+        if (!desc->isDepthStencilTarget) {
+            D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc;
+            ZeroMemory(&srvDesc, sizeof(srvDesc));
+            srvDesc.Format = texDesc.Format;
+            srvDesc.ViewDimension = g_imageSRVDimensionTable[(uint8_t)desc->type];
+            switch (desc->type) {
+            case ImageType::IMAGE_TYPE_2D: {
+                srvDesc.Texture2D.MipLevels = desc->numMipmaps;
+                srvDesc.Texture2D.MostDetailedMip = 0;
+            } break;
+            default: {
+                assert(false);  // @TODO
+            } break;
+            }
+            // @TODO: avoid aliasing the I3D11TextureXXX union here
+            res = device->d3dDevice->CreateShaderResourceView(image->as_2DTexture, &srvDesc, &image->srv);
+            if (FAILED(res)) {
+                device->interf->imagePool.Free(result.id);
+                return { gfx::INVALID_ID };
+            }
 
-        // Create a sampler @HACK expose samplers to gfx API later
-        D3D11_SAMPLER_DESC samplerDesc;
-        ZeroMemory(&samplerDesc, sizeof(samplerDesc));
-        samplerDesc.AddressU = g_imageWrapModeTable[(uint8_t)desc->wrapU];
-        samplerDesc.AddressV = g_imageWrapModeTable[(uint8_t)desc->wrapV];
-        samplerDesc.AddressW = g_imageWrapModeTable[(uint8_t)desc->wrapW];
-        samplerDesc.MinLOD = 0.0f;
-        samplerDesc.MaxLOD = 0.0f;
-        samplerDesc.MipLODBias = 0.0f;
-        samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-        samplerDesc.Filter = g_filterModeTableFront[(uint8_t)desc->minFilter][(uint8_t)desc->magFilter];
-        res = device->d3dDevice->CreateSamplerState(&samplerDesc, &image->sampler);
-        if (FAILED(res)) {
-            device->interf->imagePool.Free(result.id);
-            return { gfx::INVALID_ID };
+            // Create a sampler @HACK expose samplers to gfx API later
+            D3D11_SAMPLER_DESC samplerDesc;
+            ZeroMemory(&samplerDesc, sizeof(samplerDesc));
+            samplerDesc.AddressU = g_imageWrapModeTable[(uint8_t)desc->wrapU];
+            samplerDesc.AddressV = g_imageWrapModeTable[(uint8_t)desc->wrapV];
+            samplerDesc.AddressW = g_imageWrapModeTable[(uint8_t)desc->wrapW];
+            samplerDesc.MinLOD = 0.0f;
+            samplerDesc.MaxLOD = 0.0f;
+            samplerDesc.MipLODBias = 0.0f;
+            samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+            samplerDesc.Filter = g_filterModeTableFront[(uint8_t)desc->minFilter][(uint8_t)desc->magFilter];
+            res = device->d3dDevice->CreateSamplerState(&samplerDesc, &image->sampler);
+            if (FAILED(res)) {
+                device->interf->imagePool.Free(result.id);
+                return { gfx::INVALID_ID };
+            }
         }
-
         // Create a render target view if we need to
         if (desc->isRenderTarget) {
             D3D11_RENDER_TARGET_VIEW_DESC render_target_view_desc;
@@ -1194,7 +1198,7 @@ namespace gfx
             ID3D11DepthStencilView* dsv = nullptr;
             if (GFX_CHECK_RESOURCE(cmdBuf->renderPass->desc.depthStencilAttachment.image)) {
                 D3D11Image* depthImage = device->interf->imagePool.Get(cmdBuf->renderPass->desc.depthStencilAttachment.image.id);
-                ID3D11DepthStencilView* dsv = depthImage->dsv;
+                dsv = depthImage->dsv;
             }
             cmdBuf->d3dDC->OMSetRenderTargets(numRenderTargets, renderTargets, dsv);
         }
