@@ -243,11 +243,14 @@ static void ImGui_ImplDX11_CreateFontsTexture()
 
     // Upload texture to graphics system
     
+    gfx::SamplerDesc defaultSamplerStateDesc;
+
     gfx::ImageDesc desc;
     desc.type = gfx::ImageType::IMAGE_TYPE_2D;
     desc.width = width;
     desc.height = height;
     desc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+    desc.samplerDesc = &defaultSamplerStateDesc;
     desc.numDataItems = 1;
     desc.initialData = (void**)&pixels;
     size_t size = width * height * 4;

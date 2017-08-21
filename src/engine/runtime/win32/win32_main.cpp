@@ -739,6 +739,138 @@ public:
 
 namespace util
 {
+    bool Inverse4x4FloatMatrix(float* m, float* invOut)
+    {
+        int i; 
+        float det;
+        float inv[16];
+
+        inv[0] = m[5] * m[10] * m[15] -
+            m[5] * m[11] * m[14] -
+            m[9] * m[6] * m[15] +
+            m[9] * m[7] * m[14] +
+            m[13] * m[6] * m[11] -
+            m[13] * m[7] * m[10];
+
+        inv[4] = -m[4] * m[10] * m[15] +
+            m[4] * m[11] * m[14] +
+            m[8] * m[6] * m[15] -
+            m[8] * m[7] * m[14] -
+            m[12] * m[6] * m[11] +
+            m[12] * m[7] * m[10];
+
+        inv[8] = m[4] * m[9] * m[15] -
+            m[4] * m[11] * m[13] -
+            m[8] * m[5] * m[15] +
+            m[8] * m[7] * m[13] +
+            m[12] * m[5] * m[11] -
+            m[12] * m[7] * m[9];
+
+        inv[12] = -m[4] * m[9] * m[14] +
+            m[4] * m[10] * m[13] +
+            m[8] * m[5] * m[14] -
+            m[8] * m[6] * m[13] -
+            m[12] * m[5] * m[10] +
+            m[12] * m[6] * m[9];
+
+        inv[1] = -m[1] * m[10] * m[15] +
+            m[1] * m[11] * m[14] +
+            m[9] * m[2] * m[15] -
+            m[9] * m[3] * m[14] -
+            m[13] * m[2] * m[11] +
+            m[13] * m[3] * m[10];
+
+        inv[5] = m[0] * m[10] * m[15] -
+            m[0] * m[11] * m[14] -
+            m[8] * m[2] * m[15] +
+            m[8] * m[3] * m[14] +
+            m[12] * m[2] * m[11] -
+            m[12] * m[3] * m[10];
+
+        inv[9] = -m[0] * m[9] * m[15] +
+            m[0] * m[11] * m[13] +
+            m[8] * m[1] * m[15] -
+            m[8] * m[3] * m[13] -
+            m[12] * m[1] * m[11] +
+            m[12] * m[3] * m[9];
+
+        inv[13] = m[0] * m[9] * m[14] -
+            m[0] * m[10] * m[13] -
+            m[8] * m[1] * m[14] +
+            m[8] * m[2] * m[13] +
+            m[12] * m[1] * m[10] -
+            m[12] * m[2] * m[9];
+
+        inv[2] = m[1] * m[6] * m[15] -
+            m[1] * m[7] * m[14] -
+            m[5] * m[2] * m[15] +
+            m[5] * m[3] * m[14] +
+            m[13] * m[2] * m[7] -
+            m[13] * m[3] * m[6];
+
+        inv[6] = -m[0] * m[6] * m[15] +
+            m[0] * m[7] * m[14] +
+            m[4] * m[2] * m[15] -
+            m[4] * m[3] * m[14] -
+            m[12] * m[2] * m[7] +
+            m[12] * m[3] * m[6];
+
+        inv[10] = m[0] * m[5] * m[15] -
+            m[0] * m[7] * m[13] -
+            m[4] * m[1] * m[15] +
+            m[4] * m[3] * m[13] +
+            m[12] * m[1] * m[7] -
+            m[12] * m[3] * m[5];
+
+        inv[14] = -m[0] * m[5] * m[14] +
+            m[0] * m[6] * m[13] +
+            m[4] * m[1] * m[14] -
+            m[4] * m[2] * m[13] -
+            m[12] * m[1] * m[6] +
+            m[12] * m[2] * m[5];
+
+        inv[3] = -m[1] * m[6] * m[11] +
+            m[1] * m[7] * m[10] +
+            m[5] * m[2] * m[11] -
+            m[5] * m[3] * m[10] -
+            m[9] * m[2] * m[7] +
+            m[9] * m[3] * m[6];
+
+        inv[7] = m[0] * m[6] * m[11] -
+            m[0] * m[7] * m[10] -
+            m[4] * m[2] * m[11] +
+            m[4] * m[3] * m[10] +
+            m[8] * m[2] * m[7] -
+            m[8] * m[3] * m[6];
+
+        inv[11] = -m[0] * m[5] * m[11] +
+            m[0] * m[7] * m[9] +
+            m[4] * m[1] * m[11] -
+            m[4] * m[3] * m[9] -
+            m[8] * m[1] * m[7] +
+            m[8] * m[3] * m[5];
+
+        inv[15] = m[0] * m[5] * m[10] -
+            m[0] * m[6] * m[9] -
+            m[4] * m[1] * m[10] +
+            m[4] * m[2] * m[9] +
+            m[8] * m[1] * m[6] -
+            m[8] * m[2] * m[5];
+
+        det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+
+        if (det == 0)
+            return false;
+
+        det = 1.0f / det;
+
+        for (i = 0; i < 16; i++)
+            invOut[i] = inv[i] * det;
+
+        return true;
+    }
+
+
     void Copy4x4FloatMatrix(float* matFrom, float* matTo)
     {
         memcpy(matTo, matFrom, sizeof(float) * 16);
@@ -1170,9 +1302,18 @@ int win32_main(int argc, char* argv[])
     }
 
     struct ConstantData {
-        float transform[16];
+        float MVP[16];
+        float MV[16];
+        float VP[16];
+        float view[16];
+        float inverseView[16];
+        float projection[16];
+        float model[16];
         math::float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
         math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 0.0f };
+        float metallic = 0.0f;
+        float roughness = 1.0f;
+        float _padding0[2];
     };
 
     float proj[16];
@@ -1181,11 +1322,15 @@ int win32_main(int argc, char* argv[])
     util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -0.4f, 2.75f });
 
     ConstantData object;
-    util::Make4x4FloatMatrixIdentity(object.transform);
-
+    util::Make4x4FloatMatrixIdentity(object.MVP);
+    util::Make4x4FloatMatrixIdentity(object.MV);
+    util::Make4x4FloatMatrixIdentity(object.VP);
+    util::Make4x4FloatMatrixIdentity(object.view);
+    util::Make4x4FloatMatrixIdentity(object.projection);
+    util::Make4x4FloatMatrixIdentity(object.model);
 
     //object.transform[4 * 3 + 3] = 1.0f;
-    auto cubeMesh = par_shapes_create_klein_bottle(35, 35);
+    auto cubeMesh = par_shapes_create_parametric_sphere(35, 35);
     //par_shapes_translate(cubeMesh, 0.5f, 0.5f, 0.5f);
     //par_shapes_compute_normals(cubeMesh);
     
@@ -1196,6 +1341,8 @@ int win32_main(int argc, char* argv[])
     int numCubeVertices = cubeMesh->npoints;
     int numCubeIndices = cubeMesh->ntriangles * 3;
     
+    gfx::SamplerDesc defaultSamplerStateDesc;
+
     gfx::Image cubeTexture;
     {
         int width, height, numComponents;
@@ -1212,6 +1359,7 @@ int win32_main(int argc, char* argv[])
         cubeTextureDesc.width = width;
         cubeTextureDesc.height = height;
         cubeTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        cubeTextureDesc.samplerDesc = &defaultSamplerStateDesc;
         cubeTextureDesc.numDataItems = 1;
         void* data[] = { image };
         size_t size = sizeof(stbi_uc) * width * height * 4;
@@ -1243,6 +1391,7 @@ int win32_main(int argc, char* argv[])
         paintTextureDesc.width = width;
         paintTextureDesc.height = height;
         paintTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        paintTextureDesc.samplerDesc = &defaultSamplerStateDesc;
         paintTextureDesc.numDataItems = 1;
         void* data[] = { image };
         size_t size = sizeof(stbi_uc) * width * height * 4;
@@ -1456,6 +1605,7 @@ int win32_main(int argc, char* argv[])
     uiRenderTargetDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
     uiRenderTargetDesc.width = WINDOW_WIDTH;
     uiRenderTargetDesc.height = WINDOW_HEIGHT;
+    uiRenderTargetDesc.samplerDesc = &defaultSamplerStateDesc;
     gfx::Image uiRenderTarget = gfx::CreateImage(gfxDevice, &uiRenderTargetDesc);
     if (!GFX_CHECK_RESOURCE(uiRenderTarget)) {
         GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
@@ -1467,6 +1617,7 @@ int win32_main(int argc, char* argv[])
     paintRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
     paintRTDesc.width = WINDOW_WIDTH;
     paintRTDesc.height = WINDOW_HEIGHT;
+    paintRTDesc.samplerDesc = &defaultSamplerStateDesc;
     gfx::Image paintRT = gfx::CreateImage(gfxDevice, &paintRTDesc);
     if (!GFX_CHECK_RESOURCE(paintRT)) {
         GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
@@ -1478,6 +1629,7 @@ int win32_main(int argc, char* argv[])
     mainRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
     mainRTDesc.width = WINDOW_WIDTH;
     mainRTDesc.height = WINDOW_HEIGHT;
+    mainRTDesc.samplerDesc = &defaultSamplerStateDesc;
     gfx::Image mainRT = gfx::CreateImage(gfxDevice, &mainRTDesc);
     if (!GFX_CHECK_RESOURCE(mainRT)) {
         GT_LOG_ERROR("Renderer", "Failed to create main render target");
@@ -1490,6 +1642,7 @@ int win32_main(int argc, char* argv[])
     mainDepthBufferDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_D32_FLOAT_S8X24_UINT;
     mainDepthBufferDesc.width = WINDOW_WIDTH;
     mainDepthBufferDesc.height = WINDOW_HEIGHT;
+    mainDepthBufferDesc.samplerDesc = &defaultSamplerStateDesc;
     gfx::Image mainDepthBuffer = gfx::CreateImage(gfxDevice, &mainDepthBufferDesc);
     if (!GFX_CHECK_RESOURCE(mainDepthBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create main depth buffer target");
@@ -1948,7 +2101,15 @@ int win32_main(int argc, char* argv[])
                     EditTransform(camera, proj, model);
                     ImGui::TreePop();
                 }
-                if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "    Material")) {
+                if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
+                    ImGui::SliderFloat("Metallic", &object.metallic, 0.0f, 1.0f);
+                    ImGui::SliderFloat("Roughness", &object.roughness, 0.0f, 1.0f);
+
+                    ImGui::TreePop();
+                }
+                if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "    Painting")) {
+                    
+                    
                     ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
                     ImGui::SameLine();
          
@@ -1998,7 +2159,13 @@ int win32_main(int argc, char* argv[])
            
             float modelView[16];
             util::MultiplyMatrices(model, camera, modelView);
-            util::MultiplyMatrices(modelView, proj, object.transform);
+            util::MultiplyMatrices(modelView, proj, object.MVP);
+            util::Copy4x4FloatMatrix(camera, object.view);
+            util::Inverse4x4FloatMatrix(camera, object.inverseView);
+            util::Copy4x4FloatMatrix(model, object.model);
+            util::Copy4x4FloatMatrix(modelView, object.MV);
+            util::Copy4x4FloatMatrix(proj, object.projection);
+            util::MultiplyMatrices(camera, proj, object.VP);
 
             //
             paint = ImGui::IsMouseDown(1);
@@ -2011,7 +2178,7 @@ int win32_main(int argc, char* argv[])
                         data->cursorPos = mousePosScreen.xy * steps + mousePosScreenCache.xy * (1.0f - steps);
                         //memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
                         util::Copy4x4FloatMatrix(modelView, data->modelToViewMatrix);
-                        util::Copy4x4FloatMatrix(object.transform, data->modelToProjMatrix);
+                        util::Copy4x4FloatMatrix(object.MVP, data->modelToProjMatrix);
                         data->color = object.color;
                         data->brushSize = brushSize;
                         gfx::UnmapBuffer(gfxDevice, cPaintBuffer);
@@ -2024,8 +2191,8 @@ int win32_main(int argc, char* argv[])
                 steps += stepSize;
             }
             mousePosScreenCache = mousePosScreen;
-            if(paint)
-            GT_LOG_INFO("Paintshop", "Did %f steps", steps / stepSize);
+            //if(paint)
+            //GT_LOG_INFO("Paintshop", "Did %f steps", steps / stepSize);
 
             /* End sim frame */
             ImGui::Render();

@@ -51,8 +51,9 @@ namespace gfx
 
     /* Resource handle types */
     
-    typedef struct { uint32_t id = INVALID_ID; } Buffer;     // A buffer for vertex/index/constant data
-    typedef struct { uint32_t id = INVALID_ID; } Image;      // A texture or render target
+    typedef struct { uint32_t id = INVALID_ID; } Buffer;    // A buffer for vertex/index/constant data
+    typedef struct { uint32_t id = INVALID_ID; } Image;     // A texture or render target
+    typedef struct { uint32_t id = INVALID_ID; } Sampler;   // texture sampler state 
 
     typedef struct { uint32_t id = INVALID_ID; } PipelineState;  // Wraps render states, vertex input layout, shader bindings...
     typedef struct { uint32_t id = INVALID_ID; } Shader;         // a compiled shader object @NOTE: pack vertex/pixel/etc shader into one object? PipelineObject?
@@ -210,6 +211,16 @@ namespace gfx
         size_t          initialDataSize = 0;
     };
 
+    struct SamplerDesc
+    {
+        FilterMode      minFilter = FilterMode::FILTER_LINEAR;
+        FilterMode      magFilter = FilterMode::FILTER_LINEAR;
+
+        WrapMode        wrapU = WrapMode::WRAP_REPEAT;
+        WrapMode        wrapV = WrapMode::WRAP_REPEAT;
+        WrapMode        wrapW = WrapMode::WRAP_REPEAT;
+    };
+
     struct ImageDesc
     {
         ImageType   type            = ImageType::_DEFAULT;
@@ -223,13 +234,9 @@ namespace gfx
         ResourceUsage   usage       = ResourceUsage::_DEFAULT;
         
         PixelFormat     pixelFormat = PixelFormat::_DEFAULT;
-        FilterMode      minFilter   = FilterMode::FILTER_LINEAR;
-        FilterMode      magFilter   = FilterMode::FILTER_LINEAR;
+        SamplerDesc*    samplerDesc = nullptr;
 
-        WrapMode        wrapU               = WrapMode::WRAP_REPEAT;
-        WrapMode        wrapV               = WrapMode::WRAP_REPEAT;
-        WrapMode        wrapW               = WrapMode::WRAP_REPEAT;
-
+        
         size_t          numDataItems        = 0;
         void**          initialData         = nullptr;
         size_t*         initialDataSizes    = nullptr;

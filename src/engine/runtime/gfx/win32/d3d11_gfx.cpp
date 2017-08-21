@@ -652,22 +652,26 @@ namespace gfx
                 return { gfx::INVALID_ID };
             }
 
-            // Create a sampler @HACK expose samplers to gfx API later
-            D3D11_SAMPLER_DESC samplerDesc;
-            ZeroMemory(&samplerDesc, sizeof(samplerDesc));
-            samplerDesc.AddressU = g_imageWrapModeTable[(uint8_t)desc->wrapU];
-            samplerDesc.AddressV = g_imageWrapModeTable[(uint8_t)desc->wrapV];
-            samplerDesc.AddressW = g_imageWrapModeTable[(uint8_t)desc->wrapW];
-            samplerDesc.MinLOD = 0.0f;
-            samplerDesc.MaxLOD = 0.0f;
-            samplerDesc.MipLODBias = 0.0f;
-            samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-            samplerDesc.Filter = g_filterModeTableFront[(uint8_t)desc->minFilter][(uint8_t)desc->magFilter];
-            res = device->d3dDevice->CreateSamplerState(&samplerDesc, &image->sampler);
-            if (FAILED(res)) {
-                device->interf->imagePool.Free(result.id);
-                return { gfx::INVALID_ID };
+            image->sampler = nullptr;
+            if (desc->samplerDesc != nullptr) {
+                // Create a sampler @HACK expose samplers to gfx API later
+                D3D11_SAMPLER_DESC samplerDesc;
+                ZeroMemory(&samplerDesc, sizeof(samplerDesc));
+                samplerDesc.AddressU = g_imageWrapModeTable[(uint8_t)desc->samplerDesc->wrapU];
+                samplerDesc.AddressV = g_imageWrapModeTable[(uint8_t)desc->samplerDesc->wrapV];
+                samplerDesc.AddressW = g_imageWrapModeTable[(uint8_t)desc->samplerDesc->wrapW];
+                samplerDesc.MinLOD = 0.0f;
+                samplerDesc.MaxLOD = 0.0f;
+                samplerDesc.MipLODBias = 0.0f;
+                samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
+                samplerDesc.Filter = g_filterModeTableFront[(uint8_t)desc->samplerDesc->minFilter][(uint8_t)desc->samplerDesc->magFilter];
+                res = device->d3dDevice->CreateSamplerState(&samplerDesc, &image->sampler);
+                if (FAILED(res)) {
+                    device->interf->imagePool.Free(result.id);
+                    return { gfx::INVALID_ID };
+                }
             }
+
         }
         // Create a render target view if we need to
         if (desc->isRenderTarget) {
@@ -1276,7 +1280,7 @@ namespace gfx
             cmdBuf->d3dDC->DSSetConstantBuffers(0, numDSConstantBuffers, dsConstantBuffers);
         }
 
-        // @HACK, just to see something
+        // @HACK - ish should do the same as with buffers (single bind call)
         for (int i = 0; i < GFX_MAX_IMAGE_INPUTS_PER_STAGE; ++i) {
             if (GFX_CHECK_RESOURCE(drawCall->psImageInputs[i])) {
                 auto imageObj = device->interf->imagePool.Get(drawCall->psImageInputs[i].id);
