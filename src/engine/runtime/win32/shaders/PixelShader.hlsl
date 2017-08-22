@@ -79,7 +79,7 @@ float4 main(PixelInput input) : SV_TARGET
  
     float4 paintColor = texture1.Sample(sampler1, input.uv.xy);
     float4 albedo = (texture0.Sample(sampler0, input.uv.xy) * paintColor.a + float4(pow(paintColor.rgb, 1.0f / 2.2f), 1.0f));
-    albedo = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    //albedo = float4(1.0f, 1.0f, 1.0f, 1.0f);
 
     float roughness = clamp(Roughness, 0.01f, 1.0f);
     float metallic = clamp(Metallic, 0.04f, 0.99f);
