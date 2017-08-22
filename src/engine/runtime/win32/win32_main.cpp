@@ -1372,36 +1372,104 @@ int win32_main(int argc, char* argv[])
         stbi_image_free(image);
     }
 
-    const size_t NUM_PAINT_TEXTURES = 4;
-    gfx::Image paintTexture[NUM_PAINT_TEXTURES];
-    char fileNameBuf[512] = "";
-    for(size_t i = 0; i < NUM_PAINT_TEXTURES; ++i) {
-        int width, height, numComponents;
-        snprintf(fileNameBuf, 512, "../../texture%llu.png", i);
-        auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
+    struct Material
+    {
+        gfx::Image diffuse;
+        gfx::Image roughness;
+        gfx::Image metallic;
+    };
 
-        gfx::ImageDesc paintTextureDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        paintTextureDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        paintTextureDesc.width = width;
-        paintTextureDesc.height = height;
-        paintTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        paintTextureDesc.samplerDesc = &defaultSamplerStateDesc;
-        paintTextureDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(stbi_uc) * width * height * 4;
-        paintTextureDesc.initialData = data;
-        paintTextureDesc.initialDataSizes = &size;
-        paintTexture[i] = gfx::CreateImage(gfxDevice, &paintTextureDesc);
-        if (!GFX_CHECK_RESOURCE(paintTexture[i])) {
-            GT_LOG_ERROR("Renderer", "Failed to create texture");
+    const size_t NUM_MATERIALS = 4;
+    Material materials[NUM_MATERIALS];
+    char fileNameBuf[512] = "";
+    for(size_t i = 0; i < NUM_MATERIALS; ++i) {
+
+        {   // diffuse
+            int width, height, numComponents;
+            snprintf(fileNameBuf, 512, "../../diffuse%llu.png", i);
+            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
+            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+            if (image == NULL) {
+                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+            }
+            //assert(numComponents == 4);
+
+            gfx::ImageDesc diffDesc;
+            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+            diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+            diffDesc.width = width;
+            diffDesc.height = height;
+            diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+            diffDesc.samplerDesc = &defaultSamplerStateDesc;
+            diffDesc.numDataItems = 1;
+            void* data[] = { image };
+            size_t size = sizeof(stbi_uc) * width * height * 4;
+            diffDesc.initialData = data;
+            diffDesc.initialDataSizes = &size;
+            materials[i].diffuse = gfx::CreateImage(gfxDevice, &diffDesc);
+            if (!GFX_CHECK_RESOURCE(materials[i].diffuse)) {
+                GT_LOG_ERROR("Renderer", "Failed to create texture");
+            }
+            stbi_image_free(image);
         }
-        stbi_image_free(image);
+
+        {   // roughness
+            int width, height, numComponents;
+            snprintf(fileNameBuf, 512, "../../roughness%llu.png", i);
+            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
+            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+            if (image == NULL) {
+                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+            }
+            //assert(numComponents == 4);
+
+            gfx::ImageDesc roughDesc;
+            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+            roughDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+            roughDesc.width = width;
+            roughDesc.height = height;
+            roughDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+            roughDesc.samplerDesc = &defaultSamplerStateDesc;
+            roughDesc.numDataItems = 1;
+            void* data[] = { image };
+            size_t size = sizeof(stbi_uc) * width * height * 4;
+            roughDesc.initialData = data;
+            roughDesc.initialDataSizes = &size;
+            materials[i].roughness = gfx::CreateImage(gfxDevice, &roughDesc);
+            if (!GFX_CHECK_RESOURCE(materials[i].roughness)) {
+                GT_LOG_ERROR("Renderer", "Failed to create texture");
+            }
+            stbi_image_free(image);
+        }
+
+        {   // metallic
+            int width, height, numComponents;
+            snprintf(fileNameBuf, 512, "../../metallic%llu.png", i);
+            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
+            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+            if (image == NULL) {
+                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+            }
+            //assert(numComponents == 4);
+
+            gfx::ImageDesc metalDesc;
+            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+            metalDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+            metalDesc.width = width;
+            metalDesc.height = height;
+            metalDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+            metalDesc.samplerDesc = &defaultSamplerStateDesc;
+            metalDesc.numDataItems = 1;
+            void* data[] = { image };
+            size_t size = sizeof(stbi_uc) * width * height * 4;
+            metalDesc.initialData = data;
+            metalDesc.initialDataSizes = &size;
+            materials[i].metallic = gfx::CreateImage(gfxDevice, &metalDesc);
+            if (!GFX_CHECK_RESOURCE(materials[i].metallic)) {
+                GT_LOG_ERROR("Renderer", "Failed to create texture");
+            }
+            stbi_image_free(image);
+        }
     }
 
     gfx::BufferDesc cubeVertexBufferDesc;
@@ -1732,9 +1800,7 @@ int win32_main(int argc, char* argv[])
     cubePaintDrawCall.pipelineState = paintObjPipelineState;
     cubePaintDrawCall.vsConstantInputs[0] = cPaintBuffer;
     cubePaintDrawCall.psConstantInputs[0] = cPaintBuffer;
-    cubePaintDrawCall.psImageInputs[0] = paintTexture[0];
 
-    
 
     // @TODO depth attachment
     gfx::RenderPassDesc mainRenderPassDesc;
@@ -2163,27 +2229,39 @@ int win32_main(int argc, char* argv[])
                     static size_t selectionIndex = 0;
 
                     //paintTexture[3] = uiRenderTarget;   // hehe
-                    for (size_t i = 0; i < NUM_PAINT_TEXTURES; ++i) {
-                        if (selectionIndex == i) {
-                            ImGui::Text(ICON_FA_LINK " texture%llu", i);
-                        }
-                        else {
-                            ImGui::Text(ICON_FA_CHAIN_BROKEN " texture%llu", i);
-                        }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                            selectionIndex = i;
-                        }
+                    for (size_t i = 0; i < NUM_MATERIALS; ++i) {
+                        ImGui::PushID((int)i);
+                        if (ImGui::TreeNode("Material", "Material %llu", i)) {
+                            if (selectionIndex == i) {
+                                ImGui::Text(ICON_FA_LOCK);
+                            }
+                            else {
+                                ImGui::Text(ICON_FA_UNLOCK);
+                            }
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                selectionIndex = i;
+                            }
 
-                        ImGui::Image((ImTextureID)(uintptr_t)paintTexture[i].id, ImVec2(256, 256));
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                            selectionIndex = i;
-                        }
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].diffuse.id, ImVec2(256, 256));
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                selectionIndex = i;
+                            }
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].roughness.id, ImVec2(256, 256));
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                selectionIndex = i;
+                            }
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].metallic.id, ImVec2(256, 256));
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                selectionIndex = i;
+                            }
+
+                            ImGui::TreePop();
+                        } ImGui::PopID();
                     }
-                    cubePaintDrawCall.psImageInputs[0] = paintTexture[selectionIndex];
 
-                    cubePaintDrawCall.psImageInputs[0] = paintTexture[1];
-                    cubePaintDrawCall.psImageInputs[1] = paintTexture[2];
-                    cubePaintDrawCall.psImageInputs[2] = paintTexture[3];
+                    cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
+                    cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
+                    cubePaintDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
 
                     ImGui::TreePop();
                 }
