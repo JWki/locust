@@ -22,11 +22,15 @@ struct PixelInput
     float4 worldPos : TEXCOORD1;
 };
 
-Texture2D texture0;
-sampler   sampler0;
+Texture2D texture0 : register(t0);
+sampler   sampler0 : register(s0);
 
-Texture2D texture1;
-sampler   sampler1;
+Texture2D paintDiffuse : register(t1);
+sampler   sampler1 : register(s1);
+Texture2D paintRoughness : register(t2);
+sampler   sampler2 : register(s2);
+Texture2D paintMetallic : register(t3);
+sampler   sampler3 : register(s3);
 
 static const float PI = 3.14159264359f;
 
@@ -77,12 +81,16 @@ float4 main(PixelInput input) : SV_TARGET
     float3 L = normalize(-LightDir).xyz;
     float3 H = normalize(L + V);
  
-    float4 paintColor = texture1.Sample(sampler1, input.uv.xy);
+    float4 paintColor = paintDiffuse.Sample(sampler1, input.uv.xy);
     float4 albedo = (texture0.Sample(sampler0, input.uv.xy) * paintColor.a + float4(pow(paintColor.rgb, 1.0f / 2.2f), 1.0f));
     //albedo = float4(1.0f, 1.0f, 1.0f, 1.0f);
 
-    float roughness = clamp(Roughness, 0.01f, 1.0f);
-    float metallic = clamp(Metallic, 0.04f, 0.99f);
+    float roughness = paintRoughness.Sample(sampler2, input.uv.xy).r;
+    float metallic = paintMetallic.Sample(sampler2, input.uv.xy).r;
+
+    
+    roughness = clamp(roughness, 0.01f, 1.0f);
+    metallic = clamp(metallic, 0.04f, 0.99f);
 
     float3 F0 = float3(0.04f, 0.04f, 0.04f);
     F0 = lerp(F0, albedo.rgb, metallic);

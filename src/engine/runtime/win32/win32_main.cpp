@@ -1611,15 +1611,39 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
     }
 
-    gfx::ImageDesc paintRTDesc;
-    paintRTDesc.isRenderTarget = true;
-    paintRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    paintRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
-    paintRTDesc.width = WINDOW_WIDTH;
-    paintRTDesc.height = WINDOW_HEIGHT;
-    paintRTDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image paintRT = gfx::CreateImage(gfxDevice, &paintRTDesc);
-    if (!GFX_CHECK_RESOURCE(paintRT)) {
+    gfx::ImageDesc paintDiffuseRTDesc;
+    paintDiffuseRTDesc.isRenderTarget = true;
+    paintDiffuseRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    paintDiffuseRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+    paintDiffuseRTDesc.width = WINDOW_WIDTH;
+    paintDiffuseRTDesc.height = WINDOW_HEIGHT;
+    paintDiffuseRTDesc.samplerDesc = &defaultSamplerStateDesc;
+    gfx::Image paintDiffuseRT = gfx::CreateImage(gfxDevice, &paintDiffuseRTDesc);
+    if (!GFX_CHECK_RESOURCE(paintDiffuseRT)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
+    }
+
+    gfx::ImageDesc paintRoughnessRTDesc;
+    paintRoughnessRTDesc.isRenderTarget = true;
+    paintRoughnessRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    paintRoughnessRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+    paintRoughnessRTDesc.width = WINDOW_WIDTH;
+    paintRoughnessRTDesc.height = WINDOW_HEIGHT;
+    paintRoughnessRTDesc.samplerDesc = &defaultSamplerStateDesc;
+    gfx::Image paintRoughnessRT = gfx::CreateImage(gfxDevice, &paintRoughnessRTDesc);
+    if (!GFX_CHECK_RESOURCE(paintRoughnessRT)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
+    }
+
+    gfx::ImageDesc paintMetallicRTDesc;
+    paintMetallicRTDesc.isRenderTarget = true;
+    paintMetallicRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    paintMetallicRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+    paintMetallicRTDesc.width = WINDOW_WIDTH;
+    paintMetallicRTDesc.height = WINDOW_HEIGHT;
+    paintMetallicRTDesc.samplerDesc = &defaultSamplerStateDesc;
+    gfx::Image paintMetallicRT = gfx::CreateImage(gfxDevice, &paintMetallicRTDesc);
+    if (!GFX_CHECK_RESOURCE(paintMetallicRT)) {
         GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
     }
 
@@ -1689,7 +1713,9 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
     cubeDrawCall.psConstantInputs[0] = cBuffer;
     cubeDrawCall.psImageInputs[0] = cubeTexture;
-    cubeDrawCall.psImageInputs[1] = paintRT;
+    cubeDrawCall.psImageInputs[1] = paintDiffuseRT;
+    cubeDrawCall.psImageInputs[2] = paintRoughnessRT;
+    cubeDrawCall.psImageInputs[3] = paintMetallicRT;
 
     gfx::DrawCall cubePaintDrawCall;
     cubePaintDrawCall.vertexBuffers[0] = cubeVertexBuffer;
@@ -1727,7 +1753,9 @@ int win32_main(int argc, char* argv[])
     }
 
     gfx::RenderPassDesc paintPassDesc;
-    paintPassDesc.colorAttachments[0].image = paintRT;
+    paintPassDesc.colorAttachments[0].image = paintDiffuseRT;
+    paintPassDesc.colorAttachments[1].image = paintRoughnessRT;
+    paintPassDesc.colorAttachments[2].image = paintMetallicRT;
     gfx::RenderPass paintPass = gfx::CreateRenderPass(gfxDevice, &paintPassDesc);
     if (!GFX_CHECK_RESOURCE(paintPass)) {
         GT_LOG_ERROR("Renderer", "Failed to create render pass for painting");
@@ -1999,7 +2027,7 @@ int win32_main(int argc, char* argv[])
                 gfx::EndRenderPass(gfxDevice, cmdBuffer);
                 clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
             }
-            ImGui::Image((ImTextureID)(uintptr_t)paintRT.id, ImVec2(512, 512));
+            ImGui::Image((ImTextureID)(uintptr_t)paintDiffuseRT.id, ImVec2(512, 512));
 
             if (ImGui::Begin("Networking", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
                 Port port = 0;
@@ -2152,6 +2180,10 @@ int win32_main(int argc, char* argv[])
                         }
                     }
                     cubePaintDrawCall.psImageInputs[0] = paintTexture[selectionIndex];
+
+                    cubePaintDrawCall.psImageInputs[0] = paintTexture[1];
+                    cubePaintDrawCall.psImageInputs[1] = paintTexture[2];
+                    cubePaintDrawCall.psImageInputs[2] = paintTexture[3];
 
                     ImGui::TreePop();
                 }

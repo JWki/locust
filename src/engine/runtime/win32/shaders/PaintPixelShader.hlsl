@@ -16,19 +16,36 @@ struct PixelInput
     float NdV : TEXCOORD2;
 };
 
-Texture2D texture0;
-sampler   sampler0;
+struct PixelOutput
+{
+    float4 diffuse : SV_TARGET0;
+    float4 roughness : SV_TARGET1;   
+    float4 metallic : SV_TARGET2;
+};
 
-float4 main(PixelInput vertex) : SV_TARGET
+Texture2D diffuse : register(t0);
+sampler   sampler0 : register(s0);
+
+Texture2D roughness : register(t1);
+sampler   sampler1 : register(s1);
+
+Texture2D metallic : register(t2);
+sampler   sampler2 : register(s2);
+
+PixelOutput main(PixelInput vertex) 
 {
    
     float2 cPos = float2(CursorPos.x / 1920.0f, 1.0f - (CursorPos.y / 1080.0f)) * float2(2.0f, 2.0f) - float2(1.0f, 1.0f);
     float dist = length((vertex.screenPos.xy - cPos) * float2((1920.0f / 1080.0f), 1.0f));
     float alpha = clamp((1.0f - dist* (1080.0f / BrushSize)), 0.0f, 1.0f);
-    //return float4(vertex.screenPos.xy, 0.0f, 1.0f);
-    //return float4(vertex.screenPos.xy, 0.0f, dist);
-    //return float4(float3(1.0f, 1.0f, 1.0f) * (1.0f - dist), 1.0f);
-    float3 color = Color.rgb * texture0.Sample(sampler0, vertex.uv * 4.0f).rgb;
-    //return float4(color, alpha * Color.a * Color.a);
-	return float4(pow(color, 2.2f), clamp(vertex.NdV, 0.0f, 1.0f) * alpha * Color.a * Color.a );
+
+    float3 color = Color.rgb * diffuse.Sample(sampler0, vertex.uv * 4.0f).rgb;
+    float a = clamp(vertex.NdV, 0.0f, 1.0f) * alpha * Color.a * Color.a;
+
+    PixelOutput output;
+    output.diffuse = float4(pow(color, 2.2f), a);
+    output.roughness = float4(roughness.Sample(sampler1, vertex.uv * 4.0f).r, 0.0f, 0.0f, a);
+    output.metallic = float4(metallic.Sample(sampler2, vertex.uv * 4.0f).r, 0.0f, 0.0f, a);
+
+    return output;
 }
