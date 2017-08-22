@@ -1201,7 +1201,7 @@ int win32_main(int argc, char* argv[])
     GT_LOG_INFO("Application", "Created application window");
 
     //const float bgColor[] = { 100.0f / 255.0f, 149.0f / 255.0f, 237.0f / 255.0f };
-    const float bgColor[] = { 0.0f, 0.0f, 0.0f };
+    const float bgColor[] = { 0.2f, 0.2f, 0.2f };
     bool paint = false;
     // Initialize Direct3D
     /*if (CreateDeviceD3D(g_hwnd) < 0)
@@ -2050,6 +2050,7 @@ int win32_main(int argc, char* argv[])
             ImGui::Begin("Foo"); {
                 ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
                 ImGui::Checkbox("Enable UI Blur Effect", &g_enableUIBlur);
+                ImGui::ColorPicker4("Background Color", clearAllAction.colors[0].color, ImGuiColorEditFlags_PickerHueWheel);
             } ImGui::End();
 
             static math::float3 mousePosScreenCache(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);

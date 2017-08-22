@@ -35,12 +35,11 @@ float3 FresnelSchlick(float cosTheta, float3 F0)
     return F0 + (float3(1.0f, 1.0f, 1.0f) - F0) * pow(1.0f - cosTheta, 5.0f);
 }
 
-float DistributionGGX(float3 N, float3 H, float roughness)
+float DistributionGGX(float NdotH, float roughness)
 {
     float a = roughness * roughness;
     float a2 = a * a;
 
-    float NdotH = saturate(dot(N, H));
     float NdotH2 = NdotH * NdotH;
 
     float nom = a2;
@@ -61,10 +60,8 @@ float GeometrySchlickGGX(float NdotV, float roughness)
     return nom / denom;
 }
 
-float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
+float GeometrySmith(float NdotV, float NdotL, float roughness)
 {
-    float NdotV = saturate(dot(N, V));
-    float NdotL = saturate(dot(N, L));
     float ggx2 = GeometrySchlickGGX(NdotV, roughness);
     float ggx1 = GeometrySchlickGGX(NdotL, roughness);
 
@@ -73,11 +70,11 @@ float GeometrySmith(float3 N, float3 V, float3 L, float roughness)
 
 float4 main(PixelInput input) : SV_TARGET
 {
-    float3 L = normalize(-LightDir.xyz);
-    float3 N = normalize(input.normal).xyz;
-    
     float3 viewPos = mul(InverseView, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
+
+    float3 N = normalize(input.normal).xyz;
     float3 V = normalize(viewPos - input.worldPos.xyz);
+    float3 L = normalize(-LightDir).xyz;
     float3 H = normalize(L + V);
  
     float4 paintColor = texture1.Sample(sampler1, input.uv.xy);
@@ -90,12 +87,17 @@ float4 main(PixelInput input) : SV_TARGET
     float3 F0 = float3(0.04f, 0.04f, 0.04f);
     F0 = lerp(F0, albedo.rgb, metallic);
 
-    float NDF = DistributionGGX(N, H, roughness);
-    float G = GeometrySmith(N, V, L, roughness);
-    float3 F = FresnelSchlick(saturate(dot(H, V)), F0);
+    float NdotH = saturate(dot(N, H));
+    float NdotV = saturate(dot(N, V));
+    float NdotL = saturate(dot(N, L));
+    float HdotV = saturate(dot(H, V));
+
+    float NDF = DistributionGGX(NdotL, roughness);
+    float G = GeometrySmith(NdotV, NdotL, roughness);
+    float3 F = FresnelSchlick(HdotV, F0);
    
     float3 nominator = NDF * G * F;
-    float denominator = 4.0f * saturate(dot(N, V)) * saturate(dot(N, L)) + 0.001f;
+    float denominator = 4.0f * NdotV * NdotL + 0.001f;
     
     float3 specular = nominator / denominator;
 
@@ -103,15 +105,19 @@ float4 main(PixelInput input) : SV_TARGET
     float3 kD = 1.0f - kS;
     kD *= 1.0f - metallic;
 
-    float NdotL = saturate(dot(N, L));
     float3 directLight = NdotL * (kD * albedo.rgb / PI + specular);
 
-    //return float4(1.0f, 1.0f, 1.0f, 1.0f) * NDF;
-    
+    //return float4(float3(1.0f, 1.0f, 1.0f) * NdotH, 1.0f);
+    //return float4(float3(1.0f, 1.0f, 1.0f) * NDF, 1.0f);
+    //return float4(float3(1.0f, 1.0f, 1.0f) * G, 1.0f);
+    //return float4(F, 1.0f);
     //return float4(input.worldPos.xyz, 1.0f);
     
     //return float4(1.0f, 1.0f, 1.0f, 1.0f) * (1.0f - saturate(dot(N, V)));
     //return float4(F, 1.0f);
         
+    //return float4(float3(1.0f, 1.0f, 1.0f) * saturate(dot(N, V)), 1.0f);
+    //return float4(float3(1.0f, 1.0f, 1.0f) * saturate(dot(H, V)), 1.0f);
+
     return float4(directLight * albedo.rgb, 1.0f);
 }

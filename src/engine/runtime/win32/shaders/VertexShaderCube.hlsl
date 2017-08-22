@@ -37,7 +37,7 @@ PixelInput main(Vertex vertex)
     output.pos = mul(ModelViewProjection, vertex.pos);
     output.worldPos = mul(Model, vertex.pos);
     output.color = Color;
-    output.normal = mul(ModelViewProjection, float4(vertex.normal.xyz, 0.0f));
+    output.normal = mul(Model, float4(vertex.normal.xyz, 0.0f));
     output.uv = vertex.uv;
     //output.uv = (vertex.pos.xy + 0.5f);
     //output.uv.y = -output.uv.y;
