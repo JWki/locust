@@ -22,15 +22,19 @@ struct PixelInput
     float4 worldPos : TEXCOORD1;
 };
 
-Texture2D texture0 : register(t0);
+Texture2D diffuseMap : register(t0);
 sampler   sampler0 : register(s0);
-
-Texture2D paintDiffuse : register(t1);
+Texture2D roughnessMap : register(t1);
 sampler   sampler1 : register(s1);
-Texture2D paintRoughness : register(t2);
+Texture2D metallicMap : register(t2);
 sampler   sampler2 : register(s2);
-Texture2D paintMetallic : register(t3);
+
+Texture2D paintDiffuse : register(t3);
 sampler   sampler3 : register(s3);
+Texture2D paintRoughness : register(t4);
+sampler   sampler4 : register(s4);
+Texture2D paintMetallic : register(t5);
+sampler   sampler5 : register(s5);
 
 static const float PI = 3.14159264359f;
 
@@ -78,17 +82,20 @@ float4 main(PixelInput input) : SV_TARGET
 
     float3 N = normalize(input.normal).xyz;
     float3 V = normalize(viewPos - input.worldPos.xyz);
-    float3 L = normalize(-LightDir).xyz;
+    float3 L = normalize(-LightDir.xyz);
     float3 H = normalize(L + V);
  
     float4 paintColor = paintDiffuse.Sample(sampler1, input.uv.xy);
-    float4 albedo = (texture0.Sample(sampler0, input.uv.xy) * paintColor.a + float4(pow(paintColor.rgb, 1.0f / 2.2f), 1.0f));
+    float4 albedo = (pow(diffuseMap.Sample(sampler0, input.uv.xy), 2.2f) * paintColor.a + float4(paintColor.rgb, 1.0f));
     //albedo = float4(1.0f, 1.0f, 1.0f, 1.0f);
 
-    float roughness = paintRoughness.Sample(sampler2, input.uv.xy).r;
-    float metallic = paintMetallic.Sample(sampler2, input.uv.xy).r;
+    float roughness = paintRoughness.Sample(sampler4, input.uv.xy).r;
+    float metallic = paintMetallic.Sample(sampler5, input.uv.xy).r;
 
-    
+    roughness = roughnessMap.Sample(sampler1, input.uv.xy).r * paintColor.a + roughness;;
+    metallic = metallicMap.Sample(sampler2, input.uv.xy).r * paintColor.a + roughness;
+
+
     roughness = clamp(roughness, 0.01f, 1.0f);
     metallic = clamp(metallic, 0.04f, 0.99f);
 
@@ -113,7 +120,7 @@ float4 main(PixelInput input) : SV_TARGET
     float3 kD = 1.0f - kS;
     kD *= 1.0f - metallic;
 
-    float3 directLight = NdotL * (kD * albedo.rgb / PI + specular);
+    float3 directLight = LightDir.w * NdotL * (kD * albedo.rgb / PI + specular);
 
     //return float4(float3(1.0f, 1.0f, 1.0f) * NdotH, 1.0f);
     //return float4(float3(1.0f, 1.0f, 1.0f) * NDF, 1.0f);
@@ -126,6 +133,8 @@ float4 main(PixelInput input) : SV_TARGET
         
     //return float4(float3(1.0f, 1.0f, 1.0f) * saturate(dot(N, V)), 1.0f);
     //return float4(float3(1.0f, 1.0f, 1.0f) * saturate(dot(H, V)), 1.0f);
+
+    //return float4(float3(1.0f, 1.0f, 1.0f) * metallic, 1.0f);
 
     return float4(directLight * albedo.rgb, 1.0f);
 }

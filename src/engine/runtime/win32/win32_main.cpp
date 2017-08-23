@@ -1092,6 +1092,14 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
 //#define STBI_NO_STDIO
 #include <stb/stb_image.h>
 
+
+#include <engine/tools/fbx_importer/fbx_importer.h>
+typedef FBXScene(*FBXLoadSceneFromMemoryFunc)(void*, size_t);
+typedef size_t(*FBXGetMeshCountFunc)(FBXScene);
+typedef FBXMesh(*FBXGetMeshWithIndexFunc)(FBXScene, int);
+typedef bool(*FBXGetMeshInfoFunc)(FBXMesh, FBXMeshInfo*);
+typedef bool(*FBXGetDataFunc)(FBXMesh, float*, size_t);
+
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
 {
@@ -1137,7 +1145,7 @@ int win32_main(int argc, char* argv[])
 
     GT_LOG_INFO("Application", "Initialized memory systems");
     
-   
+   /*
     const size_t NUM_WORKER_THREADS = 4;
     WorkerThread workerThreads[NUM_WORKER_THREADS];
     for (int i = 0; i < NUM_WORKER_THREADS; ++i) {
@@ -1155,7 +1163,7 @@ int win32_main(int argc, char* argv[])
         }, reinterpret_cast<void*>(&workerThreads[i]), 0, NULL);
     }
     GT_LOG_INFO("Application", "Created %llu worker threads", NUM_WORKER_THREADS);
-
+    */
     //
     
     ToolServer toolServer;
@@ -1244,6 +1252,12 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
     }
 
+    size_t pTonemapShaderCodeSize = 0;
+    char* pTonemapShaderCode = static_cast<char*>(LoadFileContents("TonemapPixelShader.cso", &applicationArena, &pTonemapShaderCodeSize));
+    if (!pTonemapShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
+    }
+
     size_t pBlurShaderCodeSize = 0;
     char* pBlurShaderCode = static_cast<char*>(LoadFileContents("SelectiveBlurPixelShader.cso", &applicationArena, &pBlurShaderCodeSize));
     if (!pBlurShaderCode) {
@@ -1329,10 +1343,44 @@ int win32_main(int argc, char* argv[])
     util::Make4x4FloatMatrixIdentity(object.projection);
     util::Make4x4FloatMatrixIdentity(object.model);
 
-    //object.transform[4 * 3 + 3] = 1.0f;
-    auto cubeMesh = par_shapes_create_parametric_sphere(35, 35);
+    //
+
+    HMODULE fbxImporter = LoadLibraryA("fbx_importer.dll");
+    if (!fbxImporter) {
+        GT_LOG_ERROR("Assets", "Failed to load %s", "fbx_importer.dll");
+    }
+    auto FBXLoadSceneFromMemory = (FBXLoadSceneFromMemoryFunc)GetProcAddress(fbxImporter, "FBXLoadSceneFromMemory");
+    if (!FBXLoadSceneFromMemory) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXLoadSceneFromMemory", "fbx_importer.dll");
+    }
+    auto FBXGetMeshWithIndex = (FBXGetMeshWithIndexFunc)GetProcAddress(fbxImporter, "FBXGetMeshWithIndex");
+    if (!FBXGetMeshWithIndex) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshWithIndex", "fbx_importer.dll");
+    }
+    auto FBXGetMeshCount = (FBXGetMeshCountFunc)GetProcAddress(fbxImporter, "FBXGetMeshCount");
+    if (!FBXGetMeshCount) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshCount", "fbx_importer.dll");
+    }
+    auto FBXGetMeshInfo = (FBXGetMeshInfoFunc)GetProcAddress(fbxImporter, "FBXGetMeshInfo");
+    if (!FBXGetMeshInfo) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshInfo", "fbx_importer.dll");
+    }
+    auto FBXGetNormals = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetNormals");
+    if (!FBXGetNormals) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetNormals", "fbx_importer.dll");
+    }
+    auto FBXGetTexcoords = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetTexcoords");
+    if (!FBXGetTexcoords) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetTexcoords", "fbx_importer.dll");
+    }
+    auto FBXGetVertexPositions = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetVertexPositions");
+    if (!FBXGetVertexPositions) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetVertexPositions", "fbx_importer.dll");
+    }
+
+
+    auto cubeMesh = par_shapes_create_torus(35, 35, 0.5f);
     //par_shapes_translate(cubeMesh, 0.5f, 0.5f, 0.5f);
-    //par_shapes_compute_normals(cubeMesh);
     
     float* cubeVertices = cubeMesh->points;
     float* cubeNormals = cubeMesh->normals;
@@ -1340,6 +1388,62 @@ int win32_main(int argc, char* argv[])
     PAR_SHAPES_T* cubeIndices = cubeMesh->triangles;
     int numCubeVertices = cubeMesh->npoints;
     int numCubeIndices = cubeMesh->ntriangles * 3;
+
+#define MODEL_FILE_PATH "../../mors.fbx"
+
+    {
+        FBXScene model;
+        size_t modelFileSize = 0;
+        void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
+        if (modelFileData && modelFileSize > 0) {
+            GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
+            model = FBXLoadSceneFromMemory(modelFileData, modelFileSize);
+            assert(model._ptr);
+
+            size_t numVertices = 0;
+            size_t numMeshes = FBXGetMeshCount(model);
+            for (size_t i = 0; i < numMeshes; ++i) {
+                FBXMesh mesh = FBXGetMeshWithIndex(model, (int)i);
+                FBXMeshInfo meshInfo;
+                FBXGetMeshInfo(mesh, &meshInfo);
+                GT_LOG_INFO("Assets", "Parsed FBX mesh with %llu vertices", meshInfo.numVertices);
+                assert(meshInfo.hasNormals);
+                //assert(meshInfo.hasTexcoords);
+                numVertices += meshInfo.numVertices;
+            }
+
+            float* vertexBuffer = (float*)applicationArena.Allocate(sizeof(float) * 3 * numVertices, 16, GT_SOURCE_INFO);
+            float* normalBuffer = (float*)applicationArena.Allocate(sizeof(float) * 3 * numVertices, 16, GT_SOURCE_INFO);
+            float* uvBuffer = (float*)applicationArena.Allocate(sizeof(float) * 2 * numVertices, 16, GT_SOURCE_INFO);
+        
+            size_t offset = 0;
+            for (size_t i = 0; i < numMeshes; ++i) {
+                FBXMesh mesh = FBXGetMeshWithIndex(model, (int)i);
+                FBXMeshInfo meshInfo;
+                FBXGetMeshInfo(mesh, &meshInfo);
+
+                FBXGetVertexPositions(mesh, vertexBuffer + 3 * offset, 3 * meshInfo.numVertices);
+                FBXGetNormals(mesh, normalBuffer + 3 * offset, 3 * meshInfo.numVertices);
+                FBXGetTexcoords(mesh, uvBuffer + 2 * offset, 2 * meshInfo.numVertices);
+                offset += meshInfo.numVertices;
+            }
+ 
+            cubeVertices = vertexBuffer;
+            cubeNormals = normalBuffer;
+            cubeTexcoords = uvBuffer;
+                
+            cubeIndices = GT_NEW_ARRAY(uint16_t, numVertices, &applicationArena);
+            for (size_t i = 0; i < numVertices; ++i) {
+                cubeIndices[i] = (uint16_t)i;
+            }
+            numCubeVertices = numCubeIndices = (int)numVertices;
+        }
+        else {
+            GT_LOG_ERROR("Assets", "Failed to load contents of %s", "../../Cerberus_LP.fbx");
+        }
+    }
+
+
     
     gfx::SamplerDesc defaultSamplerStateDesc;
 
@@ -1379,7 +1483,7 @@ int win32_main(int argc, char* argv[])
         gfx::Image metallic;
     };
 
-    const size_t NUM_MATERIALS = 4;
+    const size_t NUM_MATERIALS = 9;
     Material materials[NUM_MATERIALS];
     char fileNameBuf[512] = "";
     for(size_t i = 0; i < NUM_MATERIALS; ++i) {
@@ -1564,6 +1668,11 @@ int win32_main(int argc, char* argv[])
     pBlitShaderDesc.code = pBlitShaderCode;
     pBlitShaderDesc.codeSize = pBlitShaderCodeSize;
 
+    gfx::ShaderDesc pTonemapShaderDesc;
+    pTonemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+    pTonemapShaderDesc.code = pTonemapShaderCode;
+    pTonemapShaderDesc.codeSize = pTonemapShaderCodeSize;
+
     gfx::ShaderDesc pBlurShaderDesc;
     pBlurShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
     pBlurShaderDesc.code = pBlurShaderCode;
@@ -1595,6 +1704,11 @@ int win32_main(int argc, char* argv[])
 
     gfx::Shader pBlitShader = gfx::CreateShader(gfxDevice, &pBlitShaderDesc);
     if (!GFX_CHECK_RESOURCE(pBlitShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+    }
+
+    gfx::Shader pTonemapShader = gfx::CreateShader(gfxDevice, &pTonemapShaderDesc);
+    if (!GFX_CHECK_RESOURCE(pTonemapShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
     }
 
@@ -1648,6 +1762,23 @@ int win32_main(int argc, char* argv[])
     gfx::PipelineState blitPipeline = gfx::CreatePipelineState(gfxDevice, &blitPipelineStateDesc);
     if (!GFX_CHECK_RESOURCE(blitPipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
+    }
+
+    gfx::PipelineStateDesc tonemapPipelineStateDesc;
+    tonemapPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+    tonemapPipelineStateDesc.vertexShader = vBlitShader;
+    tonemapPipelineStateDesc.pixelShader = pTonemapShader;
+    tonemapPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
+
+    tonemapPipelineStateDesc.depthStencilState.enableDepth = false;
+    tonemapPipelineStateDesc.blendState.enableBlend = true;
+    tonemapPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_ONE;
+    tonemapPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+    tonemapPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
+    tonemapPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+    gfx::PipelineState tonemapPipeline = gfx::CreatePipelineState(gfxDevice, &tonemapPipelineStateDesc);
+    if (!GFX_CHECK_RESOURCE(tonemapPipeline)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for tonemap");
     }
 
     gfx::PipelineStateDesc blurPipelineStateDesc;
@@ -1780,10 +1911,13 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
     cubeDrawCall.psConstantInputs[0] = cBuffer;
-    cubeDrawCall.psImageInputs[0] = cubeTexture;
-    cubeDrawCall.psImageInputs[1] = paintDiffuseRT;
-    cubeDrawCall.psImageInputs[2] = paintRoughnessRT;
-    cubeDrawCall.psImageInputs[3] = paintMetallicRT;
+    cubeDrawCall.psImageInputs[0] = materials[8].diffuse;
+    cubeDrawCall.psImageInputs[1] = materials[8].roughness;
+    cubeDrawCall.psImageInputs[2] = materials[8].metallic;
+
+    cubeDrawCall.psImageInputs[3] = paintDiffuseRT;
+    cubeDrawCall.psImageInputs[4] = paintRoughnessRT;
+    cubeDrawCall.psImageInputs[5] = paintMetallicRT;
 
     gfx::DrawCall cubePaintDrawCall;
     cubePaintDrawCall.vertexBuffers[0] = cubeVertexBuffer;
@@ -2140,7 +2274,11 @@ int win32_main(int argc, char* argv[])
                 }
             } ImGui::End();
 
-            
+            ImGui::Begin("Render Targets"); {
+                ImGui::Image((ImTextureID)(uintptr_t)mainRT.id, ImVec2(WINDOW_WIDTH * 0.25f, WINDOW_HEIGHT * 0.25f));
+            } ImGui::End();
+
+
             ImGui::Begin("Foo"); {
                 ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
                 ImGui::Checkbox("Enable UI Blur Effect", &g_enableUIBlur);
@@ -2185,6 +2323,7 @@ int win32_main(int argc, char* argv[])
 
             ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
                 ImGui::SliderFloat3("Sun Direction", (float*)object.lightDir, -1.0f, 1.0f);
+                ImGui::SliderFloat("Sun Intensity", &object.lightDir.w, 0.0f, 500.0f);
                 if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
                     static char namebuf[512] = "Generic Object";
                     if (ImGui::InputText(" " ICON_FA_TAG " Name", namebuf, 512, ImGuiInputTextFlags_EnterReturnsTrue)) {
@@ -2362,13 +2501,19 @@ int win32_main(int argc, char* argv[])
         gfx::RenderPassAction blitAction;
         blitAction.colors[0].action = gfx::Action::ACTION_CLEAR;
         
+
+        gfx::DrawCall tonemapDrawCall;
+        tonemapDrawCall.pipelineState = tonemapPipeline;
+        tonemapDrawCall.numElements = 4;
+        tonemapDrawCall.psImageInputs[0] = mainRT;
+
         gfx::DrawCall blitDrawCall;
         blitDrawCall.pipelineState = blitPipeline;
         blitDrawCall.numElements = 4;
         blitDrawCall.psImageInputs[0] = mainRT;
 
         gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
-        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blitDrawCall);
+        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &tonemapDrawCall);
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
 

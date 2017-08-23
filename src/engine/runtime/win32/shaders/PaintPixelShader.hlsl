@@ -39,13 +39,13 @@ PixelOutput main(PixelInput vertex)
     float dist = length((vertex.screenPos.xy - cPos) * float2((1920.0f / 1080.0f), 1.0f));
     float alpha = clamp((1.0f - dist* (1080.0f / BrushSize)), 0.0f, 1.0f);
 
-    float3 color = Color.rgb * diffuse.Sample(sampler0, vertex.uv * 4.0f).rgb;
+    float3 color = Color.rgb * diffuse.Sample(sampler0, vertex.uv * 1.0f).rgb;
     float a = clamp(vertex.NdV, 0.0f, 1.0f) * alpha * Color.a * Color.a;
 
     PixelOutput output;
     output.diffuse = float4(pow(color, 2.2f), a);
-    output.roughness = float4(roughness.Sample(sampler1, vertex.uv * 4.0f).r, 0.0f, 0.0f, a);
-    output.metallic = float4(metallic.Sample(sampler2, vertex.uv * 4.0f).r, 0.0f, 0.0f, a);
+    output.roughness = float4(roughness.Sample(sampler1, vertex.uv * 1.0f).r, 0.0f, 0.0f, a);
+    output.metallic = float4(metallic.Sample(sampler2, vertex.uv * 1.0f).r, 0.0f, 0.0f, a);
 
     return output;
 }
