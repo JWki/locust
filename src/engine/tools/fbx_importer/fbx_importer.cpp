@@ -31,6 +31,7 @@ bool FBXGetMeshInfo(FBXMesh mesh, FBXMeshInfo* outInfo)
     outInfo->numVertices = geom->getVertexCount();
     outInfo->hasNormals = geom->getNormals() != nullptr;
     outInfo->hasTexcoords = geom->getUVs() != nullptr;
+    outInfo->hasTangents = geom->getTangents() != nullptr;
 
     return true;
 }
@@ -75,6 +76,31 @@ bool FBXGetVertexPositions(FBXMesh mesh, float* buffer, size_t bufferCapacity)
         buffer[i * 3 + 0] = (float)vertices[i].x;
         buffer[i * 3 + 1] = (float)vertices[i].y;
         buffer[i * 3 + 2] = (float)vertices[i].z;
+    }
+    return true;
+}
+
+bool FBXGetTangents(FBXMesh mesh, float* buffer, size_t bufferCapacity)
+{
+    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
+    const ofbx::Geometry* geom = ofbxMesh->getGeometry();
+    auto tangents = geom->getTangents();
+    if (tangents == nullptr) { return false; }
+    if (bufferCapacity < geom->getVertexCount() * 3) { return false; }
+    for (int i = 0; i < geom->getVertexCount(); ++i) {
+        buffer[i * 3 + 0] = (float)tangents[i].x;
+        buffer[i * 3 + 1] = (float)tangents[i].y;
+        buffer[i * 3 + 2] = (float)tangents[i].z;
+    }
+    return true;
+}
+
+bool FBXGetMeshTransform(FBXMesh mesh, float* matOut)
+{
+    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
+    ofbx::Matrix transform = ofbxMesh->getGlobalTransform();
+    for (int i = 0; i < 16; ++i) {
+        matOut[i] = (float)transform.m[i];
     }
     return true;
 }

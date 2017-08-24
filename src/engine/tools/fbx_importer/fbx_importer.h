@@ -16,6 +16,7 @@ struct FBXMeshInfo
     size_t  numVertices     = 0;
     bool    hasNormals      = false;
     bool    hasTexcoords    = false;
+    bool    hasTangents     = false;
 };
 
 FBX_IMPORT_API
@@ -38,3 +39,10 @@ bool FBXGetTexcoords(FBXMesh mesh, float* buffer, size_t bufferCapacity);
 
 FBX_IMPORT_API
 bool FBXGetVertexPositions(FBXMesh mesh, float* buffer, size_t bufferCapacity);
+
+FBX_IMPORT_API
+bool FBXGetTangents(FBXMesh mesh, float* buffer, size_t bufferCapacity);
+
+
+FBX_IMPORT_API
+bool FBXGetMeshTransform(FBXMesh mesh, float* matOut);

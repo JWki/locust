@@ -13,13 +13,17 @@ cbuffer Object : register(cb0) {
     float       Roughness;
 };
 
+
 struct PixelInput
 {
     float4 pos : SV_POSITION;
     float4 color : COLOR;
     float4 normal : NORMAL;
-    float2 uv : TEXCOORD;
+    float2 uv : TEXCOORD0;
     float4 worldPos : TEXCOORD1;
+    float3 tangent : TEXCOORD2;
+    float3 bitangent : TEXCOORD3;
+    float3x3 TBN : TEXCOORD4;
 };
 
 Texture2D diffuseMap : register(t0);
@@ -28,13 +32,15 @@ Texture2D roughnessMap : register(t1);
 sampler   sampler1 : register(s1);
 Texture2D metallicMap : register(t2);
 sampler   sampler2 : register(s2);
+Texture2D normalMap : register(t3);
+sampler   sampler6 : register(s3);
 
-Texture2D paintDiffuse : register(t3);
-sampler   sampler3 : register(s3);
-Texture2D paintRoughness : register(t4);
-sampler   sampler4 : register(s4);
-Texture2D paintMetallic : register(t5);
-sampler   sampler5 : register(s5);
+Texture2D paintDiffuse : register(t4);
+sampler   sampler3 : register(s4);
+Texture2D paintRoughness : register(t5);
+sampler   sampler4 : register(s5);
+Texture2D paintMetallic : register(t6);
+sampler   sampler5 : register(s6);
 
 static const float PI = 3.14159264359f;
 
@@ -81,6 +87,10 @@ float4 main(PixelInput input) : SV_TARGET
     float3 viewPos = mul(InverseView, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
 
     float3 N = normalize(input.normal).xyz;
+
+    N = normalize(normalMap.Sample(sampler6, input.uv).rgb * 2.0f - 1.0f);
+    N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz);
+
     float3 V = normalize(viewPos - input.worldPos.xyz);
     float3 L = normalize(-LightDir.xyz);
     float3 H = normalize(L + V);
@@ -135,6 +145,6 @@ float4 main(PixelInput input) : SV_TARGET
     //return float4(float3(1.0f, 1.0f, 1.0f) * saturate(dot(H, V)), 1.0f);
 
     //return float4(float3(1.0f, 1.0f, 1.0f) * metallic, 1.0f);
-
+    //return float4(N * 0.5f + 0.5f, 1.0f);
     return float4(directLight * albedo.rgb, 1.0f);
 }

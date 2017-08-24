@@ -870,6 +870,7 @@ namespace util
         return true;
     }
 
+ 
 
     void Copy4x4FloatMatrix(float* matFrom, float* matTo)
     {
@@ -888,6 +889,21 @@ namespace util
         int index = 4 * column + row;
         assert(index < 16);
         mat[index] = value;
+    }
+
+    fnd::math::float3 TransformPosition(const fnd::math::float3& pos, float* mat)
+    {
+        fnd::math::float4 vec4(pos, 1.0f);
+        fnd::math::float4 result;
+        for (int i = 0; i < 4; ++i) {
+            float accum = 0.0f;
+            for (int j = 0; j < 4; ++j) {
+                float x = Get4x4FloatMatrixValue(mat, j, i);
+                accum += x * vec4[j];
+            }
+            result[i] = accum;
+        }
+        return result.xyz;
     }
 
     void Make4x4FloatMatrixIdentity(float* mat)
@@ -932,6 +948,15 @@ namespace util
                 Set4x4FloatMatrixValue(result, j, i, Get4x4FloatMatrixValue(mat, i, j));
             }
         }
+    }
+
+    void Make4x4FloatScaleMatrix(float* mat, float scale)
+    {
+        Make4x4FloatMatrixIdentity(mat);
+        Set4x4FloatMatrixValue(mat, 0, 0, scale);
+        Set4x4FloatMatrixValue(mat, 1, 1, scale);
+        Set4x4FloatMatrixValue(mat, 2, 2, scale);
+        Set4x4FloatMatrixValue(mat, 3, 3, 1.0f);
     }
 
     fnd::math::float4 Get4x4FloatMatrixColumn(float* mat, int column) 
@@ -1099,6 +1124,7 @@ typedef size_t(*FBXGetMeshCountFunc)(FBXScene);
 typedef FBXMesh(*FBXGetMeshWithIndexFunc)(FBXScene, int);
 typedef bool(*FBXGetMeshInfoFunc)(FBXMesh, FBXMeshInfo*);
 typedef bool(*FBXGetDataFunc)(FBXMesh, float*, size_t);
+typedef bool(*FBXGetTransformFunc)(FBXMesh, float*);
 
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
@@ -1377,7 +1403,14 @@ int win32_main(int argc, char* argv[])
     if (!FBXGetVertexPositions) {
         GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetVertexPositions", "fbx_importer.dll");
     }
-
+    auto FBXGetTangents = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetTangents");
+    if (!FBXGetTangents) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetTangents", "fbx_importer.dll");
+    }
+    auto FBXGetMeshTransform = (FBXGetTransformFunc)GetProcAddress(fbxImporter, "FBXGetMeshTransform");
+    if (!FBXGetMeshTransform) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshTransform", "fbx_importer.dll");
+    }
 
     auto cubeMesh = par_shapes_create_torus(35, 35, 0.5f);
     //par_shapes_translate(cubeMesh, 0.5f, 0.5f, 0.5f);
@@ -1385,11 +1418,12 @@ int win32_main(int argc, char* argv[])
     float* cubeVertices = cubeMesh->points;
     float* cubeNormals = cubeMesh->normals;
     float* cubeTexcoords = cubeMesh->tcoords;
+    float* cubeTangents = nullptr;
     PAR_SHAPES_T* cubeIndices = cubeMesh->triangles;
     int numCubeVertices = cubeMesh->npoints;
     int numCubeIndices = cubeMesh->ntriangles * 3;
 
-#define MODEL_FILE_PATH "../../mors.fbx"
+#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
 
     {
         FBXScene model;
@@ -1408,29 +1442,87 @@ int win32_main(int argc, char* argv[])
                 FBXGetMeshInfo(mesh, &meshInfo);
                 GT_LOG_INFO("Assets", "Parsed FBX mesh with %llu vertices", meshInfo.numVertices);
                 assert(meshInfo.hasNormals);
+                //assert(meshInfo.hasTangents);
                 //assert(meshInfo.hasTexcoords);
                 numVertices += meshInfo.numVertices;
             }
 
-            float* vertexBuffer = (float*)applicationArena.Allocate(sizeof(float) * 3 * numVertices, 16, GT_SOURCE_INFO);
-            float* normalBuffer = (float*)applicationArena.Allocate(sizeof(float) * 3 * numVertices, 16, GT_SOURCE_INFO);
-            float* uvBuffer = (float*)applicationArena.Allocate(sizeof(float) * 2 * numVertices, 16, GT_SOURCE_INFO);
-        
+            math::float3* vertexBuffer = GT_NEW_ARRAY(math::float3, numVertices, &applicationArena);
+            math::float3* normalBuffer = GT_NEW_ARRAY(math::float3, numVertices, &applicationArena);
+            math::float2* uvBuffer = GT_NEW_ARRAY(math::float2, numVertices, &applicationArena);
+            math::float3* tangentBuffer = GT_NEW_ARRAY(math::float3, numVertices, &applicationArena);
+
             size_t offset = 0;
             for (size_t i = 0; i < numMeshes; ++i) {
                 FBXMesh mesh = FBXGetMeshWithIndex(model, (int)i);
                 FBXMeshInfo meshInfo;
                 FBXGetMeshInfo(mesh, &meshInfo);
 
-                FBXGetVertexPositions(mesh, vertexBuffer + 3 * offset, 3 * meshInfo.numVertices);
-                FBXGetNormals(mesh, normalBuffer + 3 * offset, 3 * meshInfo.numVertices);
-                FBXGetTexcoords(mesh, uvBuffer + 2 * offset, 2 * meshInfo.numVertices);
+                float meshTransform[16];
+                FBXGetMeshTransform(mesh, meshTransform);
+
+                FBXGetVertexPositions(mesh, (float*)(vertexBuffer + offset), 3 * meshInfo.numVertices);
+                for (int i = 0; i < meshInfo.numVertices; ++i) {
+                    vertexBuffer[i] = util::TransformPosition(vertexBuffer[i], meshTransform);
+                }
+                FBXGetNormals(mesh, (float*)(normalBuffer + offset), 3 * meshInfo.numVertices);
+                if (meshInfo.hasTexcoords) {
+                    FBXGetTexcoords(mesh, (float*)(uvBuffer + offset), 2 * meshInfo.numVertices);
+                }
+                else {
+
+                }
+                if (meshInfo.hasTangents) {
+                    FBXGetTangents(mesh, (float*)(tangentBuffer + offset), 3 * meshInfo.numVertices);
+                    cubeTangents = (float*)tangentBuffer;
+                }
+                else {
+                    if (meshInfo.hasTexcoords) {
+                        // calculate tangents
+                        for (int i = 0; i < meshInfo.numVertices; i += 3) {
+                            math::float3 pos1 = vertexBuffer[i];
+                            math::float3 pos2 = vertexBuffer[i + 1];
+                            math::float3 pos3 = vertexBuffer[i + 2];
+
+                            math::float2 uv1 = uvBuffer[i];
+                            math::float2 uv2 = uvBuffer[i + 1];
+                            math::float2 uv3 = uvBuffer[i + 2];
+
+                            math::float3 edge1 = pos2 - pos1;
+                            math::float3 edge2 = pos3 - pos1;
+                            math::float2 deltaUV1 = uv2 - uv1;
+                            math::float2 deltaUV2 = uv3 - uv1;
+
+                            float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
+
+                            math::float3 tangent1;
+                            math::float3 bitangent1;
+                            tangent1.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+                            tangent1.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+                            tangent1.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+                            tangent1 = math::Normalize(tangent1);
+
+                            bitangent1.x = f * (-deltaUV2.x * edge1.x + deltaUV1.x * edge2.x);
+                            bitangent1.y = f * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y);
+                            bitangent1.z = f * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z);
+                            bitangent1 = math::Normalize(bitangent1);
+
+                            for (int j = 0; j < 3; ++j) {
+                                tangentBuffer[i + j] = tangent1;
+                            }
+                        }
+                        cubeTangents = (float*)tangentBuffer;
+                    }
+                    else {
+                        // nothing
+                    }
+                }
                 offset += meshInfo.numVertices;
             }
  
-            cubeVertices = vertexBuffer;
-            cubeNormals = normalBuffer;
-            cubeTexcoords = uvBuffer;
+            cubeVertices = (float*)vertexBuffer;
+            cubeNormals = (float*)normalBuffer;
+            cubeTexcoords = (float*)uvBuffer;
                 
             cubeIndices = GT_NEW_ARRAY(uint16_t, numVertices, &applicationArena);
             for (size_t i = 0; i < numVertices; ++i) {
@@ -1439,7 +1531,7 @@ int win32_main(int argc, char* argv[])
             numCubeVertices = numCubeIndices = (int)numVertices;
         }
         else {
-            GT_LOG_ERROR("Assets", "Failed to load contents of %s", "../../Cerberus_LP.fbx");
+            GT_LOG_ERROR("Assets", "Failed to load contents of %s", MODEL_FILE_PATH);
         }
     }
 
@@ -1481,6 +1573,7 @@ int win32_main(int argc, char* argv[])
         gfx::Image diffuse;
         gfx::Image roughness;
         gfx::Image metallic;
+        gfx::Image normal;
     };
 
     const size_t NUM_MATERIALS = 9;
@@ -1574,6 +1667,35 @@ int win32_main(int argc, char* argv[])
             }
             stbi_image_free(image);
         }
+
+        {   // normal
+            int width, height, numComponents;
+            snprintf(fileNameBuf, 512, "../../normal%llu.png", i);
+            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
+            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+            if (image == NULL) {
+                GT_LOG_ERROR("Assets", "Failed to load image %s: %s", fileNameBuf, stbi_failure_reason());
+            }
+            //assert(numComponents == 4);
+
+            gfx::ImageDesc metalDesc;
+            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+            metalDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+            metalDesc.width = width;
+            metalDesc.height = height;
+            metalDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+            metalDesc.samplerDesc = &defaultSamplerStateDesc;
+            metalDesc.numDataItems = 1;
+            void* data[] = { image };
+            size_t size = sizeof(stbi_uc) * width * height * 4;
+            metalDesc.initialData = data;
+            metalDesc.initialDataSizes = &size;
+            materials[i].normal = gfx::CreateImage(gfxDevice, &metalDesc);
+            if (!GFX_CHECK_RESOURCE(materials[i].normal)) {
+                GT_LOG_ERROR("Renderer", "Failed to create texture");
+            }
+            stbi_image_free(image);
+        }
     }
 
     gfx::BufferDesc cubeVertexBufferDesc;
@@ -1594,6 +1716,19 @@ int win32_main(int argc, char* argv[])
     gfx::Buffer cubeNormalBuffer = gfx::CreateBuffer(gfxDevice, &cubeNormalBufferDesc);
     if (!GFX_CHECK_RESOURCE(cubeNormalBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create cube normal buffer");
+    }
+
+    gfx::Buffer cubeTangentBuffer;
+    if (cubeTangents != nullptr) {
+        gfx::BufferDesc cubeTangentBufferDesc;
+        cubeTangentBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+        cubeTangentBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 3;
+        cubeTangentBufferDesc.initialData = cubeTangents;
+        cubeTangentBufferDesc.initialDataSize = cubeTangentBufferDesc.byteWidth;
+        cubeTangentBuffer = gfx::CreateBuffer(gfxDevice, &cubeTangentBufferDesc);
+        if (!GFX_CHECK_RESOURCE(cubeTangentBuffer)) {
+            GT_LOG_ERROR("Renderer", "Failed to create cube Tangent buffer");
+        }
     }
 
     gfx::BufferDesc cubeUVBufferDesc;
@@ -1741,6 +1876,9 @@ int win32_main(int argc, char* argv[])
     cubePipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
     cubePipelineStateDesc.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
     cubePipelineStateDesc.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 2, gfx::VertexFormat::VERTEX_FORMAT_FLOAT2 };
+    //if (cubeTangents != nullptr) {
+        cubePipelineStateDesc.vertexLayout.attribs[3] = { "TEXCOORD", 1, 0, 3, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    //}
 
     gfx::PipelineState cubePipeline = gfx::CreatePipelineState(gfxDevice, &cubePipelineStateDesc);
     if (!GFX_CHECK_RESOURCE(cubePipeline)) {
@@ -1906,6 +2044,11 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.vertexBuffers[2] = cubeUVBuffer;
     cubeDrawCall.vertexOffsets[2] = 0;
     cubeDrawCall.vertexStrides[2] = sizeof(float) * 2;
+    if (GFX_CHECK_RESOURCE(cubeTangentBuffer)) {
+        cubeDrawCall.vertexBuffers[3] = cubeTangentBuffer;
+        cubeDrawCall.vertexOffsets[3] = 0;
+        cubeDrawCall.vertexStrides[3] = sizeof(float) * 3;
+    }
     cubeDrawCall.indexBuffer = cubeIndexBuffer;
     cubeDrawCall.numElements = numCubeIndices;
     cubeDrawCall.pipelineState = cubePipeline;
@@ -1914,10 +2057,11 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.psImageInputs[0] = materials[8].diffuse;
     cubeDrawCall.psImageInputs[1] = materials[8].roughness;
     cubeDrawCall.psImageInputs[2] = materials[8].metallic;
+    cubeDrawCall.psImageInputs[3] = materials[8].normal;
 
-    cubeDrawCall.psImageInputs[3] = paintDiffuseRT;
-    cubeDrawCall.psImageInputs[4] = paintRoughnessRT;
-    cubeDrawCall.psImageInputs[5] = paintMetallicRT;
+    cubeDrawCall.psImageInputs[4] = paintDiffuseRT;
+    cubeDrawCall.psImageInputs[5] = paintRoughnessRT;
+    cubeDrawCall.psImageInputs[6] = paintMetallicRT;
 
     gfx::DrawCall cubePaintDrawCall;
     cubePaintDrawCall.vertexBuffers[0] = cubeVertexBuffer;
@@ -2380,18 +2524,33 @@ int win32_main(int argc, char* argv[])
                             if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
                                 selectionIndex = i;
                             }
-
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].diffuse.id, ImVec2(256, 256));
-                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                selectionIndex = i;
+                            if (GFX_CHECK_RESOURCE(materials[i].diffuse)) {
+                                ImGui::Text("Albedo");
+                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].diffuse.id, ImVec2(256, 256));
+                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                    selectionIndex = i;
+                                }
                             }
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].roughness.id, ImVec2(256, 256));
-                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                selectionIndex = i;
+                            if (GFX_CHECK_RESOURCE(materials[i].roughness)) {
+                                ImGui::Text("Roughness");
+                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].roughness.id, ImVec2(256, 256));
+                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                    selectionIndex = i;
+                                }
                             }
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].metallic.id, ImVec2(256, 256));
-                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                selectionIndex = i;
+                            if (GFX_CHECK_RESOURCE(materials[i].metallic)) {
+                                ImGui::Text("Metallic");
+                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].metallic.id, ImVec2(256, 256));
+                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                    selectionIndex = i;
+                                }
+                            }
+                            if (GFX_CHECK_RESOURCE(materials[i].normal)) {
+                                ImGui::Text("Normal Map");
+                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].normal.id, ImVec2(256, 256));
+                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+                                    selectionIndex = i;
+                                }
                             }
 
                             ImGui::TreePop();
