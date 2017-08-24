@@ -89,7 +89,7 @@ float4 main(PixelInput input) : SV_TARGET
     float3 N = normalize(input.normal).xyz;
 
     N = normalize(normalMap.Sample(sampler6, input.uv).rgb * 2.0f - 1.0f);
-    N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz);
+    N = normalize(mul(input.TBN, float4(N.xyz, 0.0f)).xyz); // @NOTE: ORDER INVERTED, this is because TBN is row-major (see vertex shader)
 
     float3 V = normalize(viewPos - input.worldPos.xyz);
     float3 L = normalize(-LightDir.xyz);
@@ -132,6 +132,17 @@ float4 main(PixelInput input) : SV_TARGET
 
     float3 directLight = LightDir.w * NdotL * (kD * albedo.rgb / PI + specular);
 
+    float3 indirectA = float3(0.1f, 0.4f, 0.8f) * 1.0f;
+    float3 indirectB = indirectA * 0.2f;
+    float3 indirectLight = lerp(indirectB, indirectA, N.y * 0.5f + 0.5f);
+
+
+    float3 light = lerp(directLight, directLight + indirectLight * 0.1f, 1.0f);
+    //return float4(N * 0.5f + 0.5f, 1.0f);
+    //return float4(float3(1.0f, 1.0f, 1.0f) * (N.y * 0.5f + 0.5f), 1.0f);
+    //return float4(indirectLight, 1.0f);
+    //return float4(indirectLight, 1.0f);
+    //return float4(float3(1.0f, 1.0f, 1.0f) * (1.0f - (N.y * 0.5f + 0.5f)), 1.0f);
     //return float4(float3(1.0f, 1.0f, 1.0f) * NdotH, 1.0f);
     //return float4(float3(1.0f, 1.0f, 1.0f) * NDF, 1.0f);
     //return float4(float3(1.0f, 1.0f, 1.0f) * G, 1.0f);
@@ -146,5 +157,6 @@ float4 main(PixelInput input) : SV_TARGET
 
     //return float4(float3(1.0f, 1.0f, 1.0f) * metallic, 1.0f);
     //return float4(N * 0.5f + 0.5f, 1.0f);
-    return float4(directLight * albedo.rgb, 1.0f);
+    //return float4(indirectLight, 1.0f);
+    return float4((light) * albedo.rgb, 1.0f);
 }

@@ -41,11 +41,11 @@ PixelInput main(Vertex vertex)
     output.pos = mul(ModelViewProjection, vertex.pos);
     output.worldPos = mul(Model, vertex.pos);
     output.color = Color;
-    output.normal = mul(Model, float4(vertex.normal.xyz, 0.0f));
+    output.normal = mul(Model, float4(normalize(vertex.normal.xyz), 0.0f));
     output.uv = vertex.uv;
-    output.tangent = mul(Model, float4(vertex.tangent.xyz, 0.0f)).xyz;
+    output.tangent = mul(Model, float4(normalize(vertex.tangent.xyz), 0.0f)).xyz;
     output.bitangent = mul(Model, float4(cross(normalize(vertex.tangent), normalize(vertex.normal.xyz)), 0.0f)).xyz;
-    output.TBN = float3x3(normalize(output.tangent), normalize(output.bitangent), normalize(output.normal.xyz));
+    output.TBN = transpose(float3x3(normalize(output.tangent), normalize(output.bitangent), normalize(output.normal.xyz))); 
     //output.uv = (vertex.pos.xy + 0.5f);
     //output.uv.y = -output.uv.y;
     //output.pos = float4(output.uv * 2.0f - 1.0f, 0.5f, 1.0f);

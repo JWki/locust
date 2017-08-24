@@ -906,6 +906,21 @@ namespace util
         return result.xyz;
     }
 
+    fnd::math::float3 TransformDirection(const fnd::math::float3& dir, float* mat)
+    {
+        fnd::math::float4 vec4(dir, 0.0f);
+        fnd::math::float4 result;
+        for (int i = 0; i < 4; ++i) {
+            float accum = 0.0f;
+            for (int j = 0; j < 4; ++j) {
+                float x = Get4x4FloatMatrixValue(mat, j, i);
+                accum += x * vec4[j];
+            }
+            result[i] = accum;
+        }
+        return result.xyz;
+    }
+
     void Make4x4FloatMatrixIdentity(float* mat)
     {
         memset(mat, 0x0, sizeof(float) * 16);
@@ -1357,9 +1372,11 @@ int win32_main(int argc, char* argv[])
     };
 
     float proj[16];
+    float cameraPos[16];
     float camera[16];
     util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH,  (float)WINDOW_HEIGHT, 0.1f, 1000.0f);
-    util::Make4x4FloatTranslationMatrix(camera, { 0.0f, -0.4f, 2.75f });
+    util::Make4x4FloatTranslationMatrix(cameraPos, { 0.0f, -0.4f, 2.75f });
+    
 
     ConstantData object;
     util::Make4x4FloatMatrixIdentity(object.MVP);
@@ -1423,7 +1440,7 @@ int win32_main(int argc, char* argv[])
     int numCubeVertices = cubeMesh->npoints;
     int numCubeIndices = cubeMesh->ntriangles * 3;
 
-#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
+#define MODEL_FILE_PATH "../../Cerberus_LP2.fbx"
 
     {
         FBXScene model;
@@ -1453,6 +1470,7 @@ int win32_main(int argc, char* argv[])
             math::float3* tangentBuffer = GT_NEW_ARRAY(math::float3, numVertices, &applicationArena);
 
             size_t offset = 0;
+            //numMeshes = 1;
             for (size_t i = 0; i < numMeshes; ++i) {
                 FBXMesh mesh = FBXGetMeshWithIndex(model, (int)i);
                 FBXMeshInfo meshInfo;
@@ -1463,9 +1481,18 @@ int win32_main(int argc, char* argv[])
 
                 FBXGetVertexPositions(mesh, (float*)(vertexBuffer + offset), 3 * meshInfo.numVertices);
                 for (int i = 0; i < meshInfo.numVertices; ++i) {
+                    float swap = vertexBuffer[i].y;
+                    //vertexBuffer[i].y = vertexBuffer[i].z;
+                    //vertexBuffer[i].z = swap;
                     vertexBuffer[i] = util::TransformPosition(vertexBuffer[i], meshTransform);
                 }
                 FBXGetNormals(mesh, (float*)(normalBuffer + offset), 3 * meshInfo.numVertices);
+                for (int i = 0; i < meshInfo.numVertices; ++i) {
+                    float swap = normalBuffer[i].y;
+                    //normalBuffer[i].y = normalBuffer[i].z;
+                    //normalBuffer[i].z = swap;
+                    normalBuffer[i] = util::TransformDirection(normalBuffer[i], meshTransform);
+                }
                 if (meshInfo.hasTexcoords) {
                     FBXGetTexcoords(mesh, (float*)(uvBuffer + offset), 2 * meshInfo.numVertices);
                 }
@@ -2567,6 +2594,42 @@ int win32_main(int argc, char* argv[])
 
            
             float modelView[16];
+
+            static float camYaw = 0.0f;
+            static float camPitch = 0.0f;
+            static math::float3 camPos;
+
+            ImGui::Begin("Camera"); {
+                ImGui::DragFloat("Camera Yaw", &camYaw);    
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_UNDO "##yaw")) {
+                    camYaw = 0.0f;
+                }
+                
+                ImGui::DragFloat("Camera Pitch", &camPitch);
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_UNDO "##pitch")) {
+                    camPitch = 0.0f;
+                }
+
+                ImGui::DragFloat3("Camera Pos", (float*)&camPos);
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_UNDO "##pos")) {
+                    camPos = math::float3(0.0f);
+                }
+            } ImGui::End();
+
+            float cameraRotX[16], cameraRotY[16];
+            util::Make4x4FloatRotationMatrix(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), camPitch * (3.141f / 180.0f));
+            util::Make4x4FloatRotationMatrix(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), camYaw * (3.141f / 180.0f));
+            
+            float camTemp[16];
+            
+            util::Make4x4FloatTranslationMatrix(cameraPos, camPos);
+            util::MultiplyMatrices(cameraRotY, cameraRotX, camTemp);
+            util::MultiplyMatrices(cameraPos, camTemp, camera);
+            //util::Copy4x4FloatMatrix(camTemp, camera);
+
             util::MultiplyMatrices(model, camera, modelView);
             util::MultiplyMatrices(modelView, proj, object.MVP);
             util::Copy4x4FloatMatrix(camera, object.view);
