@@ -2,105 +2,188 @@
 #include "fbx_importer.h"
 #include "OpenFBX/ofbx.h"
 #include <memory>
+#include <foundation/logging/logging.h>
 
 
-FBXScene FBXLoadSceneFromMemory(void* data, size_t dataSize)
+void CalculateTangents(fnd::math::float3* vertexBuffer, fnd::math::float2* uvBuffer, size_t numVertices, fnd::math::float3* tangentBuffer)
 {
-    auto scene = ofbx::load((ofbx::u8*)data, (int)dataSize);
-    return { scene };
-}
+    using namespace fnd;
 
-FBXMesh FBXGetMeshWithIndex(FBXScene scene, int index)
-{
-    auto ofbxScene = (ofbx::IScene*)scene._ptr;
-    return { (void*)ofbxScene->getMesh(index) };
-}
+    // calculate tangents
+    for (int i = 0; i < numVertices; i += 3) {
+        math::float3 pos1 = vertexBuffer[i];
+        math::float3 pos2 = vertexBuffer[i + 1];
+        math::float3 pos3 = vertexBuffer[i + 2];
 
-size_t FBXGetMeshCount(FBXScene scene)
-{
-    auto ofbxScene = (ofbx::IScene*)scene._ptr;
-    return ofbxScene->getMeshCount();
-}
+        math::float2 uv1 = uvBuffer[i];
+        math::float2 uv2 = uvBuffer[i + 1];
+        math::float2 uv3 = uvBuffer[i + 2];
 
+        math::float3 edge1 = pos2 - pos1;
+        math::float3 edge2 = pos3 - pos1;
+        math::float2 deltaUV1 = uv2 - uv1;
+        math::float2 deltaUV2 = uv3 - uv1;
 
-bool FBXGetMeshInfo(FBXMesh mesh, FBXMeshInfo* outInfo)
-{
-    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
-    const ofbx::Geometry* geom = ofbxMesh->getGeometry();
-    
-    outInfo->numVertices = geom->getVertexCount();
-    outInfo->hasNormals = geom->getNormals() != nullptr;
-    outInfo->hasTexcoords = geom->getUVs() != nullptr;
-    outInfo->hasTangents = geom->getTangents() != nullptr;
+        float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
 
-    return true;
-}
+        math::float3 tangent1;
+        math::float3 bitangent1;
+        tangent1.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
+        tangent1.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
+        tangent1.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
+        tangent1 = math::Normalize(tangent1);
 
-bool FBXGetNormals(FBXMesh mesh, float* buffer, size_t bufferCapacity)
-{
-    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
-    const ofbx::Geometry* geom = ofbxMesh->getGeometry();
-    auto normals = geom->getNormals();
-    if (normals == nullptr) { return false; }
-    if (bufferCapacity < geom->getVertexCount() * 3) { return false; }
-    for (int i = 0; i < geom->getVertexCount(); ++i) {
-        buffer[i * 3 + 0] = (float)normals[i].x;
-        buffer[i * 3 + 1] = (float)normals[i].y;
-        buffer[i * 3 + 2] = (float)normals[i].z;
+        bitangent1.x = f * (-deltaUV2.x * edge1.x + deltaUV1.x * edge2.x);
+        bitangent1.y = f * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y);
+        bitangent1.z = f * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z);
+        bitangent1 = math::Normalize(bitangent1);
+
+        for (int j = 0; j < 3; ++j) {
+            tangentBuffer[i + j] = tangent1;
+        }
     }
+}
+
+
+
+bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, MeshAsset* outAsset)
+{
+    using namespace fnd;
+
+
+    ofbx::IScene* scene = ofbx::load((const ofbx::u8*)fbxData, (int)fbxDataSize);
+    if (!scene) { return false; }
+
+    uint32_t numVertices = 0;
+    auto numMeshes = scene->getMeshCount();
+    for (int i = 0; i < numMeshes; ++i) {
+        const ofbx::Mesh* mesh = scene->getMesh(i);
+        const ofbx::Geometry* geometry = mesh->getGeometry();
+
+        numVertices += geometry->getVertexCount();
+    }
+
+    outAsset->numVertices = outAsset->numIndices = numVertices;
+
+    outAsset->vertexPositions = GT_NEW_ARRAY(math::float3, numVertices, arena);
+    outAsset->vertexNormals = GT_NEW_ARRAY(math::float3, numVertices, arena);
+    outAsset->vertexTangents = GT_NEW_ARRAY(math::float3, numVertices, arena);
+    outAsset->vertexUVs = GT_NEW_ARRAY(math::float2, numVertices, arena);
+
+    outAsset->indexFormat = numVertices > UINT16_MAX ? MeshAsset::IndexFormat::UINT32 : MeshAsset::IndexFormat::UINT16;
+
+    if (outAsset->indexFormat == MeshAsset::IndexFormat::UINT16) {
+        outAsset->indices.as_uint16 = GT_NEW_ARRAY(uint16_t, numVertices, arena);
+    }
+    else {
+        outAsset->indices.as_uint32 = GT_NEW_ARRAY(uint32_t, numVertices, arena);
+    }
+
+    size_t vertexOffset = 0;
+    for (int i = 0; i < numMeshes; ++i) {
+        const ofbx::Mesh* mesh = scene->getMesh(i);
+        const ofbx::Geometry* geometry = mesh->getGeometry();
+
+        ofbx::Matrix sourceGeometricTransform = mesh->getGeometricMatrix();
+        ofbx::Matrix sourceGlobalTransform = mesh->getGlobalTransform();
+
+        float geometricTransform[16];
+        float globalTransform[16];
+
+        for (int i = 0; i < 16; ++i) {
+            geometricTransform[i] = (float)sourceGeometricTransform.m[i];
+            globalTransform[i] = (float)sourceGlobalTransform.m[i];
+        }
+
+        size_t numSubmeshVertices = geometry->getVertexCount();
+
+        math::float3* positionBuffer = outAsset->vertexPositions + vertexOffset;
+        math::float3* normalBuffer = outAsset->vertexNormals + vertexOffset;
+        math::float3* tangentBuffer = outAsset->vertexTangents + vertexOffset;
+        math::float2* uvBuffer = outAsset->vertexUVs + vertexOffset;
+
+        const ofbx::Vec3* sourcePositionBuffer = geometry->getVertices();
+        const ofbx::Vec3* sourceNormalBuffer = geometry->getNormals();
+        const ofbx::Vec3* sourceTangentBuffer = geometry->getTangents();
+        const ofbx::Vec2* sourceUVBuffer = geometry->getUVs();
+
+        float transform[16];
+        util::MultiplyMatricesCM(globalTransform, geometricTransform, transform);
+
+        float transposeTransform[16];
+        float inverseTransposeTransform[16];
+        util::Make4x4FloatMatrixTranspose(transform, transposeTransform);
+        util::Inverse4x4FloatMatrixCM(transposeTransform, inverseTransposeTransform);
+        //util::Copy4x4FloatMatrixCM(globalTransform, transform);
+
+        if (sourcePositionBuffer) {
+            for (size_t i = 0; i < numSubmeshVertices; ++i) {
+                positionBuffer[i] = math::float3((float)sourcePositionBuffer[i].x, (float)sourcePositionBuffer[i].y, (float)sourcePositionBuffer[i].z);
+                positionBuffer[i] = util::TransformPositionCM(positionBuffer[i], transform);
+                positionBuffer[i].z *= -1.0f;
+                positionBuffer[i] *= 0.01f;     // account for units
+            }
+        }
+        else {
+            // @TODO: handle missing positions
+        }
+        if (sourceNormalBuffer) {
+            for (size_t i = 0; i < numSubmeshVertices; ++i) {
+                normalBuffer[i] = math::float3((float)sourceNormalBuffer[i].x, (float)sourceNormalBuffer[i].y, (float)sourceNormalBuffer[i].z);
+                normalBuffer[i] = util::TransformDirectionCM(normalBuffer[i], inverseTransposeTransform);
+                normalBuffer[i].z *= -1.0f;
+                //normalBuffer[i] *= 0.01f;
+            }
+        } 
+        else {
+            // @TODO: handle missing normals
+        }
+        if (sourceUVBuffer) {
+            for (size_t i = 0; i < numSubmeshVertices; ++i) {
+                uvBuffer[i] = math::float2((float)sourceUVBuffer[i].x, 1.0f - (float)sourceUVBuffer[i].y);
+            }
+        }
+        else {
+            // @TODO: handle missing UVs
+        }
+        if (sourceTangentBuffer) {
+            for (size_t i = 0; i < numSubmeshVertices; ++i) {
+                tangentBuffer[i] = math::float3((float)sourceTangentBuffer[i].x, (float)sourceTangentBuffer[i].y, (float)sourceTangentBuffer[i].z);
+            }
+        } 
+        else {
+            if (sourceUVBuffer) {
+                CalculateTangents(positionBuffer, uvBuffer, numSubmeshVertices, tangentBuffer);
+            }
+            else {
+                // @TODO: handle missing tangents and missing uvs
+            }
+        }
+        vertexOffset += numSubmeshVertices;
+    }
+
+    for (uint32_t i = 0; i < numVertices; ++i) {
+        if (outAsset->indexFormat == MeshAsset::IndexFormat::UINT16) {
+            outAsset->indices.as_uint16[i] = (uint16_t)i;
+        }
+        else {
+            outAsset->indices.as_uint32[i] = (uint32_t)i;
+        }
+    }
+
+    for (uint32_t i = 0; i < numVertices; i += 3) {
+        if (outAsset->indexFormat == MeshAsset::IndexFormat::UINT16) {
+            uint16_t swap = outAsset->indices.as_uint16[i + 1];
+            outAsset->indices.as_uint16[i + 1] = outAsset->indices.as_uint16[i];
+            outAsset->indices.as_uint16[i] = swap;
+        }
+        else {
+            uint32_t swap = outAsset->indices.as_uint32[i + 1];
+            outAsset->indices.as_uint32[i + 1] = outAsset->indices.as_uint32[i];
+            outAsset->indices.as_uint32[i] = swap;
+        }
+    }
+
     return true;
 }
 
-bool FBXGetTexcoords(FBXMesh mesh, float* buffer, size_t bufferCapacity)
-{
-    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
-    const ofbx::Geometry* geom = ofbxMesh->getGeometry();
-    auto uvs = geom->getUVs();
-    if (uvs == nullptr) { return false; }
-    if (bufferCapacity < geom->getVertexCount() * 2) { return false; }
-    for (int i = 0; i < geom->getVertexCount(); ++i) {
-        buffer[i * 2 + 0] = (float)uvs[i].x;
-        buffer[i * 2 + 1] = 1.0f - (float)uvs[i].y;
-    }
-    return true;
-}
-
-bool FBXGetVertexPositions(FBXMesh mesh, float* buffer, size_t bufferCapacity)
-{
-    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
-    const ofbx::Geometry* geom = ofbxMesh->getGeometry();
-    auto vertices = geom->getVertices();
-    if (vertices == nullptr) { return false; }
-    if (bufferCapacity < geom->getVertexCount() * 3) { return false; }
-    for (int i = 0; i < geom->getVertexCount(); ++i) {
-        buffer[i * 3 + 0] = (float)vertices[i].x;
-        buffer[i * 3 + 1] = (float)vertices[i].y;
-        buffer[i * 3 + 2] = (float)vertices[i].z;
-    }
-    return true;
-}
-
-bool FBXGetTangents(FBXMesh mesh, float* buffer, size_t bufferCapacity)
-{
-    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
-    const ofbx::Geometry* geom = ofbxMesh->getGeometry();
-    auto tangents = geom->getTangents();
-    if (tangents == nullptr) { return false; }
-    if (bufferCapacity < geom->getVertexCount() * 3) { return false; }
-    for (int i = 0; i < geom->getVertexCount(); ++i) {
-        buffer[i * 3 + 0] = (float)tangents[i].x;
-        buffer[i * 3 + 1] = (float)tangents[i].y;
-        buffer[i * 3 + 2] = (float)tangents[i].z;
-    }
-    return true;
-}
-
-bool FBXGetMeshTransform(FBXMesh mesh, float* matOut)
-{
-    auto ofbxMesh = (ofbx::Mesh*)mesh._ptr;
-    ofbx::Matrix transform = ofbxMesh->getGlobalTransform();
-    for (int i = 0; i < 16; ++i) {
-        matOut[i] = (float)transform.m[i];
-    }
-    return true;
-}

@@ -105,6 +105,8 @@ float4 main(PixelInput input) : SV_TARGET
     roughness = roughnessMap.Sample(sampler1, input.uv.xy).r * paintColor.a + roughness;;
     metallic = metallicMap.Sample(sampler2, input.uv.xy).r * paintColor.a + roughness;
 
+    //roughness = Roughness;
+    //metallic = Metallic;
 
     roughness = clamp(roughness, 0.01f, 1.0f);
     metallic = clamp(metallic, 0.04f, 0.99f);
@@ -130,13 +132,16 @@ float4 main(PixelInput input) : SV_TARGET
     float3 kD = 1.0f - kS;
     kD *= 1.0f - metallic;
 
+    //return float4(float3(1.0f, 1.0f, 1.0f) * NdotL, 1.0f);
+
     float3 directLight = LightDir.w * NdotL * (kD * albedo.rgb / PI + specular);
 
     float3 indirectA = float3(0.1f, 0.4f, 0.8f) * 1.0f;
     float3 indirectB = indirectA * 0.2f;
     float3 indirectLight = lerp(indirectB, indirectA, N.y * 0.5f + 0.5f);
 
-
+    //return float4(input.uv, 0.0f, 1.0f);
+    //return float4(N * 0.5f + 0.5f, 1.0f);
     float3 light = lerp(directLight, directLight + indirectLight * 0.1f, 1.0f);
     //return float4(N * 0.5f + 0.5f, 1.0f);
     //return float4(float3(1.0f, 1.0f, 1.0f) * (N.y * 0.5f + 0.5f), 1.0f);

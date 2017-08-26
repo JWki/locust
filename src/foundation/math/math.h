@@ -269,3 +269,331 @@ namespace fnd
         typedef Vector<int, 4> int4;
     }
 }
+
+
+
+#include <cstring>
+#undef near
+#undef far
+
+namespace util
+{
+    bool Inverse4x4FloatMatrixCM(float* m, float* invOut)
+    {
+        int i;
+        float det;
+        float inv[16];
+
+        inv[0] = m[5] * m[10] * m[15] -
+            m[5] * m[11] * m[14] -
+            m[9] * m[6] * m[15] +
+            m[9] * m[7] * m[14] +
+            m[13] * m[6] * m[11] -
+            m[13] * m[7] * m[10];
+
+        inv[4] = -m[4] * m[10] * m[15] +
+            m[4] * m[11] * m[14] +
+            m[8] * m[6] * m[15] -
+            m[8] * m[7] * m[14] -
+            m[12] * m[6] * m[11] +
+            m[12] * m[7] * m[10];
+
+        inv[8] = m[4] * m[9] * m[15] -
+            m[4] * m[11] * m[13] -
+            m[8] * m[5] * m[15] +
+            m[8] * m[7] * m[13] +
+            m[12] * m[5] * m[11] -
+            m[12] * m[7] * m[9];
+
+        inv[12] = -m[4] * m[9] * m[14] +
+            m[4] * m[10] * m[13] +
+            m[8] * m[5] * m[14] -
+            m[8] * m[6] * m[13] -
+            m[12] * m[5] * m[10] +
+            m[12] * m[6] * m[9];
+
+        inv[1] = -m[1] * m[10] * m[15] +
+            m[1] * m[11] * m[14] +
+            m[9] * m[2] * m[15] -
+            m[9] * m[3] * m[14] -
+            m[13] * m[2] * m[11] +
+            m[13] * m[3] * m[10];
+
+        inv[5] = m[0] * m[10] * m[15] -
+            m[0] * m[11] * m[14] -
+            m[8] * m[2] * m[15] +
+            m[8] * m[3] * m[14] +
+            m[12] * m[2] * m[11] -
+            m[12] * m[3] * m[10];
+
+        inv[9] = -m[0] * m[9] * m[15] +
+            m[0] * m[11] * m[13] +
+            m[8] * m[1] * m[15] -
+            m[8] * m[3] * m[13] -
+            m[12] * m[1] * m[11] +
+            m[12] * m[3] * m[9];
+
+        inv[13] = m[0] * m[9] * m[14] -
+            m[0] * m[10] * m[13] -
+            m[8] * m[1] * m[14] +
+            m[8] * m[2] * m[13] +
+            m[12] * m[1] * m[10] -
+            m[12] * m[2] * m[9];
+
+        inv[2] = m[1] * m[6] * m[15] -
+            m[1] * m[7] * m[14] -
+            m[5] * m[2] * m[15] +
+            m[5] * m[3] * m[14] +
+            m[13] * m[2] * m[7] -
+            m[13] * m[3] * m[6];
+
+        inv[6] = -m[0] * m[6] * m[15] +
+            m[0] * m[7] * m[14] +
+            m[4] * m[2] * m[15] -
+            m[4] * m[3] * m[14] -
+            m[12] * m[2] * m[7] +
+            m[12] * m[3] * m[6];
+
+        inv[10] = m[0] * m[5] * m[15] -
+            m[0] * m[7] * m[13] -
+            m[4] * m[1] * m[15] +
+            m[4] * m[3] * m[13] +
+            m[12] * m[1] * m[7] -
+            m[12] * m[3] * m[5];
+
+        inv[14] = -m[0] * m[5] * m[14] +
+            m[0] * m[6] * m[13] +
+            m[4] * m[1] * m[14] -
+            m[4] * m[2] * m[13] -
+            m[12] * m[1] * m[6] +
+            m[12] * m[2] * m[5];
+
+        inv[3] = -m[1] * m[6] * m[11] +
+            m[1] * m[7] * m[10] +
+            m[5] * m[2] * m[11] -
+            m[5] * m[3] * m[10] -
+            m[9] * m[2] * m[7] +
+            m[9] * m[3] * m[6];
+
+        inv[7] = m[0] * m[6] * m[11] -
+            m[0] * m[7] * m[10] -
+            m[4] * m[2] * m[11] +
+            m[4] * m[3] * m[10] +
+            m[8] * m[2] * m[7] -
+            m[8] * m[3] * m[6];
+
+        inv[11] = -m[0] * m[5] * m[11] +
+            m[0] * m[7] * m[9] +
+            m[4] * m[1] * m[11] -
+            m[4] * m[3] * m[9] -
+            m[8] * m[1] * m[7] +
+            m[8] * m[3] * m[5];
+
+        inv[15] = m[0] * m[5] * m[10] -
+            m[0] * m[6] * m[9] -
+            m[4] * m[1] * m[10] +
+            m[4] * m[2] * m[9] +
+            m[8] * m[1] * m[6] -
+            m[8] * m[2] * m[5];
+
+        det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+
+        if (det == 0)
+            return false;
+
+        det = 1.0f / det;
+
+        for (i = 0; i < 16; i++)
+            invOut[i] = inv[i] * det;
+
+        return true;
+    }
+
+
+
+    void Copy4x4FloatMatrixCM(float* matFrom, float* matTo)
+    {
+        memcpy(matTo, matFrom, sizeof(float) * 16);
+    }
+
+    float Get4x4FloatMatrixValueCM(float* mat, int column, int row)
+    {
+        int index = 4 * column + row;
+        return mat[index];
+    }
+
+    void Set4x4FloatMatrixValueCM(float* mat, int column, int row, float value)
+    {
+        int index = 4 * column + row;
+        mat[index] = value;
+    }
+
+    fnd::math::float3 TransformPositionCM(const fnd::math::float3& pos, float* mat)
+    {
+        fnd::math::float4 vec4(pos, 1.0f);
+        fnd::math::float4 result;
+        for (int i = 0; i < 4; ++i) {
+            float accum = 0.0f;
+            for (int j = 0; j < 4; ++j) {
+                float x = Get4x4FloatMatrixValueCM(mat, j, i);
+                accum += x * vec4[j];
+            }
+            result[i] = accum;
+        }
+        return result.xyz;
+    }
+
+    fnd::math::float3 TransformDirectionCM(const fnd::math::float3& dir, float* mat)
+    {
+        fnd::math::float4 vec4(dir, 0.0f);
+        fnd::math::float4 result;
+        for (int i = 0; i < 4; ++i) {
+            float accum = 0.0f;
+            for (int j = 0; j < 4; ++j) {
+                float x = Get4x4FloatMatrixValueCM(mat, j, i);
+                accum += x * vec4[j];
+            }
+            result[i] = accum;
+        }
+        return result.xyz;
+    }
+
+    void Make4x4FloatMatrixIdentity(float* mat)
+    {
+        memset(mat, 0x0, sizeof(float) * 16);
+        for (int i = 0; i < 4; ++i) {
+            Set4x4FloatMatrixValueCM(mat, i, i, 1.0f);
+        }
+    }
+
+
+    /*void Make4x4FloatProjectionMatrixCMLH(float* mat, float fovInRadians, float aspect, float near, float far)
+    {
+    Make4x4FloatMatrixIdentity(mat);
+
+    float tanHalfFovy = tanf(fovInRadians / 2.0f);
+
+    Set4x4FloatMatrixValueCM(mat, 0, 0, 1.0f / (aspect * tanHalfFovy));
+    Set4x4FloatMatrixValueCM(mat, 1, 1, 1.0f / tanHalfFovy);
+    Set4x4FloatMatrixValueCM(mat, 2, 3, 1.0f);
+
+    Set4x4FloatMatrixValueCM(mat, 2, 2, (far * near) / (far - near));
+    Set4x4FloatMatrixValueCM(mat, 3, 2, -(2.0f * far * near) / (far - near));
+    }*/
+    void Make4x4FloatProjectionMatrixCMLH(float* mat, float fovInRadians, float width, float height, float near, float far)
+    {
+        Make4x4FloatMatrixIdentity(mat);
+
+        float yScale = 1 / tanf(fovInRadians / 2.0f);
+        float xScale = yScale / (width / height);
+
+        Set4x4FloatMatrixValueCM(mat, 0, 0, xScale);
+        Set4x4FloatMatrixValueCM(mat, 1, 1, yScale);
+        Set4x4FloatMatrixValueCM(mat, 2, 2, far / (far - near));
+        Set4x4FloatMatrixValueCM(mat, 3, 2, -near * far / (far - near));
+        Set4x4FloatMatrixValueCM(mat, 2, 3, 1.0f);
+        Set4x4FloatMatrixValueCM(mat, 3, 3, 0.0f);
+    }
+
+    void Make4x4FloatMatrixTranspose(float* mat, float* result)
+    {
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                Set4x4FloatMatrixValueCM(result, j, i, Get4x4FloatMatrixValueCM(mat, i, j));
+            }
+        }
+    }
+
+    void Make4x4FloatScaleMatrixCM(float* mat, float scale)
+    {
+        Make4x4FloatMatrixIdentity(mat);
+        Set4x4FloatMatrixValueCM(mat, 0, 0, scale);
+        Set4x4FloatMatrixValueCM(mat, 1, 1, scale);
+        Set4x4FloatMatrixValueCM(mat, 2, 2, scale);
+        Set4x4FloatMatrixValueCM(mat, 3, 3, 1.0f);
+    }
+
+    fnd::math::float4 Get4x4FloatMatrixColumn(float* mat, int column)
+    {
+        return {
+            Get4x4FloatMatrixValueCM(mat, column, 0),
+            Get4x4FloatMatrixValueCM(mat, column, 1),
+            Get4x4FloatMatrixValueCM(mat, column, 2),
+            Get4x4FloatMatrixValueCM(mat, column, 3),
+        };
+    }
+
+    void Make4x4FloatRotationMatrixCMLH(float* mat, fnd::math::float3 axisIn, float rad)
+    {
+        float rotate[16];
+        float base[16];
+        Make4x4FloatMatrixIdentity(base);
+        Make4x4FloatMatrixIdentity(rotate);
+        Make4x4FloatMatrixIdentity(mat);
+
+        float a = rad;
+        float c = fnd::math::Cos(a);
+        float s = fnd::math::Sin(a);
+
+        auto axis = fnd::math::Normalize(axisIn);
+        auto temp = axis * (1.0f - c);
+
+        Set4x4FloatMatrixValueCM(rotate, 0, 0, c + temp[0] * axis[0]);
+        Set4x4FloatMatrixValueCM(rotate, 0, 1, temp[0] * axis[1] + s * axis[2]);
+        Set4x4FloatMatrixValueCM(rotate, 0, 2, temp[0] * axis[2] - s * axis[1]);
+
+        Set4x4FloatMatrixValueCM(rotate, 1, 0, temp[1] * axis[0] - s * axis[2]);
+        Set4x4FloatMatrixValueCM(rotate, 1, 1, c + temp[1] * axis[1]);
+        Set4x4FloatMatrixValueCM(rotate, 1, 2, temp[1] * axis[2] + s * axis[0]);
+
+        Set4x4FloatMatrixValueCM(rotate, 2, 0, temp[2] * axis[0] + s * axis[1]);
+        Set4x4FloatMatrixValueCM(rotate, 2, 1, temp[2] * axis[1] - s * axis[0]);
+        Set4x4FloatMatrixValueCM(rotate, 2, 2, c + temp[2] * axis[2]);
+
+        fnd::math::float4 m0 = Get4x4FloatMatrixColumn(base, 0);
+        fnd::math::float4 m1 = Get4x4FloatMatrixColumn(base, 1);
+        fnd::math::float4 m2 = Get4x4FloatMatrixColumn(base, 2);
+        fnd::math::float4 m3 = Get4x4FloatMatrixColumn(base, 3);
+
+        float r00 = Get4x4FloatMatrixValueCM(rotate, 0, 0);
+        float r11 = Get4x4FloatMatrixValueCM(rotate, 1, 1);
+        float r12 = Get4x4FloatMatrixValueCM(rotate, 1, 2);
+        float r01 = Get4x4FloatMatrixValueCM(rotate, 0, 1);
+        float r02 = Get4x4FloatMatrixValueCM(rotate, 0, 2);
+
+        float r10 = Get4x4FloatMatrixValueCM(rotate, 1, 0);
+        float r20 = Get4x4FloatMatrixValueCM(rotate, 2, 0);
+        float r21 = Get4x4FloatMatrixValueCM(rotate, 2, 1);
+        float r22 = Get4x4FloatMatrixValueCM(rotate, 2, 2);
+
+        for (int i = 0; i < 4; ++i) {
+            Set4x4FloatMatrixValueCM(mat, i, 0, m0[i] * r00 + m1[i] * r01 + m2[i] * r02);
+            Set4x4FloatMatrixValueCM(mat, i, 1, m0[i] * r10 + m1[i] * r11 + m2[i] * r12);
+            Set4x4FloatMatrixValueCM(mat, i, 2, m0[i] * r20 + m1[i] * r21 + m2[i] * r22);
+            Set4x4FloatMatrixValueCM(mat, i, 3, m3[i]);
+        }
+    }
+
+    void Make4x4FloatTranslationMatrixCM(float* mat, fnd::math::float3 t)
+    {
+        Make4x4FloatMatrixIdentity(mat);
+        for (int i = 0; i < 3; ++i) {
+            Set4x4FloatMatrixValueCM(mat, 3, i, t[i]);
+        }
+    }
+
+    // result = matA * matB
+    void MultiplyMatricesCM(float* left, float* right, float* result)
+    {
+        Make4x4FloatMatrixIdentity(result);
+        for (int i = 0; i < 4; ++i) {
+            for (int j = 0; j < 4; ++j) {
+                float acc = 0.0f;
+                for (int k = 0; k < 4; ++k) {
+                    acc += Get4x4FloatMatrixValueCM(left, k, i) * Get4x4FloatMatrixValueCM(right, j, k);
+                }
+                Set4x4FloatMatrixValueCM(result, j, i, acc);
+            }
+        }
+    }
+}

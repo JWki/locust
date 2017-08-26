@@ -737,327 +737,6 @@ public:
 };
 
 
-namespace util
-{
-    bool Inverse4x4FloatMatrix(float* m, float* invOut)
-    {
-        int i; 
-        float det;
-        float inv[16];
-
-        inv[0] = m[5] * m[10] * m[15] -
-            m[5] * m[11] * m[14] -
-            m[9] * m[6] * m[15] +
-            m[9] * m[7] * m[14] +
-            m[13] * m[6] * m[11] -
-            m[13] * m[7] * m[10];
-
-        inv[4] = -m[4] * m[10] * m[15] +
-            m[4] * m[11] * m[14] +
-            m[8] * m[6] * m[15] -
-            m[8] * m[7] * m[14] -
-            m[12] * m[6] * m[11] +
-            m[12] * m[7] * m[10];
-
-        inv[8] = m[4] * m[9] * m[15] -
-            m[4] * m[11] * m[13] -
-            m[8] * m[5] * m[15] +
-            m[8] * m[7] * m[13] +
-            m[12] * m[5] * m[11] -
-            m[12] * m[7] * m[9];
-
-        inv[12] = -m[4] * m[9] * m[14] +
-            m[4] * m[10] * m[13] +
-            m[8] * m[5] * m[14] -
-            m[8] * m[6] * m[13] -
-            m[12] * m[5] * m[10] +
-            m[12] * m[6] * m[9];
-
-        inv[1] = -m[1] * m[10] * m[15] +
-            m[1] * m[11] * m[14] +
-            m[9] * m[2] * m[15] -
-            m[9] * m[3] * m[14] -
-            m[13] * m[2] * m[11] +
-            m[13] * m[3] * m[10];
-
-        inv[5] = m[0] * m[10] * m[15] -
-            m[0] * m[11] * m[14] -
-            m[8] * m[2] * m[15] +
-            m[8] * m[3] * m[14] +
-            m[12] * m[2] * m[11] -
-            m[12] * m[3] * m[10];
-
-        inv[9] = -m[0] * m[9] * m[15] +
-            m[0] * m[11] * m[13] +
-            m[8] * m[1] * m[15] -
-            m[8] * m[3] * m[13] -
-            m[12] * m[1] * m[11] +
-            m[12] * m[3] * m[9];
-
-        inv[13] = m[0] * m[9] * m[14] -
-            m[0] * m[10] * m[13] -
-            m[8] * m[1] * m[14] +
-            m[8] * m[2] * m[13] +
-            m[12] * m[1] * m[10] -
-            m[12] * m[2] * m[9];
-
-        inv[2] = m[1] * m[6] * m[15] -
-            m[1] * m[7] * m[14] -
-            m[5] * m[2] * m[15] +
-            m[5] * m[3] * m[14] +
-            m[13] * m[2] * m[7] -
-            m[13] * m[3] * m[6];
-
-        inv[6] = -m[0] * m[6] * m[15] +
-            m[0] * m[7] * m[14] +
-            m[4] * m[2] * m[15] -
-            m[4] * m[3] * m[14] -
-            m[12] * m[2] * m[7] +
-            m[12] * m[3] * m[6];
-
-        inv[10] = m[0] * m[5] * m[15] -
-            m[0] * m[7] * m[13] -
-            m[4] * m[1] * m[15] +
-            m[4] * m[3] * m[13] +
-            m[12] * m[1] * m[7] -
-            m[12] * m[3] * m[5];
-
-        inv[14] = -m[0] * m[5] * m[14] +
-            m[0] * m[6] * m[13] +
-            m[4] * m[1] * m[14] -
-            m[4] * m[2] * m[13] -
-            m[12] * m[1] * m[6] +
-            m[12] * m[2] * m[5];
-
-        inv[3] = -m[1] * m[6] * m[11] +
-            m[1] * m[7] * m[10] +
-            m[5] * m[2] * m[11] -
-            m[5] * m[3] * m[10] -
-            m[9] * m[2] * m[7] +
-            m[9] * m[3] * m[6];
-
-        inv[7] = m[0] * m[6] * m[11] -
-            m[0] * m[7] * m[10] -
-            m[4] * m[2] * m[11] +
-            m[4] * m[3] * m[10] +
-            m[8] * m[2] * m[7] -
-            m[8] * m[3] * m[6];
-
-        inv[11] = -m[0] * m[5] * m[11] +
-            m[0] * m[7] * m[9] +
-            m[4] * m[1] * m[11] -
-            m[4] * m[3] * m[9] -
-            m[8] * m[1] * m[7] +
-            m[8] * m[3] * m[5];
-
-        inv[15] = m[0] * m[5] * m[10] -
-            m[0] * m[6] * m[9] -
-            m[4] * m[1] * m[10] +
-            m[4] * m[2] * m[9] +
-            m[8] * m[1] * m[6] -
-            m[8] * m[2] * m[5];
-
-        det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
-
-        if (det == 0)
-            return false;
-
-        det = 1.0f / det;
-
-        for (i = 0; i < 16; i++)
-            invOut[i] = inv[i] * det;
-
-        return true;
-    }
-
- 
-
-    void Copy4x4FloatMatrix(float* matFrom, float* matTo)
-    {
-        memcpy(matTo, matFrom, sizeof(float) * 16);
-    }
-
-    float Get4x4FloatMatrixValue(float* mat, int column, int row)
-    {
-        int index = 4 * column + row;
-        assert(index < 16);
-        return mat[index];
-    }
-
-    void Set4x4FloatMatrixValue(float* mat, int column, int row, float value)
-    {
-        int index = 4 * column + row;
-        assert(index < 16);
-        mat[index] = value;
-    }
-
-    fnd::math::float3 TransformPosition(const fnd::math::float3& pos, float* mat)
-    {
-        fnd::math::float4 vec4(pos, 1.0f);
-        fnd::math::float4 result;
-        for (int i = 0; i < 4; ++i) {
-            float accum = 0.0f;
-            for (int j = 0; j < 4; ++j) {
-                float x = Get4x4FloatMatrixValue(mat, j, i);
-                accum += x * vec4[j];
-            }
-            result[i] = accum;
-        }
-        return result.xyz;
-    }
-
-    fnd::math::float3 TransformDirection(const fnd::math::float3& dir, float* mat)
-    {
-        fnd::math::float4 vec4(dir, 0.0f);
-        fnd::math::float4 result;
-        for (int i = 0; i < 4; ++i) {
-            float accum = 0.0f;
-            for (int j = 0; j < 4; ++j) {
-                float x = Get4x4FloatMatrixValue(mat, j, i);
-                accum += x * vec4[j];
-            }
-            result[i] = accum;
-        }
-        return result.xyz;
-    }
-
-    void Make4x4FloatMatrixIdentity(float* mat)
-    {
-        memset(mat, 0x0, sizeof(float) * 16);
-        for (int i = 0; i < 4; ++i) { mat[4 * i + i] = 1.0f; }
-    }
-
-
-    /*void Make4x4FloatProjectionMatrixLH(float* mat, float fovInRadians, float aspect, float near, float far)
-    {
-        Make4x4FloatMatrixIdentity(mat);
-
-        float tanHalfFovy = tanf(fovInRadians / 2.0f);
-
-        Set4x4FloatMatrixValue(mat, 0, 0, 1.0f / (aspect * tanHalfFovy));
-        Set4x4FloatMatrixValue(mat, 1, 1, 1.0f / tanHalfFovy);
-        Set4x4FloatMatrixValue(mat, 2, 3, 1.0f);
-        
-        Set4x4FloatMatrixValue(mat, 2, 2, (far * near) / (far - near));
-        Set4x4FloatMatrixValue(mat, 3, 2, -(2.0f * far * near) / (far - near));
-    }*/
-    void Make4x4FloatProjectionMatrixLH(float* mat, float fovInRadians, float width, float height, float near, float far)
-    {
-        Make4x4FloatMatrixIdentity(mat);
-        
-        float yScale = 1 / tanf(fovInRadians / 2.0f);
-        float xScale = yScale / (width / height);
-
-        Set4x4FloatMatrixValue(mat, 0, 0, xScale);
-        Set4x4FloatMatrixValue(mat, 1, 1, yScale);
-        Set4x4FloatMatrixValue(mat, 2, 2, far / (far - near));
-        Set4x4FloatMatrixValue(mat, 3, 2, -near * far / (far - near));
-        Set4x4FloatMatrixValue(mat, 2, 3, 1.0f);
-        Set4x4FloatMatrixValue(mat, 3, 3, 0.0f);
-    }
-
-    void Make4x4FloatMatrixTranspose(float* mat, float* result)
-    {
-        for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                Set4x4FloatMatrixValue(result, j, i, Get4x4FloatMatrixValue(mat, i, j));
-            }
-        }
-    }
-
-    void Make4x4FloatScaleMatrix(float* mat, float scale)
-    {
-        Make4x4FloatMatrixIdentity(mat);
-        Set4x4FloatMatrixValue(mat, 0, 0, scale);
-        Set4x4FloatMatrixValue(mat, 1, 1, scale);
-        Set4x4FloatMatrixValue(mat, 2, 2, scale);
-        Set4x4FloatMatrixValue(mat, 3, 3, 1.0f);
-    }
-
-    fnd::math::float4 Get4x4FloatMatrixColumn(float* mat, int column) 
-    {
-        return {
-            mat[4 * column + 0],
-            mat[4 * column + 1],
-            mat[4 * column + 2],
-            mat[4 * column + 3]
-        };
-    }
-   
-    void Make4x4FloatRotationMatrix(float* mat, fnd::math::float3 axisIn, float rad)
-    {
-        float rotate[16];
-        float base[16];
-        Make4x4FloatMatrixIdentity(base);
-        Make4x4FloatMatrixIdentity(rotate);
-        Make4x4FloatMatrixIdentity(mat);
-
-        float a = rad;
-        float c = fnd::math::Cos(a);
-        float s = fnd::math::Sin(a);
-
-        auto axis = fnd::math::Normalize(axisIn);
-        auto temp = axis * (1.0f - c);
-
-        Set4x4FloatMatrixValue(rotate, 0, 0, c + temp[0] * axis[0]);
-        Set4x4FloatMatrixValue(rotate, 0, 1, temp[0] * axis[1] + s * axis[2]);
-        Set4x4FloatMatrixValue(rotate, 0, 2, temp[0] * axis[2] - s * axis[1]);
-        
-        Set4x4FloatMatrixValue(rotate, 1, 0, temp[1] * axis[0] - s * axis[2]);
-        Set4x4FloatMatrixValue(rotate, 1, 1, c + temp[1] * axis[1]);
-        Set4x4FloatMatrixValue(rotate, 1, 2, temp[1] * axis[2] + s * axis[0]);
-
-        Set4x4FloatMatrixValue(rotate, 2, 0, temp[2] * axis[0] + s * axis[1]);
-        Set4x4FloatMatrixValue(rotate, 2, 1, temp[2] * axis[1] - s * axis[0]);
-        Set4x4FloatMatrixValue(rotate, 2, 2, c + temp[2] * axis[2]);
-
-        fnd::math::float4 m0 = Get4x4FloatMatrixColumn(base, 0);
-        fnd::math::float4 m1 = Get4x4FloatMatrixColumn(base, 1);
-        fnd::math::float4 m2 = Get4x4FloatMatrixColumn(base, 2);
-        fnd::math::float4 m3 = Get4x4FloatMatrixColumn(base, 3);
-
-        float r00 = Get4x4FloatMatrixValue(rotate, 0, 0);
-        float r11 = Get4x4FloatMatrixValue(rotate, 1, 1);
-        float r12 = Get4x4FloatMatrixValue(rotate, 1, 2);
-        float r01 = Get4x4FloatMatrixValue(rotate, 0, 1);
-        float r02 = Get4x4FloatMatrixValue(rotate, 0, 2);
-
-        float r10 = Get4x4FloatMatrixValue(rotate, 1, 0);
-        float r20 = Get4x4FloatMatrixValue(rotate, 2, 0);
-        float r21 = Get4x4FloatMatrixValue(rotate, 2, 1);
-        float r22 = Get4x4FloatMatrixValue(rotate, 2, 2);
-
-        for (int i = 0; i < 4; ++i) {
-            Set4x4FloatMatrixValue(mat, i, 0, m0[i] * r00 + m1[i] * r01 + m2[i] * r02);
-            Set4x4FloatMatrixValue(mat, i, 1, m0[i] * r10 + m1[i] * r11 + m2[i] * r12);
-            Set4x4FloatMatrixValue(mat, i, 2, m0[i] * r20 + m1[i] * r21 + m2[i] * r22);
-            Set4x4FloatMatrixValue(mat, i, 3, m3[i]);
-        }
-    }
-
-    void Make4x4FloatTranslationMatrix(float* mat, fnd::math::float3 t)
-    {
-        Make4x4FloatMatrixIdentity(mat);
-        for (int i = 0; i < 3; ++i) {
-            Set4x4FloatMatrixValue(mat, 3, i, t[i]);
-        }
-    }
-
-    // result = matA * matB
-    void MultiplyMatrices(float* matA, float* matB, float* result)
-    {
-        Make4x4FloatMatrixIdentity(result);
-        for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < 4; ++j) {
-                float acc = 0.0f;
-                for (int k = 0; k < 4; ++k) {
-                    acc += Get4x4FloatMatrixValue(matA, i, k) * Get4x4FloatMatrixValue(matB, k, j);
-                }
-                Set4x4FloatMatrixValue(result, i, j, acc);
-            } 
-        }
-    }
-}
 
 #include <engine/runtime/ImGuizmo/ImGuizmo.h>
 void EditTransform(float camera[16], float projection[16], float matrix[16])
@@ -1134,12 +813,7 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
 
 
 #include <engine/tools/fbx_importer/fbx_importer.h>
-typedef FBXScene(*FBXLoadSceneFromMemoryFunc)(void*, size_t);
-typedef size_t(*FBXGetMeshCountFunc)(FBXScene);
-typedef FBXMesh(*FBXGetMeshWithIndexFunc)(FBXScene, int);
-typedef bool(*FBXGetMeshInfoFunc)(FBXMesh, FBXMeshInfo*);
-typedef bool(*FBXGetDataFunc)(FBXMesh, float*, size_t);
-typedef bool(*FBXGetTransformFunc)(FBXMesh, float*);
+typedef bool(*FBXImportAssetFunc)(fnd::memory::MemoryArenaBase*, char*, size_t, MeshAsset*);
 
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
@@ -1374,8 +1048,8 @@ int win32_main(int argc, char* argv[])
     float proj[16];
     float cameraPos[16];
     float camera[16];
-    util::Make4x4FloatProjectionMatrixLH(proj, 1.0f, (float)WINDOW_WIDTH,  (float)WINDOW_HEIGHT, 0.1f, 1000.0f);
-    util::Make4x4FloatTranslationMatrix(cameraPos, { 0.0f, -0.4f, 2.75f });
+    util::Make4x4FloatProjectionMatrixCMLH(proj, 1.0f, (float)WINDOW_WIDTH,  (float)WINDOW_HEIGHT, 0.1f, 1000.0f);
+    util::Make4x4FloatTranslationMatrixCM(cameraPos, { 0.0f, -0.4f, 2.75f });
     
 
     ConstantData object;
@@ -1392,173 +1066,29 @@ int win32_main(int argc, char* argv[])
     if (!fbxImporter) {
         GT_LOG_ERROR("Assets", "Failed to load %s", "fbx_importer.dll");
     }
-    auto FBXLoadSceneFromMemory = (FBXLoadSceneFromMemoryFunc)GetProcAddress(fbxImporter, "FBXLoadSceneFromMemory");
-    if (!FBXLoadSceneFromMemory) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXLoadSceneFromMemory", "fbx_importer.dll");
+    auto FBXImportAsset = (FBXImportAssetFunc)GetProcAddress(fbxImporter, "FBXImportAsset");
+    if (!FBXImportAsset) {
+        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXImportAsset", "fbx_importer.dll");
     }
-    auto FBXGetMeshWithIndex = (FBXGetMeshWithIndexFunc)GetProcAddress(fbxImporter, "FBXGetMeshWithIndex");
-    if (!FBXGetMeshWithIndex) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshWithIndex", "fbx_importer.dll");
-    }
-    auto FBXGetMeshCount = (FBXGetMeshCountFunc)GetProcAddress(fbxImporter, "FBXGetMeshCount");
-    if (!FBXGetMeshCount) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshCount", "fbx_importer.dll");
-    }
-    auto FBXGetMeshInfo = (FBXGetMeshInfoFunc)GetProcAddress(fbxImporter, "FBXGetMeshInfo");
-    if (!FBXGetMeshInfo) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshInfo", "fbx_importer.dll");
-    }
-    auto FBXGetNormals = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetNormals");
-    if (!FBXGetNormals) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetNormals", "fbx_importer.dll");
-    }
-    auto FBXGetTexcoords = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetTexcoords");
-    if (!FBXGetTexcoords) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetTexcoords", "fbx_importer.dll");
-    }
-    auto FBXGetVertexPositions = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetVertexPositions");
-    if (!FBXGetVertexPositions) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetVertexPositions", "fbx_importer.dll");
-    }
-    auto FBXGetTangents = (FBXGetDataFunc)GetProcAddress(fbxImporter, "FBXGetTangents");
-    if (!FBXGetTangents) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetTangents", "fbx_importer.dll");
-    }
-    auto FBXGetMeshTransform = (FBXGetTransformFunc)GetProcAddress(fbxImporter, "FBXGetMeshTransform");
-    if (!FBXGetMeshTransform) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXGetMeshTransform", "fbx_importer.dll");
-    }
-
     auto cubeMesh = par_shapes_create_torus(35, 35, 0.5f);
     //par_shapes_translate(cubeMesh, 0.5f, 0.5f, 0.5f);
     
-    float* cubeVertices = cubeMesh->points;
-    float* cubeNormals = cubeMesh->normals;
-    float* cubeTexcoords = cubeMesh->tcoords;
-    float* cubeTangents = nullptr;
-    PAR_SHAPES_T* cubeIndices = cubeMesh->triangles;
-    int numCubeVertices = cubeMesh->npoints;
-    int numCubeIndices = cubeMesh->ntriangles * 3;
+    MeshAsset cubeAsset;
 
-#define MODEL_FILE_PATH "../../Cerberus_LP2.fbx"
+#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
 
     {
-        FBXScene model;
         size_t modelFileSize = 0;
         void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
         if (modelFileData && modelFileSize > 0) {
             GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
-            model = FBXLoadSceneFromMemory(modelFileData, modelFileSize);
-            assert(model._ptr);
-
-            size_t numVertices = 0;
-            size_t numMeshes = FBXGetMeshCount(model);
-            for (size_t i = 0; i < numMeshes; ++i) {
-                FBXMesh mesh = FBXGetMeshWithIndex(model, (int)i);
-                FBXMeshInfo meshInfo;
-                FBXGetMeshInfo(mesh, &meshInfo);
-                GT_LOG_INFO("Assets", "Parsed FBX mesh with %llu vertices", meshInfo.numVertices);
-                assert(meshInfo.hasNormals);
-                //assert(meshInfo.hasTangents);
-                //assert(meshInfo.hasTexcoords);
-                numVertices += meshInfo.numVertices;
+            bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, &cubeAsset);
+            if (!res) {
+                GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
             }
-
-            math::float3* vertexBuffer = GT_NEW_ARRAY(math::float3, numVertices, &applicationArena);
-            math::float3* normalBuffer = GT_NEW_ARRAY(math::float3, numVertices, &applicationArena);
-            math::float2* uvBuffer = GT_NEW_ARRAY(math::float2, numVertices, &applicationArena);
-            math::float3* tangentBuffer = GT_NEW_ARRAY(math::float3, numVertices, &applicationArena);
-
-            size_t offset = 0;
-            //numMeshes = 1;
-            for (size_t i = 0; i < numMeshes; ++i) {
-                FBXMesh mesh = FBXGetMeshWithIndex(model, (int)i);
-                FBXMeshInfo meshInfo;
-                FBXGetMeshInfo(mesh, &meshInfo);
-
-                float meshTransform[16];
-                FBXGetMeshTransform(mesh, meshTransform);
-
-                FBXGetVertexPositions(mesh, (float*)(vertexBuffer + offset), 3 * meshInfo.numVertices);
-                for (int i = 0; i < meshInfo.numVertices; ++i) {
-                    float swap = vertexBuffer[i].y;
-                    //vertexBuffer[i].y = vertexBuffer[i].z;
-                    //vertexBuffer[i].z = swap;
-                    vertexBuffer[i] = util::TransformPosition(vertexBuffer[i], meshTransform);
-                }
-                FBXGetNormals(mesh, (float*)(normalBuffer + offset), 3 * meshInfo.numVertices);
-                for (int i = 0; i < meshInfo.numVertices; ++i) {
-                    float swap = normalBuffer[i].y;
-                    //normalBuffer[i].y = normalBuffer[i].z;
-                    //normalBuffer[i].z = swap;
-                    normalBuffer[i] = util::TransformDirection(normalBuffer[i], meshTransform);
-                }
-                if (meshInfo.hasTexcoords) {
-                    FBXGetTexcoords(mesh, (float*)(uvBuffer + offset), 2 * meshInfo.numVertices);
-                }
-                else {
-
-                }
-                if (meshInfo.hasTangents) {
-                    FBXGetTangents(mesh, (float*)(tangentBuffer + offset), 3 * meshInfo.numVertices);
-                    cubeTangents = (float*)tangentBuffer;
-                }
-                else {
-                    if (meshInfo.hasTexcoords) {
-                        // calculate tangents
-                        for (int i = 0; i < meshInfo.numVertices; i += 3) {
-                            math::float3 pos1 = vertexBuffer[i];
-                            math::float3 pos2 = vertexBuffer[i + 1];
-                            math::float3 pos3 = vertexBuffer[i + 2];
-
-                            math::float2 uv1 = uvBuffer[i];
-                            math::float2 uv2 = uvBuffer[i + 1];
-                            math::float2 uv3 = uvBuffer[i + 2];
-
-                            math::float3 edge1 = pos2 - pos1;
-                            math::float3 edge2 = pos3 - pos1;
-                            math::float2 deltaUV1 = uv2 - uv1;
-                            math::float2 deltaUV2 = uv3 - uv1;
-
-                            float f = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
-
-                            math::float3 tangent1;
-                            math::float3 bitangent1;
-                            tangent1.x = f * (deltaUV2.y * edge1.x - deltaUV1.y * edge2.x);
-                            tangent1.y = f * (deltaUV2.y * edge1.y - deltaUV1.y * edge2.y);
-                            tangent1.z = f * (deltaUV2.y * edge1.z - deltaUV1.y * edge2.z);
-                            tangent1 = math::Normalize(tangent1);
-
-                            bitangent1.x = f * (-deltaUV2.x * edge1.x + deltaUV1.x * edge2.x);
-                            bitangent1.y = f * (-deltaUV2.x * edge1.y + deltaUV1.x * edge2.y);
-                            bitangent1.z = f * (-deltaUV2.x * edge1.z + deltaUV1.x * edge2.z);
-                            bitangent1 = math::Normalize(bitangent1);
-
-                            for (int j = 0; j < 3; ++j) {
-                                tangentBuffer[i + j] = tangent1;
-                            }
-                        }
-                        cubeTangents = (float*)tangentBuffer;
-                    }
-                    else {
-                        // nothing
-                    }
-                }
-                offset += meshInfo.numVertices;
-            }
- 
-            cubeVertices = (float*)vertexBuffer;
-            cubeNormals = (float*)normalBuffer;
-            cubeTexcoords = (float*)uvBuffer;
-                
-            cubeIndices = GT_NEW_ARRAY(uint16_t, numVertices, &applicationArena);
-            for (size_t i = 0; i < numVertices; ++i) {
-                cubeIndices[i] = (uint16_t)i;
-            }
-            numCubeVertices = numCubeIndices = (int)numVertices;
         }
         else {
-            GT_LOG_ERROR("Assets", "Failed to load contents of %s", MODEL_FILE_PATH);
+            GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
         }
     }
 
@@ -1727,8 +1257,8 @@ int win32_main(int argc, char* argv[])
 
     gfx::BufferDesc cubeVertexBufferDesc;
     cubeVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    cubeVertexBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 3;
-    cubeVertexBufferDesc.initialData = cubeVertices;
+    cubeVertexBufferDesc.byteWidth = sizeof(math::float3) * cubeAsset.numVertices;
+    cubeVertexBufferDesc.initialData = cubeAsset.vertexPositions;
     cubeVertexBufferDesc.initialDataSize = cubeVertexBufferDesc.byteWidth;
     gfx::Buffer cubeVertexBuffer = gfx::CreateBuffer(gfxDevice, &cubeVertexBufferDesc);
     if (!GFX_CHECK_RESOURCE(cubeVertexBuffer)) {
@@ -1737,8 +1267,8 @@ int win32_main(int argc, char* argv[])
 
     gfx::BufferDesc cubeNormalBufferDesc;
     cubeNormalBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    cubeNormalBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 3;
-    cubeNormalBufferDesc.initialData = cubeNormals;
+    cubeNormalBufferDesc.byteWidth = sizeof(math::float3) * cubeAsset.numVertices;
+    cubeNormalBufferDesc.initialData = cubeAsset.vertexNormals;
     cubeNormalBufferDesc.initialDataSize = cubeNormalBufferDesc.byteWidth;
     gfx::Buffer cubeNormalBuffer = gfx::CreateBuffer(gfxDevice, &cubeNormalBufferDesc);
     if (!GFX_CHECK_RESOURCE(cubeNormalBuffer)) {
@@ -1746,11 +1276,11 @@ int win32_main(int argc, char* argv[])
     }
 
     gfx::Buffer cubeTangentBuffer;
-    if (cubeTangents != nullptr) {
+    if (cubeAsset.vertexTangents != nullptr) {
         gfx::BufferDesc cubeTangentBufferDesc;
         cubeTangentBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-        cubeTangentBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 3;
-        cubeTangentBufferDesc.initialData = cubeTangents;
+        cubeTangentBufferDesc.byteWidth = sizeof(math::float3) * cubeAsset.numVertices;
+        cubeTangentBufferDesc.initialData = cubeAsset.vertexTangents;
         cubeTangentBufferDesc.initialDataSize = cubeTangentBufferDesc.byteWidth;
         cubeTangentBuffer = gfx::CreateBuffer(gfxDevice, &cubeTangentBufferDesc);
         if (!GFX_CHECK_RESOURCE(cubeTangentBuffer)) {
@@ -1760,8 +1290,8 @@ int win32_main(int argc, char* argv[])
 
     gfx::BufferDesc cubeUVBufferDesc;
     cubeUVBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    cubeUVBufferDesc.byteWidth = sizeof(float) * numCubeVertices * 2;
-    cubeUVBufferDesc.initialData = cubeTexcoords;
+    cubeUVBufferDesc.byteWidth = sizeof(math::float2) * cubeAsset.numVertices;
+    cubeUVBufferDesc.initialData = cubeAsset.vertexUVs;
     cubeUVBufferDesc.initialDataSize = cubeUVBufferDesc.byteWidth;
     gfx::Buffer cubeUVBuffer = gfx::CreateBuffer(gfxDevice, &cubeUVBufferDesc);
     if (!GFX_CHECK_RESOURCE(cubeUVBuffer)) {
@@ -1770,8 +1300,16 @@ int win32_main(int argc, char* argv[])
 
     gfx::BufferDesc cubeIndexBufferDesc;
     cubeIndexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
-    cubeIndexBufferDesc.byteWidth = sizeof(PAR_SHAPES_T) * numCubeIndices;
-    cubeIndexBufferDesc.initialData = cubeIndices;
+    size_t indexByteWidth = 0;
+    if (cubeAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
+        cubeIndexBufferDesc.initialData = cubeAsset.indices.as_uint16;
+        indexByteWidth = sizeof(uint16_t);
+    }
+    else {
+        cubeIndexBufferDesc.initialData = cubeAsset.indices.as_uint32;
+        indexByteWidth = sizeof(uint32_t);
+    }
+    cubeIndexBufferDesc.byteWidth = indexByteWidth * cubeAsset.numIndices;
     cubeIndexBufferDesc.initialDataSize = cubeIndexBufferDesc.byteWidth;
     gfx::Buffer cubeIndexBuffer = gfx::CreateBuffer(gfxDevice, &cubeIndexBufferDesc);
     if (!GFX_CHECK_RESOURCE(cubeIndexBuffer)) {
@@ -1897,7 +1435,13 @@ int win32_main(int argc, char* argv[])
     cubePipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
 
     //cubePipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
-    cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+    //cubePipelineStateDesc.rasterState.cullOrder = gfx::CullOrder::CULL_ORDER_CCLOCKWISE;
+    if (cubeAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
+        cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+    }
+    else {
+        cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT32;
+    }
     cubePipelineStateDesc.vertexShader = vCubeShader;
     cubePipelineStateDesc.pixelShader = pShader;
     cubePipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
@@ -2049,7 +1593,12 @@ int win32_main(int argc, char* argv[])
 
     paintObjPipelineStateDesc.depthStencilState.enableDepth = false;
     paintObjPipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
-    paintObjPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+    if (cubeAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
+        paintObjPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+    }
+    else {
+        paintObjPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT32;
+    }
     paintObjPipelineStateDesc.vertexShader = vPaintShader;
     paintObjPipelineStateDesc.pixelShader = pPaintShader;
     paintObjPipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
@@ -2077,7 +1626,7 @@ int win32_main(int argc, char* argv[])
         cubeDrawCall.vertexStrides[3] = sizeof(float) * 3;
     }
     cubeDrawCall.indexBuffer = cubeIndexBuffer;
-    cubeDrawCall.numElements = numCubeIndices;
+    cubeDrawCall.numElements = cubeAsset.numIndices;
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
     cubeDrawCall.psConstantInputs[0] = cBuffer;
@@ -2101,7 +1650,7 @@ int win32_main(int argc, char* argv[])
     cubePaintDrawCall.vertexOffsets[2] = 0;
     cubePaintDrawCall.vertexStrides[2] = sizeof(float) * 2;
     cubePaintDrawCall.indexBuffer = cubeIndexBuffer;
-    cubePaintDrawCall.numElements = numCubeIndices;
+    cubePaintDrawCall.numElements = cubeAsset.numIndices;
     cubePaintDrawCall.pipelineState = paintObjPipelineState;
     cubePaintDrawCall.vsConstantInputs[0] = cPaintBuffer;
     cubePaintDrawCall.psConstantInputs[0] = cPaintBuffer;
@@ -2612,7 +2161,7 @@ int win32_main(int argc, char* argv[])
                     camPitch = 0.0f;
                 }
 
-                ImGui::DragFloat3("Camera Pos", (float*)&camPos);
+                ImGui::DragFloat3("Camera Pos", (float*)&camPos, 0.1f);
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_FA_UNDO "##pos")) {
                     camPos = math::float3(0.0f);
@@ -2620,24 +2169,27 @@ int win32_main(int argc, char* argv[])
             } ImGui::End();
 
             float cameraRotX[16], cameraRotY[16];
-            util::Make4x4FloatRotationMatrix(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), camPitch * (3.141f / 180.0f));
-            util::Make4x4FloatRotationMatrix(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), camYaw * (3.141f / 180.0f));
+            util::Make4x4FloatRotationMatrixCMLH(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), camPitch * (3.141f / 180.0f));
+            util::Make4x4FloatRotationMatrixCMLH(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), camYaw * (3.141f / 180.0f));
             
             float camTemp[16];
             
-            util::Make4x4FloatTranslationMatrix(cameraPos, camPos);
-            util::MultiplyMatrices(cameraRotY, cameraRotX, camTemp);
-            util::MultiplyMatrices(cameraPos, camTemp, camera);
-            //util::Copy4x4FloatMatrix(camTemp, camera);
+            util::Make4x4FloatTranslationMatrixCM(cameraPos, camPos);
+            util::MultiplyMatricesCM(cameraRotY, cameraRotX, camTemp);
+            util::MultiplyMatricesCM(camTemp, cameraPos, camera);
+            float camInverse[16];
+            util::Inverse4x4FloatMatrixCM(camera, camInverse);
+            util::Copy4x4FloatMatrixCM(camInverse, camera);
+            //util::Copy4x4FloatMatrixCM(camTemp, camera);
 
-            util::MultiplyMatrices(model, camera, modelView);
-            util::MultiplyMatrices(modelView, proj, object.MVP);
-            util::Copy4x4FloatMatrix(camera, object.view);
-            util::Inverse4x4FloatMatrix(camera, object.inverseView);
-            util::Copy4x4FloatMatrix(model, object.model);
-            util::Copy4x4FloatMatrix(modelView, object.MV);
-            util::Copy4x4FloatMatrix(proj, object.projection);
-            util::MultiplyMatrices(camera, proj, object.VP);
+            util::MultiplyMatricesCM(camera, model, modelView);
+            util::MultiplyMatricesCM(proj, modelView, object.MVP);
+            util::Copy4x4FloatMatrixCM(camera, object.view);
+            util::Inverse4x4FloatMatrixCM(camera, object.inverseView);
+            util::Copy4x4FloatMatrixCM(model, object.model);
+            util::Copy4x4FloatMatrixCM(modelView, object.MV);
+            util::Copy4x4FloatMatrixCM(proj, object.projection);
+            util::MultiplyMatricesCM(proj, camera, object.VP);
 
             //
             paint = ImGui::IsMouseDown(1);
@@ -2649,8 +2201,8 @@ int win32_main(int argc, char* argv[])
                         PaintConstantData* data = (PaintConstantData*)cBufferMem;
                         data->cursorPos = mousePosScreen.xy * steps + mousePosScreenCache.xy * (1.0f - steps);
                         //memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
-                        util::Copy4x4FloatMatrix(modelView, data->modelToViewMatrix);
-                        util::Copy4x4FloatMatrix(object.MVP, data->modelToProjMatrix);
+                        util::Copy4x4FloatMatrixCM(modelView, data->modelToViewMatrix);
+                        util::Copy4x4FloatMatrixCM(object.MVP, data->modelToProjMatrix);
                         data->color = object.color;
                         data->brushSize = brushSize;
                         gfx::UnmapBuffer(gfxDevice, cPaintBuffer);

@@ -164,7 +164,7 @@ static Matrix rotationZ(double angle)
 }
 
 
-static Matrix getRotationMatrix(const Vec3& euler)
+static Matrix getRotationMatrixLH(const Vec3& euler)
 {
 	const double TO_RAD = 3.1415926535897932384626433832795028 / 180.0;
 	Matrix rx = rotationX(euler.x * TO_RAD);
@@ -664,7 +664,7 @@ struct MeshImpl : Mesh
 		scale_mtx.m[0] = (float)scale.x;
 		scale_mtx.m[5] = (float)scale.y;
 		scale_mtx.m[10] = (float)scale.z;
-		Matrix mtx = getRotationMatrix(rotation);
+		Matrix mtx = getRotationMatrixLH(rotation);
 		setTranslation(translation, &mtx);
 
 		return scale_mtx * mtx;
@@ -2152,9 +2152,9 @@ Matrix Object::evalLocal(const Vec3& translation, const Vec3& rotation) const
 	Matrix t = makeIdentity();
 	setTranslation(translation, &t);
 
-	Matrix r = getRotationMatrix(rotation);
-	Matrix r_pre = getRotationMatrix(getPreRotation());
-	Matrix r_post_inv = getRotationMatrix(getPostRotation());
+	Matrix r = getRotationMatrixLH(rotation);
+	Matrix r_pre = getRotationMatrixLH(getPreRotation());
+	Matrix r_post_inv = getRotationMatrixLH(getPostRotation());
 
 	Matrix r_off = makeIdentity();
 	setTranslation(getRotationOffset(), &r_off);

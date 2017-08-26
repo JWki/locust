@@ -6,7 +6,31 @@
 #define FBX_IMPORT_API extern "C"
 #endif
 
+#include <foundation/memory/memory.h>
+#include <foundation/math/math.h>
 #include <foundation/int_types.h>
+
+struct MeshAsset
+{
+    fnd::math::float3*   vertexPositions = nullptr;
+    fnd::math::float3*   vertexNormals = nullptr;
+    fnd::math::float3*   vertexTangents = nullptr;
+    fnd::math::float2*   vertexUVs = nullptr;
+
+    enum class IndexFormat : uint8_t {
+        UINT16,
+        UINT32
+    } indexFormat = IndexFormat::UINT16;
+    union {
+        uint16_t* as_uint16;
+        uint32_t* as_uint32;
+    } indices;
+
+    uint32_t        numVertices = 0;
+    uint32_t        numIndices = 0;
+
+    MeshAsset() { indices.as_uint16 = nullptr; }
+};
 
 
 struct FBXScene { void* _ptr = nullptr; };
@@ -20,29 +44,4 @@ struct FBXMeshInfo
 };
 
 FBX_IMPORT_API
-FBXScene FBXLoadSceneFromMemory(void* data, size_t dataSize);
-
-FBX_IMPORT_API
-FBXMesh FBXGetMeshWithIndex(FBXScene scene, int index);
-
-FBX_IMPORT_API
-size_t FBXGetMeshCount(FBXScene scene);
-
-FBX_IMPORT_API
-bool FBXGetMeshInfo(FBXMesh mesh, FBXMeshInfo* outInfo);
-
-FBX_IMPORT_API
-bool FBXGetNormals(FBXMesh mesh, float* buffer, size_t bufferCapacity);
-
-FBX_IMPORT_API
-bool FBXGetTexcoords(FBXMesh mesh, float* buffer, size_t bufferCapacity);
-
-FBX_IMPORT_API
-bool FBXGetVertexPositions(FBXMesh mesh, float* buffer, size_t bufferCapacity);
-
-FBX_IMPORT_API
-bool FBXGetTangents(FBXMesh mesh, float* buffer, size_t bufferCapacity);
-
-
-FBX_IMPORT_API
-bool FBXGetMeshTransform(FBXMesh mesh, float* matOut);
+bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, MeshAsset* outAsset);
