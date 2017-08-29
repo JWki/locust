@@ -42,6 +42,9 @@ sampler   sampler4 : register(s5);
 Texture2D paintMetallic : register(t6);
 sampler   sampler5 : register(s6);
 
+TextureCube cubemap : register(t7);
+sampler sampler7 : register(s7);
+
 static const float PI = 3.14159264359f;
 
 float3 FresnelSchlick(float cosTheta, float3 F0)
@@ -102,9 +105,9 @@ float4 main(PixelInput input) : SV_TARGET
     float roughness = paintRoughness.Sample(sampler4, input.uv.xy).r;
     float metallic = paintMetallic.Sample(sampler5, input.uv.xy).r;
 
-    roughness = roughnessMap.Sample(sampler1, input.uv.xy).r * paintColor.a + roughness;;
-    metallic = metallicMap.Sample(sampler2, input.uv.xy).r * paintColor.a + roughness;
-
+    roughness = roughnessMap.Sample(sampler1, input.uv.xy).r * paintColor.a + roughness;
+    metallic = metallicMap.Sample(sampler2, input.uv.xy).r * paintColor.a + metallic;
+    
     //roughness = Roughness;
     //metallic = Metallic;
 
@@ -132,36 +135,18 @@ float4 main(PixelInput input) : SV_TARGET
     float3 kD = 1.0f - kS;
     kD *= 1.0f - metallic;
 
-    //return float4(float3(1.0f, 1.0f, 1.0f) * NdotL, 1.0f);
-
     float3 directLight = LightDir.w * NdotL * (kD * albedo.rgb / PI + specular);
 
     float3 indirectA = float3(0.1f, 0.4f, 0.8f) * 1.0f;
     float3 indirectB = indirectA * 0.2f;
     float3 indirectLight = lerp(indirectB, indirectA, N.y * 0.5f + 0.5f);
 
-    //return float4(input.uv, 0.0f, 1.0f);
-    //return float4(N * 0.5f + 0.5f, 1.0f);
-    float3 light = lerp(directLight, directLight + indirectLight * 0.1f, 1.0f);
-    //return float4(N * 0.5f + 0.5f, 1.0f);
-    //return float4(float3(1.0f, 1.0f, 1.0f) * (N.y * 0.5f + 0.5f), 1.0f);
+    float3 r = normalize(reflect(-V, N));
+    indirectLight = metallic * pow(cubemap.Sample(sampler7, r).rgb, 2.2f);
     //return float4(indirectLight, 1.0f);
-    //return float4(indirectLight, 1.0f);
-    //return float4(float3(1.0f, 1.0f, 1.0f) * (1.0f - (N.y * 0.5f + 0.5f)), 1.0f);
-    //return float4(float3(1.0f, 1.0f, 1.0f) * NdotH, 1.0f);
-    //return float4(float3(1.0f, 1.0f, 1.0f) * NDF, 1.0f);
-    //return float4(float3(1.0f, 1.0f, 1.0f) * G, 1.0f);
-    //return float4(F, 1.0f);
-    //return float4(input.worldPos.xyz, 1.0f);
-    
-    //return float4(1.0f, 1.0f, 1.0f, 1.0f) * (1.0f - saturate(dot(N, V)));
-    //return float4(F, 1.0f);
-        
-    //return float4(float3(1.0f, 1.0f, 1.0f) * saturate(dot(N, V)), 1.0f);
-    //return float4(float3(1.0f, 1.0f, 1.0f) * saturate(dot(H, V)), 1.0f);
+    float3 light = indirectLight + directLight;
+
 
     //return float4(float3(1.0f, 1.0f, 1.0f) * metallic, 1.0f);
-    //return float4(N * 0.5f + 0.5f, 1.0f);
-    //return float4(indirectLight, 1.0f);
     return float4((light) * albedo.rgb, 1.0f);
 }

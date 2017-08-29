@@ -1096,7 +1096,7 @@ int win32_main(int argc, char* argv[])
     
     gfx::SamplerDesc defaultSamplerStateDesc;
 
-    gfx::Image cubeTexture;
+    gfx::Image meshTexture;
     {
         int width, height, numComponents;
         auto image = stbi_load("../../texture.png", &width, &height, &numComponents, 4);
@@ -1118,12 +1118,48 @@ int win32_main(int argc, char* argv[])
         size_t size = sizeof(stbi_uc) * width * height * 4;
         cubeTextureDesc.initialData = data;
         cubeTextureDesc.initialDataSizes = &size;
-        cubeTexture = gfx::CreateImage(gfxDevice, &cubeTextureDesc);
-        if (!GFX_CHECK_RESOURCE(cubeTexture)) {
+        meshTexture = gfx::CreateImage(gfxDevice, &cubeTextureDesc);
+        if (!GFX_CHECK_RESOURCE(meshTexture)) {
             GT_LOG_ERROR("Renderer", "Failed to create texture");
         }
         stbi_image_free(image);
     }
+
+    char fileNameBuf[512] = "";
+    gfx::Image cubemapTexture;
+    {
+        int width, height, numComponents;
+        stbi_uc* images[6];
+        for (int i = 0; i < 6; ++i) {
+            snprintf(fileNameBuf, 512, "../../cubemap%i.png", i + 1);
+            images[i] = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
+            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+            if (images[i] == NULL) {
+                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+            }
+        }
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+
+        size_t sizes[6] = { size, size, size, size, size, size };
+        gfx::ImageDesc cubemapTextureDesc;
+        cubemapTextureDesc.type = gfx::ImageType::IMAGE_TYPE_CUBE;
+        cubemapTextureDesc.width = width;
+        cubemapTextureDesc.height = height;
+        cubemapTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        cubemapTextureDesc.samplerDesc = &defaultSamplerStateDesc;
+        cubemapTextureDesc.numDataItems = 6;
+        cubemapTextureDesc.initialData = (void**)images;
+        cubemapTextureDesc.initialDataSizes = sizes;
+        cubemapTexture = gfx::CreateImage(gfxDevice, &cubemapTextureDesc);
+        if (!GFX_CHECK_RESOURCE(cubemapTexture)) {
+            GT_LOG_ERROR("Renderer", "Failed to create texture");
+        }
+
+        for (int i = 0; i < 6; ++i) {
+            stbi_image_free(images[i]);
+        }
+    }
+
 
     struct Material
     {
@@ -1133,9 +1169,8 @@ int win32_main(int argc, char* argv[])
         gfx::Image normal;
     };
 
-    const size_t NUM_MATERIALS = 9;
+    const size_t NUM_MATERIALS = 13;
     Material materials[NUM_MATERIALS];
-    char fileNameBuf[512] = "";
     for(size_t i = 0; i < NUM_MATERIALS; ++i) {
 
         {   // diffuse
@@ -1638,6 +1673,7 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.psImageInputs[4] = paintDiffuseRT;
     cubeDrawCall.psImageInputs[5] = paintRoughnessRT;
     cubeDrawCall.psImageInputs[6] = paintMetallicRT;
+    cubeDrawCall.psImageInputs[7] = cubemapTexture;
 
     gfx::DrawCall cubePaintDrawCall;
     cubePaintDrawCall.vertexBuffers[0] = cubeVertexBuffer;

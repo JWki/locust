@@ -564,6 +564,9 @@ namespace gfx
         texDesc.Height = desc->height;
         texDesc.MipLevels = desc->numMipmaps;
         texDesc.ArraySize = 1;    // @TODO
+        if (desc->type == ImageType::IMAGE_TYPE_CUBE) {
+            texDesc.ArraySize = 6;
+        }
         texDesc.Format = g_pixelFormatTable[(uint8_t)desc->pixelFormat];
 
         ResourceUsage usage = desc->usage == ResourceUsage::_DEFAULT ? ResourceUsage::USAGE_IMMUTABLE : desc->usage;
@@ -621,6 +624,9 @@ namespace gfx
         case ImageType::IMAGE_TYPE_2D: {
             res = device->d3dDevice->CreateTexture2D(&texDesc, pDataPtr, &image->as_2DTexture);
         } break;
+        case ImageType::IMAGE_TYPE_CUBE: {
+            res = device->d3dDevice->CreateTexture2D(&texDesc, pDataPtr, &image->as_cubeTexture);
+        } break;
         default: {
                 assert(false);  // @TODO
             } break;
@@ -638,6 +644,10 @@ namespace gfx
             srvDesc.ViewDimension = g_imageSRVDimensionTable[(uint8_t)desc->type];
             switch (desc->type) {
             case ImageType::IMAGE_TYPE_2D: {
+                srvDesc.Texture2D.MipLevels = desc->numMipmaps;
+                srvDesc.Texture2D.MostDetailedMip = 0;
+            } break;
+            case(ImageType::IMAGE_TYPE_CUBE): {
                 srvDesc.Texture2D.MipLevels = desc->numMipmaps;
                 srvDesc.Texture2D.MostDetailedMip = 0;
             } break;
