@@ -21,12 +21,13 @@ float4 main(PixelInput input) : SV_Target
     float2 aspect = float2(1.0f / 1920.0f, 1.0f / 1080.0f);
     
     int numSamples = 0;
-    float2 blurRadius = (4.0f, 4.0f);
-    for (int k = 0; k < 2; ++k) {
+    float2 blurRadius = float2(4.0f, 4.0f);
+    const int kernelCount = 2;
+    for (int k = 0; k < kernelCount; ++k) {
         int kernelWidth = 3 + k * 2;
+        float fac = (kernelWidth - 1) * 0.5f;
         for (int i = 0; i < kernelWidth; ++i) {
             for (int j = 0; j < kernelWidth; ++j) {
-                float fac = (kernelWidth - 1) * 0.5f;
                 float2 sampleOffset = blurRadius * (i - fac, j - fac) * aspect;
                 float4 s = texture0.Sample(sampler1, input.uv + sampleOffset);
                 s = s / (1.0f + s);

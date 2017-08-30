@@ -42,8 +42,11 @@ sampler   sampler4 : register(s5);
 Texture2D paintMetallic : register(t6);
 sampler   sampler5 : register(s6);
 
-TextureCube cubemap : register(t7);
-sampler sampler7 : register(s7);
+Texture2D paintNormal : register(t7);
+sampler sampler8 : register(s7);
+
+TextureCube cubemap : register(t8);
+sampler sampler7 : register(s8);
 
 static const float PI = 3.14159264359f;
 
@@ -85,14 +88,31 @@ float GeometrySmith(float NdotV, float NdotL, float roughness)
     return ggx1 * ggx2;
 }
 
+// http://blog.selfshadow.com/publications/blending-in-detail/
+float3 blend_rnm(float3 n1, float3 n2)
+{
+    float3 t = n1*float3(2, 2, 2) + float3(-1, -1, 0);
+    float3 u = n2*float3(-2, -2, 2) + float3(1, 1, -1);
+    float3 r = t*dot(t, u) - u*t.z;
+    return normalize(r);
+}
+
+
+
 float4 main(PixelInput input) : SV_TARGET
 {
     float3 viewPos = mul(InverseView, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
 
     float3 N = normalize(input.normal).xyz;
+    float3 paintN = paintNormal.Sample(sampler8, input.uv).rgb;
+    
+    N = normalMap.Sample(sampler6, input.uv).rgb;
+    //N = paintN;
+    N = blend_rnm(N, paintN);
+    //N = normalize(N * 2.0f - 1.0f);
+    N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
 
-    N = normalize(normalMap.Sample(sampler6, input.uv).rgb * 2.0f - 1.0f);
-    N = normalize(mul(input.TBN, float4(N.xyz, 0.0f)).xyz); // @NOTE: ORDER INVERTED, this is because TBN is row-major (see vertex shader)
+    //return float4(N , 1.0f);
 
     float3 V = normalize(viewPos - input.worldPos.xyz);
     float3 L = normalize(-LightDir.xyz);
@@ -137,12 +157,8 @@ float4 main(PixelInput input) : SV_TARGET
 
     float3 directLight = LightDir.w * NdotL * (kD * albedo.rgb / PI + specular);
 
-    float3 indirectA = float3(0.1f, 0.4f, 0.8f) * 1.0f;
-    float3 indirectB = indirectA * 0.2f;
-    float3 indirectLight = lerp(indirectB, indirectA, N.y * 0.5f + 0.5f);
-
     float3 r = normalize(reflect(-V, N));
-    indirectLight = metallic * pow(cubemap.Sample(sampler7, r).rgb, 2.2f);
+    float3 indirectLight = metallic * pow(cubemap.Sample(sampler7, r).rgb, 2.2f);
     //return float4(indirectLight, 1.0f);
     float3 light = indirectLight + directLight;
 

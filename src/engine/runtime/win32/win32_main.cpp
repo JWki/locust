@@ -1595,6 +1595,18 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
     }
 
+    gfx::ImageDesc paintNormalRTDesc;
+    paintNormalRTDesc.isRenderTarget = true;
+    paintNormalRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    paintNormalRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+    paintNormalRTDesc.width = WINDOW_WIDTH;
+    paintNormalRTDesc.height = WINDOW_HEIGHT;
+    paintNormalRTDesc.samplerDesc = &defaultSamplerStateDesc;
+    gfx::Image paintNormalRT = gfx::CreateImage(gfxDevice, &paintNormalRTDesc);
+    if (!GFX_CHECK_RESOURCE(paintNormalRT)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
+    }
+
     gfx::ImageDesc mainRTDesc;
     mainRTDesc.isRenderTarget = true;
     mainRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
@@ -1678,7 +1690,8 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.psImageInputs[4] = paintDiffuseRT;
     cubeDrawCall.psImageInputs[5] = paintRoughnessRT;
     cubeDrawCall.psImageInputs[6] = paintMetallicRT;
-    cubeDrawCall.psImageInputs[7] = cubemapTexture;
+    cubeDrawCall.psImageInputs[7] = paintNormalRT;
+    cubeDrawCall.psImageInputs[8] = cubemapTexture;
 
     gfx::DrawCall cubePaintDrawCall;
     cubePaintDrawCall.vertexBuffers[0] = cubeVertexBuffer;
@@ -1717,6 +1730,7 @@ int win32_main(int argc, char* argv[])
     paintPassDesc.colorAttachments[0].image = paintDiffuseRT;
     paintPassDesc.colorAttachments[1].image = paintRoughnessRT;
     paintPassDesc.colorAttachments[2].image = paintMetallicRT;
+    paintPassDesc.colorAttachments[3].image = paintNormalRT;
     gfx::RenderPass paintPass = gfx::CreateRenderPass(gfxDevice, &paintPassDesc);
     if (!GFX_CHECK_RESOURCE(paintPass)) {
         GT_LOG_ERROR("Renderer", "Failed to create render pass for painting");
@@ -1992,6 +2006,8 @@ int win32_main(int argc, char* argv[])
                 cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
                 cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
                 cubePaintDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
+                cubePaintDrawCall.psImageInputs[3] = materials[selectionIndex].normal;
+
             } ImGui::End();
 
            

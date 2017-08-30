@@ -21,6 +21,7 @@ struct PixelOutput
     float4 diffuse : SV_TARGET0;
     float4 roughness : SV_TARGET1;   
     float4 metallic : SV_TARGET2;
+    float4 normal : SV_TARGET3;
 };
 
 Texture2D diffuse : register(t0);
@@ -31,6 +32,9 @@ sampler   sampler1 : register(s1);
 
 Texture2D metallic : register(t2);
 sampler   sampler2 : register(s2);
+
+Texture2D normal : register(t3);
+sampler   sampler3 : register(s3);
 
 PixelOutput main(PixelInput vertex) 
 {
@@ -46,6 +50,7 @@ PixelOutput main(PixelInput vertex)
     output.diffuse = float4(pow(color, 2.2f), a);
     output.roughness = float4(roughness.Sample(sampler1, vertex.uv * 1.0f).r, 0.0f, 0.0f, a);
     output.metallic = float4(metallic.Sample(sampler2, vertex.uv * 1.0f).r, 0.0f, 0.0f, a);
+    output.normal = float4(normal.Sample(sampler3, vertex.uv * 1.0f).rgb, a);
 
     return output;
 }
