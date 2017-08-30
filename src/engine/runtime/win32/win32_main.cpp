@@ -651,6 +651,11 @@ void AttachWindow(HWND b, HWND a)
 #define GT_TOOL_SERVER_PORT 8080
 #define GT_MAX_TOOL_CONNECTIONS 32
 
+
+#define MOUSE_LEFT 0
+#define MOUSE_RIGHT 1
+#define MOUSE_MIDDLE 2
+
 #include <cstdlib>
 
 class ToolServer
@@ -759,7 +764,7 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
         mCurrentGizmoOperation = ImGuizmo::SCALE;
     fnd::math::float3 matrixTranslation, matrixRotation, matrixScale;
     ImGuizmo::DecomposeMatrixToComponents(matrix, (float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale);
-    ImGui::DragFloat3(" " ICON_FA_ARROWS, (float*)matrixTranslation, 0.1f);
+    ImGui::DragFloat3(" " ICON_FA_ARROWS, (float*)matrixTranslation, 0.01f);
     ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##translate")) { matrixTranslation = {0.0f, 0.0f, 0.0f}; }
     ImGui::DragFloat3(" " ICON_FA_REFRESH, (float*)matrixRotation, 0.1f);
     ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##rotation")) { matrixRotation = { 0.0f, 0.0f, 0.0f }; }
@@ -1749,6 +1754,18 @@ int win32_main(int argc, char* argv[])
     float model[16];
     util::Make4x4FloatMatrixIdentity(model);
 
+    float camYaw = 0.0f;
+    float camPitch = 0.0f;
+    math::float3 camPos;
+    math::float3 camOffset(0.0f, 0.0f, -5.0f);
+
+    float cameraRotation[16];
+    util::Make4x4FloatMatrixIdentity(cameraRotation);
+    float cameraOffset[16];
+    util::Make4x4FloatMatrixIdentity(cameraOffset);
+    float camOffsetWithRotation[16];
+    util::Make4x4FloatMatrixIdentity(camOffsetWithRotation);
+
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
@@ -1815,7 +1832,7 @@ int win32_main(int argc, char* argv[])
             ImGuizmo::BeginFrame();
 
 #ifdef GT_DEVELOPMENT
-            if (ImGui::Begin("Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (ImGui::Begin(ICON_FA_FLOPPY_O "  Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 
                 size_t totalSize = 0;
                 auto it = GetMemTrackerListHead();
@@ -1834,212 +1851,19 @@ int win32_main(int argc, char* argv[])
                 ImGui::Text("Total usage: %llu kb", totalSize / 1024);
             } ImGui::End();
 #endif
-            if (ImGui::Begin("Maths!")) {
-                using namespace math;
-
-                static float4 fl4;
-                static float3 fl3;
-                static float2 fl2;
-
-                static int4 i4;
-                static int3 i3;
-                static int2 i2;
-
-                ImGui::DragFloat4("fl4", static_cast<float*>(fl4));
-                ImGui::DragFloat3("fl3", static_cast<float*>(fl3));
-                ImGui::DragFloat2("fl2", static_cast<float*>(fl2));
-
-                ImGui::Text("float4 arithmetics");
-                {
-                    static float4 a;
-                    static float4 b;
-                    static float4 c;
-
-                    ImGui::PushID("float4");
-                    ImGui::DragFloat4("a", static_cast<float*>(a));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Normalize##a")) {
-                        a = Normalize(a);
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text("Length is %f", Length(a));
-
-                    ImGui::DragFloat4("b", static_cast<float*>(b));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Normalize##b")) {
-                        b = Normalize(b);
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text("Length is %f", Length(b));
-
-                    if (ImGui::Button("a + b")) {
-                        c = a + b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a - b")) {
-                        c = a - b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a * b")) {
-                        c = a * b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a / b")) {
-                        c = a / b;
-                    }
-                    ImGui::DragFloat4("c", static_cast<float*>(c));
-
-                    float dot = Dot(a, b);
-                    ImGui::SliderFloat("dot (a, b)", &dot, -1.0f, 1.0f);
-                    ImGui::PopID();
-                }
-                ImGui::Text("float3 arithmetics");
-                {
-                    static float3 a;
-                    static float3 b;
-                    static float3 c;
-
-                    ImGui::PushID("float3");
-                    ImGui::DragFloat3("a", static_cast<float*>(a));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Normalize##a")) {
-                        a = Normalize(a);
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text("Length is %f", Length(a));
-
-                    ImGui::DragFloat3("b", static_cast<float*>(b));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Normalize##b")) {
-                        b = Normalize(b);
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text("Length is %f", Length(b));
-
-                    if (ImGui::Button("a + b")) {
-                        c = a + b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a - b")) {
-                        c = a - b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a * b")) {
-                        c = a * b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a / b")) {
-                        c = a / b;
-                    }
-                    ImGui::DragFloat3("c", static_cast<float*>(c));
-
-                    float dot = Dot(a, b);
-                    ImGui::SliderFloat("dot (a, b)", &dot, -1.0f, 1.0f);
-                    ImGui::PopID();
-                }
-                ImGui::Text("float2 arithmetics");
-                {
-                    static float2 a;
-                    static float2 b;
-                    static float2 c;
-
-                    ImGui::PushID("float2");
-                    ImGui::DragFloat2("a", static_cast<float*>(a));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Normalize##a")) {
-                        a = Normalize(a);
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text("Length is %f", Length(a));
-
-                    ImGui::DragFloat2("b", static_cast<float*>(b));
-                    ImGui::SameLine();
-                    if (ImGui::Button("Normalize##b")) {
-                        b = Normalize(b);
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text("Length is %f", Length(b));
-
-                    if (ImGui::Button("a + b")) {
-                        c = a + b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a - b")) {
-                        c = a - b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a * b")) {
-                        c = a * b;
-                    } ImGui::SameLine();
-                    if (ImGui::Button("a / b")) {
-                        c = a / b;
-                    }
-                    ImGui::DragFloat2("c", static_cast<float*>(c));
-
-                    float dot = Dot(a, b);
-                    ImGui::SliderFloat("dot (a, b)", &dot, -1.0f, 1.0f);
-                    ImGui::PopID();
-                }
-
-
-            } ImGui::End();
-
-
-            if (ImGui::Button("Clear")) {
-                clearMaybeAction.colors[0].action = gfx::Action::ACTION_CLEAR;
-                gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
-                gfx::EndRenderPass(gfxDevice, cmdBuffer);
-                clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
-            }
-            ImGui::Image((ImTextureID)(uintptr_t)paintDiffuseRT.id, ImVec2(512, 512));
-
-            if (ImGui::Begin("Networking", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-                Port port = 0;
-                static Port targetPort = 8080;
-                ImGui::InputInt("Port", reinterpret_cast<int*>(&targetPort));
-                if (!socket.IsOpen(&port)) {
-                    if (ImGui::Button("Open socket")) {
-                        if (!socket.Open(targetPort)) {
-                            GT_LOG_ERROR("Network", "failed to open UDP socket on port %d", targetPort);
-                        }
-                        else {
-                            GT_LOG_INFO("Network", "opened UDP socket on port %d", targetPort);
-                        }
-                    } 
-                }
-                else {
-                    ImGui::Text("Listening on port %d", port);
-                    if (ImGui::Button(ICON_FA_WINDOW_CLOSE " Disconnect")) {
-                        socket.Close();
-                        GT_LOG_INFO("Network", "closed UDP socket");
-                    } ImGui::SameLine();
-                    static int a = 127, b = 0, c = 0, d = 1;
-                    static Port remotePort = 8080;
-                    if (ImGui::Button("Send Hello World")) {
-                        fnd::sockets::Address addr(a, b, c, d, remotePort);
-                        socket.Send(&addr, "Hello World", strlen("Hello World"));
-                    }
-                    ImGui::Text("Remote address");
-                    ImGui::PushItemWidth(100.0f);
-                    ImGui::InputInt("##a", &a, 1, 100);
-                    ImGui::SameLine();
-                    ImGui::InputInt("##b", &b);
-                    ImGui::SameLine();
-                    ImGui::InputInt("##c", &c);
-                    ImGui::SameLine();
-                    ImGui::InputInt("##d", &d);
-                    ImGui::SameLine();
-                    ImGui::InputInt("Remote port", reinterpret_cast<int*>(&remotePort));
-                    ImGui::PopItemWidth();
-                    a = a >= 0 ? (a <= 255 ? a : 255) : 0;
-                    b = b >= 0 ? (b <= 255 ? b : 255) : 0;
-                    c = c >= 0 ? (c <= 255 ? c : 255) : 0;
-                    d = d >= 0 ? (d <= 255 ? d : 255) : 0;
-                }
-            } ImGui::End();
-
-            ImGui::Begin("Render Targets"); {
-                ImGui::Image((ImTextureID)(uintptr_t)mainRT.id, ImVec2(WINDOW_WIDTH * 0.25f, WINDOW_HEIGHT * 0.25f));
-            } ImGui::End();
-
-
-            ImGui::Begin("Foo"); {
+            
+            ImGui::Begin(ICON_FA_PICTURE_O "  Renderer"); {
                 ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
                 ImGui::Checkbox("Enable UI Blur Effect", &g_enableUIBlur);
                 ImGui::ColorPicker4("Background Color", clearAllAction.colors[0].color, ImGuiColorEditFlags_PickerHueWheel);
+                
+                ImGui::BeginChild("Render Targets");
+              
+                ImGui::Image((ImTextureID)(uintptr_t)mainRT.id, ImVec2(WINDOW_WIDTH * 0.25f, WINDOW_HEIGHT * 0.25f));
+
+                ImGui::EndChild();
             } ImGui::End();
+
 
             static math::float3 mousePosScreenCache(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
             math::float3 mousePosScreen(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
@@ -2061,13 +1885,6 @@ int win32_main(int argc, char* argv[])
             }
             float stepSize = brushSize * 0.25f / rate;
              
-            
-            ImGui::Begin("Brush Stats"); {
-                ImGui::Text("Rate : %f", rate);
-                ImGui::Text("Step Size : %f", stepSize);
-                ImGui::Checkbox("Modulate Size", &modulateSizeWithRate);
-                ImGui::DragFloat("Modulation Rate", &maxRate);
-            } ImGui::End();
 
             /* Basic UI: frame statistics */
             ImGui::SetNextWindowPos(ImVec2(10.0f, ImGui::GetIO().DisplaySize.y - 50));
@@ -2097,94 +1914,179 @@ int win32_main(int argc, char* argv[])
 
                     ImGui::TreePop();
                 }
-                if (ImGui::TreeNode(ICON_FA_PAINT_BRUSH "    Painting")) {
-                    
-                    
-                    ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
-                    ImGui::SameLine();
-         
-                    auto drawList = ImGui::GetWindowDrawList();
-                    ImVec2 circleCenter = ImGui::GetCursorScreenPos();
-                    circleCenter.x += 25.0f;
-                    circleCenter.y += 25.0f * 0.5f;
-                    drawList->AddCircle(circleCenter, 25.0f * (brushSize / 300.0f), ImColor(1.0f, 1.0f, 1.0f, 1.0f), 64, 2.5f);
-                    
-                    ImGui::Dummy(ImVec2(100.0f, 50.0f));
-                    static int pickerMode = 0;
-                    const ImGuiColorEditFlags modes[] = { ImGuiColorEditFlags_PickerHueBar, ImGuiColorEditFlags_PickerHueWheel };
-                    const char* labels[] = { "Hue Bar", "Hue Wheel" };
-                    ImGui::Combo("Color Picker Mode", &pickerMode, labels, ARRAYSIZE(labels));
-                    ImGuiColorEditFlags ceditFlags = 0;
-                    ceditFlags |= modes[pickerMode];
-                    ImGui::Spacing();
-                    ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
+                
+            } ImGui::End();
 
-                    ImGui::Spacing();
+            if (ImGui::Begin(ICON_FA_PAINT_BRUSH "    Painting")) {
 
-                    static size_t selectionIndex = 0;
 
-                    //paintTexture[3] = uiRenderTarget;   // hehe
-                    for (size_t i = 0; i < NUM_MATERIALS; ++i) {
-                        ImGui::PushID((int)i);
-                        if (ImGui::TreeNode("Material", "Material %llu", i)) {
-                            if (selectionIndex == i) {
-                                ImGui::Text(ICON_FA_LOCK);
-                            }
-                            else {
-                                ImGui::Text(ICON_FA_UNLOCK);
-                            }
-                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                selectionIndex = i;
-                            }
-                            if (GFX_CHECK_RESOURCE(materials[i].diffuse)) {
-                                ImGui::Text("Albedo");
-                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].diffuse.id, ImVec2(256, 256));
-                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                    selectionIndex = i;
-                                }
-                            }
-                            if (GFX_CHECK_RESOURCE(materials[i].roughness)) {
-                                ImGui::Text("Roughness");
-                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].roughness.id, ImVec2(256, 256));
-                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                    selectionIndex = i;
-                                }
-                            }
-                            if (GFX_CHECK_RESOURCE(materials[i].metallic)) {
-                                ImGui::Text("Metallic");
-                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].metallic.id, ImVec2(256, 256));
-                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                    selectionIndex = i;
-                                }
-                            }
-                            if (GFX_CHECK_RESOURCE(materials[i].normal)) {
-                                ImGui::Text("Normal Map");
-                                ImGui::Image((ImTextureID)(uintptr_t)materials[i].normal.id, ImVec2(256, 256));
-                                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-                                    selectionIndex = i;
-                                }
-                            }
+                ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
+                ImGui::SameLine();
 
-                            ImGui::TreePop();
-                        } ImGui::PopID();
-                    }
+                auto drawList = ImGui::GetWindowDrawList();
+                ImVec2 circleCenter = ImGui::GetCursorScreenPos();
+                circleCenter.x += 25.0f;
+                circleCenter.y += 25.0f * 0.5f;
+                drawList->AddCircle(circleCenter, 25.0f * (brushSize / 300.0f), ImColor(1.0f, 1.0f, 1.0f, 1.0f), 64, 2.5f);
 
-                    cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
-                    cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
-                    cubePaintDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
+                ImGui::Dummy(ImVec2(100.0f, 50.0f));
+                static int pickerMode = 0;
+                const ImGuiColorEditFlags modes[] = { ImGuiColorEditFlags_PickerHueBar, ImGuiColorEditFlags_PickerHueWheel };
+                const char* labels[] = { "Hue Bar", "Hue Wheel" };
+                ImGui::Combo("Color Picker Mode", &pickerMode, labels, ARRAYSIZE(labels));
+                ImGuiColorEditFlags ceditFlags = 0;
+                ceditFlags |= modes[pickerMode];
+                ImGui::Spacing();
+                ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
 
-                    ImGui::TreePop();
+                ImGui::Spacing();
+
+                static size_t selectionIndex = 0;
+
+                //paintTexture[3] = uiRenderTarget;   // hehe
+                for (size_t i = 0; i < NUM_MATERIALS; ++i) {
+                    ImGui::PushID((int)i);
+                    if (ImGui::TreeNode("Material", "Material %llu", i)) {
+                        if (selectionIndex == i) {
+                            ImGui::Text(ICON_FA_LOCK);
+                        }
+                        else {
+                            ImGui::Text(ICON_FA_UNLOCK);
+                        }
+                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                            selectionIndex = i;
+                        }
+                        
+                        ImVec2 contentRegion = ImGui::GetContentRegionAvail();
+                        contentRegion.y = 300.0f;
+                        ImGui::BeginChild((int)i, contentRegion);
+                        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                            selectionIndex = i;
+                        }
+
+                        if (GFX_CHECK_RESOURCE(materials[i].diffuse)) {
+                            ImGui::Text("Albedo");
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].diffuse.id, ImVec2(256, 256));
+                          
+                        }
+                        if (GFX_CHECK_RESOURCE(materials[i].roughness)) {
+                            ImGui::Text("Roughness");
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].roughness.id, ImVec2(256, 256));
+                            
+                        }
+                        if (GFX_CHECK_RESOURCE(materials[i].metallic)) {
+                            ImGui::Text("Metallic");
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].metallic.id, ImVec2(256, 256));
+                            
+                        }
+                        if (GFX_CHECK_RESOURCE(materials[i].normal)) {
+                            ImGui::Text("Normal Map");
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].normal.id, ImVec2(256, 256));
+                            
+                        }
+                        ImGui::EndChild();
+                        ImGui::TreePop();
+                    } ImGui::PopID();
                 }
+
+                cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
+                cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
+                cubePaintDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
             } ImGui::End();
 
            
             float modelView[16];
 
-            static float camYaw = 0.0f;
-            static float camPitch = 0.0f;
-            static math::float3 camPos;
+            enum CameraMode : int {
+                CAMERA_MODE_ARCBALL = 0,
+                CAMERA_MODE_FREE_FLY = 1
+            };
 
-            ImGui::Begin("Camera"); {
+            const char* modeStrings[] = { "Arcball", "Free Fly" };
+            static CameraMode mode = CAMERA_MODE_ARCBALL;
+
+            if(mode == CAMERA_MODE_ARCBALL) {
+                if (ImGui::IsMouseDragging(MOUSE_RIGHT) || ImGui::IsMouseDragging(MOUSE_MIDDLE)) {
+                    if (ImGui::IsMouseDown(MOUSE_RIGHT)) {
+                        if (!ImGui::IsMouseDown(MOUSE_MIDDLE)) {
+                            math::float3 camPosDelta;
+                            camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                            camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+
+                            math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, cameraRotation);
+                            camPos += worldSpaceDelta;
+                        }
+                        else {
+                            math::float2 delta;
+                            delta.x = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                            delta.y = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+                            float sign = -1.0f;
+                            sign = delta.x > 0.0f ? 1.0f : -1.0f;
+                            camOffset.z -= math::Length(delta) * sign;
+                            camOffset.z = camOffset.z > -0.1f ? -0.1f : camOffset.z;
+                        }
+                    }
+                    else {
+                        camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
+                        camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
+                    }
+                    ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
+                    ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
+                }
+            }
+            else {
+                camOffset = math::float3(0.0f);
+                if (ImGui::IsMouseDragging(MOUSE_RIGHT) || ImGui::IsMouseDragging(MOUSE_MIDDLE)) {
+                   
+                    if (ImGui::IsMouseDown(MOUSE_RIGHT)) {
+                        if (!ImGui::IsMouseDown(MOUSE_MIDDLE)) {
+                            math::float3 camPosDelta;
+                            camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                            camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+                            math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, cameraRotation);
+                            camPos += worldSpaceDelta;
+                        }
+                        else {
+                            math::float3 camPosDelta;
+                            camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                            camPosDelta.z = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+                            math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, cameraRotation);
+                            camPos += worldSpaceDelta;
+                        }
+                    }
+                    else {
+                        camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
+                        camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
+                    }
+                    ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
+                    ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
+                }
+            }
+
+            ImGui::Begin(ICON_FA_CAMERA "  Camera"); {
+                static float camOffsetStore = 0.0f;
+                if (ImGui::Combo("Mode", (int*)&mode, modeStrings, 2)) {
+                    if (mode == CAMERA_MODE_ARCBALL) {
+                        // we were in free cam mode before
+                        // -> get stored cam offset, calculate what camPos must be based off that
+                        camOffset.z = camOffsetStore;
+                        util::Make4x4FloatTranslationMatrixCM(cameraOffset, camOffset);
+                        util::MultiplyMatricesCM(cameraRotation, cameraOffset, camOffsetWithRotation);
+                        math::float3 transformedOrigin = util::TransformPositionCM(math::float3(), camOffsetWithRotation);
+                        camPos = camPos - transformedOrigin;
+                    }
+                    else {
+                        // we were in arcball mode before
+                        // -> fold camera offset + rotation into cam pos, preserve offset 
+                        float fullTransform[16];
+                        util::Make4x4FloatTranslationMatrixCM(cameraPos, camPos);
+                        util::MultiplyMatricesCM(cameraPos, camOffsetWithRotation, fullTransform);
+                        camPos = util::Get4x4FloatMatrixColumn(fullTransform, 3).xyz;
+                        camOffsetStore = camOffset.z;
+                        camOffset.z = 0.0f;
+                    }
+                }
+
                 ImGui::DragFloat("Camera Yaw", &camYaw);    
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_FA_UNDO "##yaw")) {
@@ -2197,7 +2099,13 @@ int win32_main(int argc, char* argv[])
                     camPitch = 0.0f;
                 }
 
-                ImGui::DragFloat3("Camera Pos", (float*)&camPos, 0.1f);
+                ImGui::DragFloat3("Camera Offset", (float*)&camOffset, 0.01f);
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_UNDO "##offset")) {
+                    camOffset = math::float3(0.0f);
+                }
+
+                ImGui::DragFloat3("Camera Pos", (float*)&camPos, 0.01f);
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_FA_UNDO "##pos")) {
                     camPos = math::float3(0.0f);
@@ -2208,11 +2116,14 @@ int win32_main(int argc, char* argv[])
             util::Make4x4FloatRotationMatrixCMLH(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), camPitch * (3.141f / 180.0f));
             util::Make4x4FloatRotationMatrixCMLH(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), camYaw * (3.141f / 180.0f));
             
-            float camTemp[16];
-            
+           
+            util::Make4x4FloatTranslationMatrixCM(cameraOffset, camOffset);
             util::Make4x4FloatTranslationMatrixCM(cameraPos, camPos);
-            util::MultiplyMatricesCM(cameraRotY, cameraRotX, camTemp);
-            util::MultiplyMatricesCM(camTemp, cameraPos, camera);
+            util::MultiplyMatricesCM(cameraRotY, cameraRotX, cameraRotation);
+
+            util::MultiplyMatricesCM(cameraRotation, cameraOffset, camOffsetWithRotation);
+            util::MultiplyMatricesCM(cameraPos, camOffsetWithRotation, camera);
+
             float camInverse[16];
             util::Inverse4x4FloatMatrixCM(camera, camInverse);
             util::Copy4x4FloatMatrixCM(camInverse, camera);
@@ -2228,7 +2139,7 @@ int win32_main(int argc, char* argv[])
             util::MultiplyMatricesCM(proj, camera, object.VP);
 
             //
-            paint = ImGui::IsMouseDown(1);
+            paint = ImGui::IsMouseDown(MOUSE_LEFT);
             float steps = 0.0f;
             while (steps < 1.0f) {
                 if (paint) {
