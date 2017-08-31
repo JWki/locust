@@ -1,6 +1,8 @@
 #include "entities.h"
 #include <foundation/memory/memory.h>
+#include <foundation/math/math.h>
 #include <cassert>
+#include <string.h>
 
 #define HANDLE_INDEX(handle)        (uint16_t)(handle)
 #define HANDLE_GENERATION(handle)   (uint16_t)(handle >> 16)
@@ -89,7 +91,13 @@ namespace entity_system
     struct EntityData
     {
         uint16_t generation = HANDLE_GENERATION_START;
-        const char* name = "Entity";
+        char name[ENTITY_NAME_SIZE] = "Entity";
+        float transform[16];
+
+        EntityData()
+        {
+            util::Make4x4FloatMatrixIdentity(transform);
+        }
     };
 
     struct World
@@ -118,14 +126,24 @@ namespace entity_system
     {
         assert(entity.id != 0);
         EntityData* data = world->entities.Get(entity.id);
-        data->name = name;
+        size_t len = strlen(name);
+        len = len > ENTITY_NAME_SIZE ? ENTITY_NAME_SIZE : len;
+        memset(data->name + len, 0x0, ENTITY_NAME_SIZE - len);
+        memcpy(data->name, name, len);
     }
 
-    const char* GetEntityName(World* world, Entity entity)
+    char* GetEntityNameBuf(World* world, Entity entity)
     {
         assert(entity.id != 0);
         EntityData* data = world->entities.Get(entity.id);
         return data->name;
+    }
+
+    float* GetEntityTransform(World* world, Entity entity)
+    {
+        assert(entity.id != 0);
+        EntityData* data = world->entities.Get(entity.id);
+        return data->transform;
     }
 
     Entity CreateEntity(World* world)

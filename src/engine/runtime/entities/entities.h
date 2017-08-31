@@ -8,7 +8,7 @@ namespace fnd
     }
 }
 
-
+#define ENTITY_NAME_SIZE 128
 namespace entity_system
 {
     static const uint32_t MAX_NUM_ENTITIES = 4096;
@@ -30,5 +30,7 @@ namespace entity_system
     void DestroyEntity(World* world, Entity entity);
 
     void SetEntityName(World* world, Entity entity, const char* name);
-    const char* GetEntityName(World* world, Entity entity);
+    char* GetEntityNameBuf(World* world, Entity entity);
+
+    float* GetEntityTransform(World* world, Entity entity);
 }

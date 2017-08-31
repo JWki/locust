@@ -24,31 +24,31 @@ namespace fnd
     namespace math
     {
 
-        float Sqrt(float n)
+        static float Sqrt(float n)
         {
             return sqrtf(n);
         }
-        double Sqrt(double n)
+        static double Sqrt(double n)
         {
             return sqrt(n);
         }
 
-        float Sin(float n)
+        static float Sin(float n)
         {
             return sinf(n);
         }
 
-        float Cos(float n)
+        static float Cos(float n)
         {
             return cosf(n);
         }
 
-        double Sin(double n)
+        static double Sin(double n)
         {
             return sin(n);
         }
 
-        double Cos(double n)
+        static double Cos(double n)
         {
             return cos(n);
         }
@@ -278,7 +278,7 @@ namespace fnd
 
 namespace util
 {
-    bool Inverse4x4FloatMatrixCM(float* m, float* invOut)
+    static bool Inverse4x4FloatMatrixCM(float* m, float* invOut)
     {
         int i;
         float det;
@@ -411,24 +411,24 @@ namespace util
 
 
 
-    void Copy4x4FloatMatrixCM(float* matFrom, float* matTo)
+    static void Copy4x4FloatMatrixCM(float* matFrom, float* matTo)
     {
         memcpy(matTo, matFrom, sizeof(float) * 16);
     }
 
-    float Get4x4FloatMatrixValueCM(float* mat, int column, int row)
+    static float Get4x4FloatMatrixValueCM(float* mat, int column, int row)
     {
         int index = 4 * column + row;
         return mat[index];
     }
 
-    void Set4x4FloatMatrixValueCM(float* mat, int column, int row, float value)
+    static void Set4x4FloatMatrixValueCM(float* mat, int column, int row, float value)
     {
         int index = 4 * column + row;
         mat[index] = value;
     }
 
-    fnd::math::float3 TransformPositionCM(const fnd::math::float3& pos, float* mat)
+    static fnd::math::float3 TransformPositionCM(const fnd::math::float3& pos, float* mat)
     {
         fnd::math::float4 vec4(pos, 1.0f);
         fnd::math::float4 result;
@@ -443,7 +443,7 @@ namespace util
         return result.xyz;
     }
 
-    fnd::math::float3 TransformDirectionCM(const fnd::math::float3& dir, float* mat)
+    static fnd::math::float3 TransformDirectionCM(const fnd::math::float3& dir, float* mat)
     {
         fnd::math::float4 vec4(dir, 0.0f);
         fnd::math::float4 result;
@@ -458,7 +458,7 @@ namespace util
         return result.xyz;
     }
 
-    void Make4x4FloatMatrixIdentity(float* mat)
+    static void Make4x4FloatMatrixIdentity(float* mat)
     {
         memset(mat, 0x0, sizeof(float) * 16);
         for (int i = 0; i < 4; ++i) {
@@ -480,7 +480,7 @@ namespace util
     Set4x4FloatMatrixValueCM(mat, 2, 2, (far * near) / (far - near));
     Set4x4FloatMatrixValueCM(mat, 3, 2, -(2.0f * far * near) / (far - near));
     }*/
-    void Make4x4FloatProjectionMatrixCMLH(float* mat, float fovInRadians, float width, float height, float near, float far)
+    static void Make4x4FloatProjectionMatrixCMLH(float* mat, float fovInRadians, float width, float height, float near, float far)
     {
         Make4x4FloatMatrixIdentity(mat);
 
@@ -495,7 +495,7 @@ namespace util
         Set4x4FloatMatrixValueCM(mat, 3, 3, 0.0f);
     }
 
-    void Make4x4FloatMatrixTranspose(float* mat, float* result)
+    static void Make4x4FloatMatrixTranspose(float* mat, float* result)
     {
         for (int i = 0; i < 4; ++i) {
             for (int j = 0; j < 4; ++j) {
@@ -504,7 +504,7 @@ namespace util
         }
     }
 
-    void Make4x4FloatScaleMatrixCM(float* mat, float scale)
+    static void Make4x4FloatScaleMatrixCM(float* mat, float scale)
     {
         Make4x4FloatMatrixIdentity(mat);
         Set4x4FloatMatrixValueCM(mat, 0, 0, scale);
@@ -513,7 +513,7 @@ namespace util
         Set4x4FloatMatrixValueCM(mat, 3, 3, 1.0f);
     }
 
-    fnd::math::float4 Get4x4FloatMatrixColumn(float* mat, int column)
+    static fnd::math::float4 Get4x4FloatMatrixColumn(float* mat, int column)
     {
         return {
             Get4x4FloatMatrixValueCM(mat, column, 0),
@@ -523,7 +523,7 @@ namespace util
         };
     }
 
-    void Make4x4FloatRotationMatrixCMLH(float* mat, fnd::math::float3 axisIn, float rad)
+    static void Make4x4FloatRotationMatrixCMLH(float* mat, fnd::math::float3 axisIn, float rad)
     {
         float rotate[16];
         float base[16];
@@ -574,7 +574,7 @@ namespace util
         }
     }
 
-    void Make4x4FloatTranslationMatrixCM(float* mat, fnd::math::float3 t)
+    static void Make4x4FloatTranslationMatrixCM(float* mat, fnd::math::float3 t)
     {
         Make4x4FloatMatrixIdentity(mat);
         for (int i = 0; i < 3; ++i) {
@@ -583,7 +583,7 @@ namespace util
     }
 
     // result = matA * matB
-    void MultiplyMatricesCM(float* left, float* right, float* result)
+    static void MultiplyMatricesCM(float* left, float* right, float* result)
     {
         Make4x4FloatMatrixIdentity(result);
         for (int i = 0; i < 4; ++i) {

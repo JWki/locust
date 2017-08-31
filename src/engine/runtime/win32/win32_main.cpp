@@ -1921,8 +1921,13 @@ int win32_main(int argc, char* argv[])
                 if (selectedEntity.id != 0) {
                     ImGui::SameLine();
                     if (ImGui::Button("Delete")) {
+                        entity_system::DestroyEntity(mainWorld, selectedEntity);
                         while (it != nullptr) {
                             if (it->entity.id == selectedEntity.id) {
+                                if (it->next) { selectedEntity = it->next->entity; }
+                                else {
+                                    selectedEntity.id = 0;
+                                }
                                 EntityListRemove(it, &entities);
                                 break;
                             }
@@ -1932,7 +1937,7 @@ int win32_main(int argc, char* argv[])
                     }
                 }
                 while(it != nullptr) {
-                    const char* name = entity_system::GetEntityName(mainWorld, it->entity);
+                    const char* name = entity_system::GetEntityNameBuf(mainWorld, it->entity);
                     ImGui::PushID(it->entity.id);
                     if (ImGui::Selectable(name, selectedEntity.id == it->entity.id)) {
                         selectedEntity = it->entity;
@@ -2011,24 +2016,25 @@ int win32_main(int argc, char* argv[])
             ImGui::End();
 
             ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
-                ImGui::SliderFloat3("Sun Direction", (float*)object.lightDir, -1.0f, 1.0f);
-                ImGui::SliderFloat("Sun Intensity", &object.lightDir.w, 0.0f, 500.0f);
-                if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
-                    static char namebuf[512] = "Generic Object";
-                    if (ImGui::InputText(" " ICON_FA_TAG " Name", namebuf, 512, ImGuiInputTextFlags_EnterReturnsTrue)) {
-
+                if (selectedEntity.id != 0) {
+                    ImGui::SliderFloat3("Sun Direction", (float*)object.lightDir, -1.0f, 1.0f);
+                    ImGui::SliderFloat("Sun Intensity", &object.lightDir.w, 0.0f, 500.0f);
+                    if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
+                        if (ImGui::InputText(" " ICON_FA_TAG " Name", entity_system::GetEntityNameBuf(mainWorld, selectedEntity), ENTITY_NAME_SIZE, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            entity_system::SetEntityName(mainWorld, selectedEntity, entity_system::GetEntityNameBuf(mainWorld, selectedEntity));
+                        }
+                        ImGui::TreePop();
                     }
-                    ImGui::TreePop();
-                }
-                if (ImGui::TreeNode(ICON_FA_LOCATION_ARROW "    Transform")) {
-                    EditTransform(camera, proj, model);
-                    ImGui::TreePop();
-                }
-                if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
-                    ImGui::SliderFloat("Metallic", &object.metallic, 0.0f, 1.0f);
-                    ImGui::SliderFloat("Roughness", &object.roughness, 0.0f, 1.0f);
+                    if (ImGui::TreeNode(ICON_FA_LOCATION_ARROW "    Transform")) {
+                        EditTransform(camera, proj, GetEntityTransform(mainWorld, selectedEntity));
+                        ImGui::TreePop();
+                    }
+                    if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
+                        ImGui::SliderFloat("Metallic", &object.metallic, 0.0f, 1.0f);
+                        ImGui::SliderFloat("Roughness", &object.roughness, 0.0f, 1.0f);
 
-                    ImGui::TreePop();
+                        ImGui::TreePop();
+                    }
                 }
                 
             } ImGui::End();
