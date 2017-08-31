@@ -1058,13 +1058,7 @@ int win32_main(int argc, char* argv[])
     util::Make4x4FloatTranslationMatrixCM(cameraPos, { 0.0f, -0.4f, 2.75f });
     
 
-    ConstantData object;
-    util::Make4x4FloatMatrixIdentity(object.MVP);
-    util::Make4x4FloatMatrixIdentity(object.MV);
-    util::Make4x4FloatMatrixIdentity(object.VP);
-    util::Make4x4FloatMatrixIdentity(object.view);
-    util::Make4x4FloatMatrixIdentity(object.projection);
-    util::Make4x4FloatMatrixIdentity(object.model);
+    
 
     //
 
@@ -1081,7 +1075,7 @@ int win32_main(int argc, char* argv[])
     
     MeshAsset cubeAsset;
 
-#define MODEL_FILE_PATH "../../Cube.fbx"
+#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1382,8 +1376,8 @@ int win32_main(int argc, char* argv[])
     gfx::BufferDesc cBufferDesc;
     cBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
     cBufferDesc.byteWidth = sizeof(ConstantData);
-    cBufferDesc.initialData = &object;
-    cBufferDesc.initialDataSize = sizeof(object);
+    cBufferDesc.initialData = nullptr;
+    cBufferDesc.initialDataSize = 0;
     cBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
     gfx::Buffer cBuffer = gfx::CreateBuffer(gfxDevice, &cBufferDesc);
     if (!GFX_CHECK_RESOURCE(cBuffer)) {
@@ -1772,8 +1766,7 @@ int win32_main(int argc, char* argv[])
 
     double currentTime = GetCounter();
     double accumulator = 0.0;
-    float model[16];
-    util::Make4x4FloatMatrixIdentity(model);
+
 
     float camYaw = 0.0f;
     float camPitch = 0.0f;
@@ -1867,6 +1860,10 @@ int win32_main(int argc, char* argv[])
     EntityList entities;
     entity_system::Entity selectedEntity;
 
+    math::float4 lightDir;
+    math::float4 color(1.0f, 1.0f, 1.0f, 1.0f);
+
+
     GT_LOG_INFO("Application", "Starting main loop");
     do {
         double newTime = GetCounter();
@@ -1941,6 +1938,9 @@ int win32_main(int argc, char* argv[])
                     ImGui::PushID(it->entity.id);
                     if (ImGui::Selectable(name, selectedEntity.id == it->entity.id)) {
                         selectedEntity = it->entity;
+                    }
+                    if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(MOUSE_LEFT)) {
+                        camPos = util::Get4x4FloatMatrixColumn(entity_system::GetEntityTransform(mainWorld, selectedEntity), 3).xyz;
                     }
                     ImGui::SameLine();
                     ImGui::Text("(id = %i)", it->entity.id);
@@ -2017,8 +2017,9 @@ int win32_main(int argc, char* argv[])
 
             ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
                 if (selectedEntity.id != 0) {
-                    ImGui::SliderFloat3("Sun Direction", (float*)object.lightDir, -1.0f, 1.0f);
-                    ImGui::SliderFloat("Sun Intensity", &object.lightDir.w, 0.0f, 500.0f);
+                    
+                    ImGui::SliderFloat3("Sun Direction", (float*)lightDir, -1.0f, 1.0f);
+                    ImGui::SliderFloat("Sun Intensity", &lightDir.w, 0.0f, 500.0f);
                     if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
                         if (ImGui::InputText(" " ICON_FA_TAG " Name", entity_system::GetEntityNameBuf(mainWorld, selectedEntity), ENTITY_NAME_SIZE, ImGuiInputTextFlags_EnterReturnsTrue)) {
                             entity_system::SetEntityName(mainWorld, selectedEntity, entity_system::GetEntityNameBuf(mainWorld, selectedEntity));
@@ -2030,8 +2031,8 @@ int win32_main(int argc, char* argv[])
                         ImGui::TreePop();
                     }
                     if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
-                        ImGui::SliderFloat("Metallic", &object.metallic, 0.0f, 1.0f);
-                        ImGui::SliderFloat("Roughness", &object.roughness, 0.0f, 1.0f);
+                        //ImGui::SliderFloat("Metallic", &object.metallic, 0.0f, 1.0f);
+                        //ImGui::SliderFloat("Roughness", &object.roughness, 0.0f, 1.0f);
 
                         ImGui::TreePop();
                     }
@@ -2042,7 +2043,8 @@ int win32_main(int argc, char* argv[])
             paint = false;
             if (ImGui::Begin(ICON_FA_PAINT_BRUSH "    Painting")) {
 
-                paint = ImGui::IsMouseDown(MOUSE_LEFT);
+                paint = ImGui::IsMouseDown(MOUSE_LEFT) && selectedEntity.id != 0;
+                ImGui::Checkbox("Paint", &paint);
 
                 ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
                 ImGui::SameLine();
@@ -2061,7 +2063,7 @@ int win32_main(int argc, char* argv[])
                 ImGuiColorEditFlags ceditFlags = 0;
                 ceditFlags |= modes[pickerMode];
                 ImGui::Spacing();
-                ImGui::ColorPicker4("Albedo", (float*)object.color, ceditFlags);
+                ImGui::ColorPicker4("Albedo", (float*)color, ceditFlags);
 
                 ImGui::Spacing();
 
@@ -2121,7 +2123,6 @@ int win32_main(int argc, char* argv[])
             } ImGui::End();
 
            
-            float modelView[16];
 
             enum CameraMode : int {
                 CAMERA_MODE_ARCBALL = 0,
@@ -2255,14 +2256,7 @@ int win32_main(int argc, char* argv[])
             util::Copy4x4FloatMatrixCM(camInverse, camera);
             //util::Copy4x4FloatMatrixCM(camTemp, camera);
 
-            util::MultiplyMatricesCM(camera, model, modelView);
-            util::MultiplyMatricesCM(proj, modelView, object.MVP);
-            util::Copy4x4FloatMatrixCM(camera, object.view);
-            util::Inverse4x4FloatMatrixCM(camera, object.inverseView);
-            util::Copy4x4FloatMatrixCM(model, object.model);
-            util::Copy4x4FloatMatrixCM(modelView, object.MV);
-            util::Copy4x4FloatMatrixCM(proj, object.projection);
-            util::MultiplyMatricesCM(proj, camera, object.VP);
+            
 
             //
             
@@ -2273,10 +2267,11 @@ int win32_main(int argc, char* argv[])
                     if (cBufferMem != nullptr) {
                         PaintConstantData* data = (PaintConstantData*)cBufferMem;
                         data->cursorPos = mousePosScreen.xy * steps + mousePosScreenCache.xy * (1.0f - steps);
-                        //memcpy(data->modelToViewMatrix, object.transform, sizeof(float) * 16);
+                        float modelView[16];
+                        util::MultiplyMatricesCM(camera, entity_system::GetEntityTransform(mainWorld, selectedEntity), modelView);
                         util::Copy4x4FloatMatrixCM(modelView, data->modelToViewMatrix);
-                        util::Copy4x4FloatMatrixCM(object.MVP, data->modelToProjMatrix);
-                        data->color = object.color;
+                        util::MultiplyMatricesCM(proj, modelView, data->modelToProjMatrix);
+                        data->color = color;
                         data->brushSize = brushSize;
                         gfx::UnmapBuffer(gfxDevice, cPaintBuffer);
                     }
@@ -2297,14 +2292,7 @@ int win32_main(int argc, char* argv[])
             accumulator -= dt;
         }
         if (didUpdate) {
-            // upload objectation to constant buffer only once per update -> render transition
-            void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
-            if (cBufferMem != nullptr) {
-                memcpy(cBufferMem, &object, sizeof(object));
-                gfx::UnmapBuffer(gfxDevice, cBuffer);
-            }
-           
-            
+  
         }
 
         
@@ -2318,8 +2306,40 @@ int win32_main(int argc, char* argv[])
         auto commandSubmissionTimerStart = GetCounter();
       
         gfx::BeginRenderPass(gfxDevice, cmdBuffer, mainPass, &clearAllAction);
-        for (int i = 0; i < 1; ++i) {
+        EntityListNode* it = entities.head;
+        while (it != nullptr) {
+           
+            void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+            if (cBufferMem != nullptr) {
+                ConstantData object;
+                util::Make4x4FloatMatrixIdentity(object.MVP);
+                util::Make4x4FloatMatrixIdentity(object.MV);
+                util::Make4x4FloatMatrixIdentity(object.VP);
+                util::Make4x4FloatMatrixIdentity(object.view);
+                util::Make4x4FloatMatrixIdentity(object.projection);
+                util::Make4x4FloatMatrixIdentity(object.model);
+
+                util::Copy4x4FloatMatrixCM(entity_system::GetEntityTransform(mainWorld, it->entity), object.model);
+  
+               
+                float modelView[16];
+                util::MultiplyMatricesCM(camera, object.model, modelView);
+                util::MultiplyMatricesCM(proj, modelView, object.MVP);
+                util::Copy4x4FloatMatrixCM(camera, object.view);
+                util::Inverse4x4FloatMatrixCM(camera, object.inverseView);
+                util::Copy4x4FloatMatrixCM(object.model, object.model);
+                util::Copy4x4FloatMatrixCM(modelView, object.MV);
+                util::Copy4x4FloatMatrixCM(proj, object.projection);
+                util::MultiplyMatricesCM(proj, camera, object.VP);
+
+                object.color = color;
+                object.lightDir = lightDir;
+
+                memcpy(cBufferMem, &object, sizeof(ConstantData));
+                gfx::UnmapBuffer(gfxDevice, cBuffer);
+            }
             gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
+            it = it->next;
         }
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
