@@ -12,7 +12,7 @@ namespace fnd
             static LoggerBase* g_loggerListTail = nullptr;
         }
 
-  
+        // @TODO: REVISIT
 
         LoggerBase::LoggerBase()
         {
@@ -28,7 +28,7 @@ namespace fnd
 
         LoggerBase::~LoggerBase()
         {
-            if (g_loggerListHead == this) { g_loggerListHead = g_loggerListTail = nullptr; }
+            if (g_loggerListHead == this) { g_loggerListHead = g_loggerListTail = m_next; }
             if (g_loggerListTail == this) { g_loggerListTail = m_prev; }
             auto next = m_next;
             auto previous = m_prev;

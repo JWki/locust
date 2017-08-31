@@ -242,6 +242,29 @@ namespace fnd {
             return reinterpret_cast<T*>(as_t);
         }
 
+        template <class T, class Arena, class InitializerFunc>
+        T* NewArrayWithInitializer(size_t count, Arena* arena, InitializerFunc initializerFunc, SourceInfo scInfo)
+        {
+            const size_t padding = sizeof(size_t) <= sizeof(T) ? sizeof(T) : sizeof(T) * (1 + sizeof(size_t) / sizeof(T));
+            //CheckSize<padding % sizeof(T), 0>();
+            static_assert(padding % sizeof(T) == 0, "Our maths is off");
+            const size_t totalSize = sizeof(T) * count + padding;
+
+            union {
+                char* as_char;
+                size_t* as_size_t;
+                T* as_t;
+            };
+
+            as_char = static_cast<char*>(arena->Allocate(totalSize, alignof(T), scInfo));
+            *(as_size_t) = count;
+            as_char += padding;
+            for (size_t i = 0; i < count; ++i) {
+                initializerFunc(&as_t[i]);
+            }
+            return reinterpret_cast<T*>(as_t);
+        }
+
         template <class T, class Arena>
         void DeleteArray(T* array, Arena* arena)
         {
@@ -275,6 +298,9 @@ GT_PLACEMENT_NEW (arenaAsPtr->Allocate(sizeof(Type), alignof(Type), GT_SOURCE_IN
 
 #define GT_NEW_ARRAY(ArrayType, count, arenaAsPtr) \
 fnd::internal::NewArray<ArrayType, fnd::internal::RemovePointer<decltype(arenaAsPtr)>::Type>(count, arenaAsPtr, GT_SOURCE_INFO)
+
+#define GT_NEW_ARRAY_WITH_INITIALIZER(ArrayType, count, arenaAsPtr, initializerFunc) \
+fnd::internal::NewArrayWithInitializer<ArrayType, fnd::internal::RemovePointer<decltype(arenaAsPtr)>::Type>(count, arenaAsPtr, initializerFunc, GT_SOURCE_INFO)
 
 #define GT_DELETE(objectAsPtr, arenaAsPtr) \
 fnd::internal::Delete(objectAsPtr, arenaAsPtr)

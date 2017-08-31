@@ -21,6 +21,7 @@
 #include <foundation/logging/logging.h>
 
 #include <engine/runtime/gfx/gfx.h>
+#include <engine/runtime/entities/entities.h>
 
 #include <foundation/math/math.h>
 #define IS_POW_OF_TWO(n) ((n & (n - 1)) == 0)
@@ -1080,7 +1081,7 @@ int win32_main(int argc, char* argv[])
     
     MeshAsset cubeAsset;
 
-#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
+#define MODEL_FILE_PATH "../../Cube.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1735,6 +1736,12 @@ int win32_main(int argc, char* argv[])
     if (!GFX_CHECK_RESOURCE(paintPass)) {
         GT_LOG_ERROR("Renderer", "Failed to create render pass for painting");
     }
+    gfx::RenderPassDesc paintNormalPassDesc;
+    paintNormalPassDesc.colorAttachments[0].image = paintNormalRT;
+    gfx::RenderPass paintNormalPass = gfx::CreateRenderPass(gfxDevice, &paintNormalPassDesc);
+    if (!GFX_CHECK_RESOURCE(paintNormalPass)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render pass for clearing normal target");
+    }
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
@@ -1801,6 +1808,65 @@ int win32_main(int argc, char* argv[])
     gfx::EndRenderPass(gfxDevice, cmdBuffer);
     clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
    
+
+    gfx::RenderPassAction clearNormalsAction;
+    clearNormalsAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+    clearNormalsAction.depth.action = gfx::Action::ACTION_CLEAR;
+    float normalIdentity[] = { 0.5f, 0.5f, 1.0f, 1.0f };
+    memcpy(clearNormalsAction.colors[0].color, normalIdentity, sizeof(float) * 4);
+    gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintNormalPass, &clearNormalsAction);
+    gfx::EndRenderPass(gfxDevice, cmdBuffer);
+
+
+    entity_system::World* mainWorld;
+    entity_system::WorldConfig worldConfig;
+    if (!entity_system::CreateWorld(&mainWorld, &applicationArena, &worldConfig)) {
+        GT_LOG_ERROR("Entity System", "Failed to create world");
+    }
+
+
+    struct EntityListNode
+    {
+        entity_system::Entity entity;
+        EntityListNode* next = nullptr;
+        EntityListNode* prev = nullptr;
+    };
+    struct EntityList
+    {
+        EntityListNode* head = nullptr;
+        EntityListNode* tail = nullptr;
+    };
+
+    auto EntityListAppend = [](EntityListNode* node, EntityList* list) {
+        if (list->head == nullptr) {
+            list->head = list->tail = node;
+        }
+        else {
+            list->tail->next = node;
+            node->prev = list->tail;
+            list->tail = node;
+        }
+    };
+
+    auto EntityListRemove = [](EntityListNode* node, EntityList* list) {
+        if (list->head == node) {
+            list->head = node->next;
+        }
+        if (list->tail == node) {
+            list->tail = node->prev;
+        }
+        if (node->prev) {
+            node->prev->next = node->next;
+        }
+        if (node->next) {
+            node->next->prev = node->prev;
+        }
+        node->next = node->prev = nullptr;
+    };
+
+    EntityList entities;
+    entity_system::Entity selectedEntity;
+
     GT_LOG_INFO("Application", "Starting main loop");
     do {
         double newTime = GetCounter();
@@ -1844,6 +1910,42 @@ int win32_main(int argc, char* argv[])
 
             ImGui_ImplDX11_NewFrame();
             ImGuizmo::BeginFrame();
+
+            if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer")) {;
+                EntityListNode* it = entities.head;
+                if (ImGui::Button("Create New")) {
+                    EntityListNode* node = GT_NEW(EntityListNode, (&applicationArena));
+                    node->entity = entity_system::CreateEntity(mainWorld);
+                    EntityListAppend(node, &entities);
+                }
+                if (selectedEntity.id != 0) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Delete")) {
+                        while (it != nullptr) {
+                            if (it->entity.id == selectedEntity.id) {
+                                EntityListRemove(it, &entities);
+                                break;
+                            }
+                            it = it->next;
+                        }
+                        it = entities.head;
+                    }
+                }
+                while(it != nullptr) {
+                    const char* name = entity_system::GetEntityName(mainWorld, it->entity);
+                    ImGui::PushID(it->entity.id);
+                    if (ImGui::Selectable(name, selectedEntity.id == it->entity.id)) {
+                        selectedEntity = it->entity;
+                    }
+                    ImGui::SameLine();
+                    ImGui::Text("(id = %i)", it->entity.id);
+                    ImGui::PopID();
+
+                    it = it->next;
+                }
+
+            } ImGui::End();
+
 
 #ifdef GT_DEVELOPMENT
             if (ImGui::Begin(ICON_FA_FLOPPY_O "  Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1931,8 +2033,10 @@ int win32_main(int argc, char* argv[])
                 
             } ImGui::End();
 
+            paint = false;
             if (ImGui::Begin(ICON_FA_PAINT_BRUSH "    Painting")) {
 
+                paint = ImGui::IsMouseDown(MOUSE_LEFT);
 
                 ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
                 ImGui::SameLine();
@@ -2037,7 +2141,7 @@ int win32_main(int argc, char* argv[])
                             delta.x = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
                             delta.y = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
                             float sign = -1.0f;
-                            sign = delta.x > 0.0f ? 1.0f : -1.0f;
+                            sign = delta.y > 0.0f ? 1.0f : -1.0f;
                             camOffset.z -= math::Length(delta) * sign;
                             camOffset.z = camOffset.z > -0.1f ? -0.1f : camOffset.z;
                         }
@@ -2155,7 +2259,7 @@ int win32_main(int argc, char* argv[])
             util::MultiplyMatricesCM(proj, camera, object.VP);
 
             //
-            paint = ImGui::IsMouseDown(MOUSE_LEFT);
+            
             float steps = 0.0f;
             while (steps < 1.0f) {
                 if (paint) {
@@ -2208,7 +2312,9 @@ int win32_main(int argc, char* argv[])
         auto commandSubmissionTimerStart = GetCounter();
       
         gfx::BeginRenderPass(gfxDevice, cmdBuffer, mainPass, &clearAllAction);
-        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
+        for (int i = 0; i < 1; ++i) {
+            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
+        }
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
         GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
