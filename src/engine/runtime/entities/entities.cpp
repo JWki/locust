@@ -82,7 +82,8 @@ namespace entity_system
         {
             uint16_t index = HANDLE_INDEX(id);
             TResource* res = &buffer[index];
-            assert(res->generation == HANDLE_GENERATION(id));
+            if (res->generation != HANDLE_GENERATION(id)) { return nullptr; }
+            //assert(res->generation == HANDLE_GENERATION(id));
             return res;
         }
     };
@@ -165,6 +166,11 @@ namespace entity_system
         world->entities.Free(entity.id);
     }
 
+    bool IsEntityAlive(World* world, Entity entity)
+    {
+        EntityData* data = world->entities.Get(entity.id);
+        return data != nullptr;
+    }
 
     void GetAllEntities(World* world, Entity* entities, size_t* numEntities)
     {
@@ -189,9 +195,10 @@ bool entity_system_get_interface(entity_system::EntitySystemInterface* interface
     interface->DestroyWorld = &entity_system::DestroyWorld;
     interface->CreateEntity = &entity_system::CreateEntity;
     interface->DestroyEntity = &entity_system::DestroyEntity;
+    interface->IsEntityAlive = &entity_system::IsEntityAlive;
     interface->SetEntityName = &entity_system::SetEntityName;
     interface->GetEntityName = &entity_system::GetEntityNameBuf;
     interface->GetEntityTransform = &entity_system::GetEntityTransform;
-
+    interface->GetAllEntities = &entity_system::GetAllEntities;
     return true;
 }

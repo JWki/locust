@@ -28,6 +28,7 @@ namespace entity_system
     
     Entity CreateEntity(World* world);
     void DestroyEntity(World* world, Entity entity);
+    bool IsEntityAlive(World* world, Entity entity);
 
     void SetEntityName(World* world, Entity entity, const char* name);
     char* GetEntityNameBuf(World* world, Entity entity);
@@ -42,9 +43,11 @@ namespace entity_system
         void(*DestroyWorld)(World*);
         Entity(*CreateEntity)(World*);
         void(*DestroyEntity)(World*, Entity);
+        bool(*IsEntityAlive)(World*, Entity);
         void(*SetEntityName)(World*, Entity, const char*);
         char*(*GetEntityName)(World*, Entity);
         float*(*GetEntityTransform)(World*, Entity);
+        void(*GetAllEntities)(World*, Entity*, size_t*);
     };
 }
 

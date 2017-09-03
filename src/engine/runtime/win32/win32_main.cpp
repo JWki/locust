@@ -1827,12 +1827,26 @@ int win32_main(int argc, char* argv[])
     entity_system::EntitySystemInterface entitySystem;
     entity_system_get_interface(&entitySystem);
 
-    void(*ExecuteModule)(entity_system::World*, entity_system::EntitySystemInterface*);
+    void(*ExecuteModule)(void*, entity_system::World*, entity_system::EntitySystemInterface*);
+    void*(*InitializeModule)(memory::MemoryArenaBase*);
 
-    HMODULE testModule = LoadLibraryA("test_module.dll");
+    char tempPath[512] = "";
+    snprintf(tempPath, 512, "test_module_%s.dll", "temp");
+
+    GetLastError();
+    BOOL res = CopyFileA("test_module.dll", tempPath, FALSE);
+    if (res == FALSE) {
+        GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)\n", "test_module.dll", tempPath, GetLastError());
+    }
+
+    HMODULE testModule = LoadLibraryA(tempPath);
     assert(testModule);
-    ExecuteModule = (void(*)(entity_system::World*, entity_system::EntitySystemInterface*)) GetProcAddress(testModule, "Execute");
+    ExecuteModule = (void(*)(void*, entity_system::World*, entity_system::EntitySystemInterface*)) GetProcAddress(testModule, "Execute");
     assert(ExecuteModule);
+    InitializeModule = (void*(*)(memory::MemoryArenaBase*)) GetProcAddress(testModule, "Initialize");
+    
+    void* testModuleState = InitializeModule(&applicationArena);
+
     size_t numEntities = 0;
 
     GT_LOG_INFO("Application", "Starting main loop");
@@ -1847,6 +1861,19 @@ int win32_main(int argc, char* argv[])
         accumulator += frameTime;
 
         bool didUpdate = false;
+
+        FreeLibrary(testModule);
+        GetLastError();
+        res = CopyFileA("test_module.dll", tempPath, FALSE);
+        if (res == FALSE) {
+            GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)\n", "test_module.dll", tempPath, GetLastError());
+        }
+
+        testModule = LoadLibraryA(tempPath);
+        assert(testModule);
+        ExecuteModule = (void(*)(void*, entity_system::World*, entity_system::EntitySystemInterface*)) GetProcAddress(testModule, "Execute");
+        assert(ExecuteModule);
+
 
         while (accumulator >= dt) {
             didUpdate = true;
@@ -1863,6 +1890,7 @@ int win32_main(int argc, char* argv[])
 
             toolServer.Tick();
 
+               
             /* Begin sim frame*/
             while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
             {
@@ -1883,9 +1911,10 @@ int win32_main(int argc, char* argv[])
 
                 if (ExecuteModule) {
                     if (ImGui::Button("test_module::Execute()")) {
-                        ExecuteModule(mainWorld, &entitySystem);
+                        ExecuteModule(testModuleState, mainWorld, &entitySystem);
                     }
                 }
+
 
                 if (ImGui::Button("Create New")) {
                     selectedEntity = entity_system::CreateEntity(mainWorld);
@@ -1894,11 +1923,21 @@ int win32_main(int argc, char* argv[])
                     ImGui::SameLine();
                     if (ImGui::Button("Delete")) {
                         entity_system::DestroyEntity(mainWorld, selectedEntity);
+                        for (int i = 0; i < numEntities; ++i) {
+                            if (selectedEntity.id == entityList[i].id) {
+                                if (i > 0) {
+                                    selectedEntity = entityList[i - 1];
+                                }
+                                else {
+                                    selectedEntity = { entity_system::INVALID_ID };
+                                }
+                            }
+                        }
                     }
                 }
 
-                
                 entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
+
 
                 for(size_t i = 0; i < numEntities; ++i) {
                     entity_system::Entity entity = entityList[i];
