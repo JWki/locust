@@ -5,6 +5,94 @@
 #include <foundation/logging/logging.h>
 
 
+
+class SimpleFilterPolicy
+{
+public:
+    bool Filter(fnd::logging::LogCriteria criteria)
+    {
+        auto h = fnd::logging::LogChannel("RenderProfile").hash;
+        return true;
+    }
+};
+
+class SimpleFormatPolicy
+{
+public:
+    void Format(char* buf, size_t bufSize, fnd::logging::LogCriteria criteria, const char* format, va_list args)
+    {
+        size_t offset = snprintf(buf, bufSize, "[%s]    ", criteria.channel.str);
+        vsnprintf(buf + offset, bufSize - offset, format, args);
+    }
+};
+
+
+class IDEConsoleFormatter
+{
+public:
+    void Format(char* buf, size_t bufSize, fnd::logging::LogCriteria criteria, const char* format, va_list args)
+    {
+        size_t offset = snprintf(buf, bufSize, "%s(%llu): [%s]    ", criteria.scInfo.file, criteria.scInfo.line, criteria.channel.str);
+        vsnprintf(buf + offset, bufSize - offset, format, args);
+    }
+};
+
+#ifdef _MSC_VER
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#endif
+
+class IDEConsoleWriter
+{
+public:
+    void Write(const char* msg)
+    {
+#ifdef _MSC_VER
+        OutputDebugStringA(msg);
+        OutputDebugStringA("\n");
+#endif
+    }
+};
+
+class ConsoleWriter
+{
+public:
+    void Write(const char* msg)
+    {
+        printf("%s\n", msg);
+    }
+};
+
+#include <foundation/sockets/sockets.h>
+
+class NetworkFilterPolicy
+{
+public:
+    bool Filter(fnd::logging::LogCriteria criteria)
+    {
+        return criteria.channel.hash != fnd::logging::LogChannel("TCP Logger").hash
+            && criteria.channel.hash != fnd::logging::LogChannel("RenderProfile").hash;
+    }
+};
+
+class NetworkFormatPolicy
+{
+public:
+    void Format(char* buf, size_t bufSize, fnd::logging::LogCriteria criteria, const char* format, va_list args)
+    {
+        size_t offset = snprintf(buf, bufSize, "[%s]    ", criteria.channel.str);
+        vsnprintf(buf + offset, bufSize - offset, format, args);
+    }
+};
+
+
+typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, ConsoleWriter> SimpleLogger;
+typedef fnd::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
+
+SimpleLogger simpleLogger;
+
+
 void CalculateTangents(fnd::math::float3* vertexBuffer, fnd::math::float2* uvBuffer, size_t numVertices, fnd::math::float3* tangentBuffer)
 {
     using namespace fnd;
@@ -18,6 +106,8 @@ void CalculateTangents(fnd::math::float3* vertexBuffer, fnd::math::float2* uvBuf
         math::float2 uv1 = uvBuffer[i];
         math::float2 uv2 = uvBuffer[i + 1];
         math::float2 uv3 = uvBuffer[i + 2];
+
+   
 
         math::float3 edge1 = pos2 - pos1;
         math::float3 edge2 = pos3 - pos1;
@@ -50,6 +140,7 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
 {
     using namespace fnd;
 
+    GT_LOG_INFO("FBX Importer", "Importing FBX file...");
 
     ofbx::IScene* scene = ofbx::load((const ofbx::u8*)fbxData, (int)fbxDataSize);
     if (!scene) { return false; }
@@ -114,7 +205,6 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
         float inverseTransposeTransform[16];
         util::Make4x4FloatMatrixTranspose(transform, transposeTransform);
         util::Inverse4x4FloatMatrixCM(transposeTransform, inverseTransposeTransform);
-        //util::Copy4x4FloatMatrixCM(globalTransform, transform);
 
         if (sourcePositionBuffer) {
             for (size_t i = 0; i < numSubmeshVertices; ++i) {
@@ -126,6 +216,7 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
         }
         else {
             // @TODO: handle missing positions
+            GT_LOG_WARNING("FBX Importer", "Submesh #%i does not contain position data", i);
         }
         if (sourceNormalBuffer) {
             for (size_t i = 0; i < numSubmeshVertices; ++i) {
@@ -137,6 +228,7 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
         } 
         else {
             // @TODO: handle missing normals
+            GT_LOG_WARNING("FBX Importer", "Submesh #%i does not contain surface normal data", i);
         }
         if (sourceUVBuffer) {
             for (size_t i = 0; i < numSubmeshVertices; ++i) {
@@ -145,18 +237,23 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
         }
         else {
             // @TODO: handle missing UVs
+            GT_LOG_WARNING("FBX Importer", "Submesh #%i does not contain a UV set", i);
         }
         if (sourceTangentBuffer) {
             for (size_t i = 0; i < numSubmeshVertices; ++i) {
                 tangentBuffer[i] = math::float3((float)sourceTangentBuffer[i].x, (float)sourceTangentBuffer[i].y, (float)sourceTangentBuffer[i].z);
+                tangentBuffer[i] = util::TransformDirectionCM(tangentBuffer[i], inverseTransposeTransform);
+                tangentBuffer[i].z *= -1.0f;
             }
         } 
         else {
             if (sourceUVBuffer) {
+                GT_LOG_INFO("FBX Importer", "Calculating tangents for submesh #%i", i);
                 CalculateTangents(positionBuffer, uvBuffer, numSubmeshVertices, tangentBuffer);
             }
             else {
                 // @TODO: handle missing tangents and missing uvs
+                GT_LOG_WARNING("FBX Importer", "Submesh #%i does not have tangents", i);
             }
         }
         vertexOffset += numSubmeshVertices;

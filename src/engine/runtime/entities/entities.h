@@ -33,4 +33,23 @@ namespace entity_system
     char* GetEntityNameBuf(World* world, Entity entity);
 
     float* GetEntityTransform(World* world, Entity entity);
+
+    void GetAllEntities(World* world, Entity* entities, size_t* numEntities);
+
+    struct EntitySystemInterface
+    {
+        bool(*CreateWorld)(World**, fnd::memory::MemoryArenaBase*, WorldConfig*);
+        void(*DestroyWorld)(World*);
+        Entity(*CreateEntity)(World*);
+        void(*DestroyEntity)(World*, Entity);
+        void(*SetEntityName)(World*, Entity, const char*);
+        char*(*GetEntityName)(World*, Entity);
+        float*(*GetEntityTransform)(World*, Entity);
+    };
+}
+
+
+extern "C"
+{
+    __declspec(dllexport) bool entity_system_get_interface(entity_system::EntitySystemInterface* interface);
 }

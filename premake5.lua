@@ -66,10 +66,11 @@ workspace("locust")
         filter "configurations:Release"
             defines {"GT_NODEBUG"}
             optimize "On"
-        --filter{"system:windows"}
-        --local rand = "$([System.DateTime]::Now.ToString(\"HH_mm_ss_fff\"))"
-        --linkoptions {"/PDB:\"" .. name .. "_" .. rand .. ".pdb\""}
+        filter{"system:windows"}
+            local rand = "$([System.DateTime]::Now.ToString(\"HH_mm_ss_fff\"))"
+            linkoptions {"/PDB:\"" .. name .. "_" .. rand .. ".pdb\""}
         filter {}
+        
     end
 
     function make_lib(name, main_dir)

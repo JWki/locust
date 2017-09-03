@@ -1075,7 +1075,7 @@ int win32_main(int argc, char* argv[])
     
     MeshAsset cubeAsset;
 
-#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
+#define MODEL_FILE_PATH "../../sponza.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1677,10 +1677,10 @@ int win32_main(int argc, char* argv[])
     cubeDrawCall.pipelineState = cubePipeline;
     cubeDrawCall.vsConstantInputs[0] = cBuffer;
     cubeDrawCall.psConstantInputs[0] = cBuffer;
-    cubeDrawCall.psImageInputs[0] = materials[8].diffuse;
-    cubeDrawCall.psImageInputs[1] = materials[8].roughness;
-    cubeDrawCall.psImageInputs[2] = materials[8].metallic;
-    cubeDrawCall.psImageInputs[3] = materials[8].normal;
+    cubeDrawCall.psImageInputs[0] = materials[0].diffuse;
+    cubeDrawCall.psImageInputs[1] = materials[0].roughness;
+    cubeDrawCall.psImageInputs[2] = materials[0].metallic;
+    cubeDrawCall.psImageInputs[3] = materials[0].normal;
 
     cubeDrawCall.psImageInputs[4] = paintDiffuseRT;
     cubeDrawCall.psImageInputs[5] = paintRoughnessRT;
@@ -1817,52 +1817,23 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Entity System", "Failed to create world");
     }
 
-
-    struct EntityListNode
-    {
-        entity_system::Entity entity;
-        EntityListNode* next = nullptr;
-        EntityListNode* prev = nullptr;
-    };
-    struct EntityList
-    {
-        EntityListNode* head = nullptr;
-        EntityListNode* tail = nullptr;
-    };
-
-    auto EntityListAppend = [](EntityListNode* node, EntityList* list) {
-        if (list->head == nullptr) {
-            list->head = list->tail = node;
-        }
-        else {
-            list->tail->next = node;
-            node->prev = list->tail;
-            list->tail = node;
-        }
-    };
-
-    auto EntityListRemove = [](EntityListNode* node, EntityList* list) {
-        if (list->head == node) {
-            list->head = node->next;
-        }
-        if (list->tail == node) {
-            list->tail = node->prev;
-        }
-        if (node->prev) {
-            node->prev->next = node->next;
-        }
-        if (node->next) {
-            node->next->prev = node->prev;
-        }
-        node->next = node->prev = nullptr;
-    };
-
-    EntityList entities;
+    entity_system::Entity* entityList = GT_NEW_ARRAY(entity_system::Entity, worldConfig.maxNumEntities, &applicationArena);
     entity_system::Entity selectedEntity;
 
-    math::float4 lightDir;
+    math::float4 lightDir(1.0f, -1.0f, 0.0f, 15.0f);
     math::float4 color(1.0f, 1.0f, 1.0f, 1.0f);
 
+
+    entity_system::EntitySystemInterface entitySystem;
+    entity_system_get_interface(&entitySystem);
+
+    void(*ExecuteModule)(entity_system::World*, entity_system::EntitySystemInterface*);
+
+    HMODULE testModule = LoadLibraryA("test_module.dll");
+    assert(testModule);
+    ExecuteModule = (void(*)(entity_system::World*, entity_system::EntitySystemInterface*)) GetProcAddress(testModule, "Execute");
+    assert(ExecuteModule);
+    size_t numEntities = 0;
 
     GT_LOG_INFO("Application", "Starting main loop");
     do {
@@ -1908,48 +1879,47 @@ int win32_main(int argc, char* argv[])
             ImGui_ImplDX11_NewFrame();
             ImGuizmo::BeginFrame();
 
-            if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer")) {;
-                EntityListNode* it = entities.head;
+            if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer")) {
+
+                if (ExecuteModule) {
+                    if (ImGui::Button("test_module::Execute()")) {
+                        ExecuteModule(mainWorld, &entitySystem);
+                    }
+                }
+
                 if (ImGui::Button("Create New")) {
-                    EntityListNode* node = GT_NEW(EntityListNode, (&applicationArena));
-                    node->entity = entity_system::CreateEntity(mainWorld);
-                    EntityListAppend(node, &entities);
+                    selectedEntity = entity_system::CreateEntity(mainWorld);
                 }
                 if (selectedEntity.id != 0) {
                     ImGui::SameLine();
                     if (ImGui::Button("Delete")) {
                         entity_system::DestroyEntity(mainWorld, selectedEntity);
-                        while (it != nullptr) {
-                            if (it->entity.id == selectedEntity.id) {
-                                if (it->next) { selectedEntity = it->next->entity; }
-                                else {
-                                    selectedEntity.id = 0;
-                                }
-                                EntityListRemove(it, &entities);
-                                break;
-                            }
-                            it = it->next;
-                        }
-                        it = entities.head;
                     }
                 }
-                while(it != nullptr) {
-                    const char* name = entity_system::GetEntityNameBuf(mainWorld, it->entity);
-                    ImGui::PushID(it->entity.id);
-                    if (ImGui::Selectable(name, selectedEntity.id == it->entity.id)) {
-                        selectedEntity = it->entity;
+
+                
+                entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
+
+                for(size_t i = 0; i < numEntities; ++i) {
+                    entity_system::Entity entity = entityList[i];
+                    const char* name = entity_system::GetEntityNameBuf(mainWorld, entity);
+                    ImGui::PushID(entity.id);
+                    if (ImGui::Selectable(name, selectedEntity.id == entity.id)) {
+                        selectedEntity = entity;
                     }
                     if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(MOUSE_LEFT)) {
-                        camPos = util::Get4x4FloatMatrixColumn(entity_system::GetEntityTransform(mainWorld, selectedEntity), 3).xyz;
+                        camPos = util::Get4x4FloatMatrixColumnCM(entity_system::GetEntityTransform(mainWorld, selectedEntity), 3).xyz;
                     }
                     ImGui::SameLine();
-                    ImGui::Text("(id = %i)", it->entity.id);
+                    ImGui::Text("(id = %i)", entity.id);
                     ImGui::PopID();
-
-                    it = it->next;
                 }
 
-            } ImGui::End();
+            }
+            else {
+                // @NOTE we duplicate this here to not introduce one frame of potential stale handles
+                entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
+            }ImGui::End();
 
 
 #ifdef GT_DEVELOPMENT
@@ -2015,11 +1985,14 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
+            ImGui::Begin(ICON_FA_SUN_O "  Global Lighting"); {
+                ImGui::SliderFloat3("Sun Direction", (float*)lightDir, -1.0f, 1.0f);
+                ImGui::SliderFloat("Sun Intensity", &lightDir.w, 0.0f, 500.0f);
+            } ImGui::End();
+
             ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
                 if (selectedEntity.id != 0) {
                     
-                    ImGui::SliderFloat3("Sun Direction", (float*)lightDir, -1.0f, 1.0f);
-                    ImGui::SliderFloat("Sun Intensity", &lightDir.w, 0.0f, 500.0f);
                     if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
                         if (ImGui::InputText(" " ICON_FA_TAG " Name", entity_system::GetEntityNameBuf(mainWorld, selectedEntity), ENTITY_NAME_SIZE, ImGuiInputTextFlags_EnterReturnsTrue)) {
                             entity_system::SetEntityName(mainWorld, selectedEntity, entity_system::GetEntityNameBuf(mainWorld, selectedEntity));
@@ -2043,7 +2016,7 @@ int win32_main(int argc, char* argv[])
             paint = false;
             if (ImGui::Begin(ICON_FA_PAINT_BRUSH "    Painting")) {
 
-                paint = ImGui::IsMouseDown(MOUSE_LEFT) && selectedEntity.id != 0;
+                paint = false; // ImGui::IsMouseDown(MOUSE_LEFT) && selectedEntity.id != 0;
                 ImGui::Checkbox("Paint", &paint);
 
                 ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
@@ -2208,7 +2181,7 @@ int win32_main(int argc, char* argv[])
                         float fullTransform[16];
                         util::Make4x4FloatTranslationMatrixCM(cameraPos, camPos);
                         util::MultiplyMatricesCM(cameraPos, camOffsetWithRotation, fullTransform);
-                        camPos = util::Get4x4FloatMatrixColumn(fullTransform, 3).xyz;
+                        camPos = util::Get4x4FloatMatrixColumnCM(fullTransform, 3).xyz;
                         camOffsetStore = camOffset.z;
                         camOffset.z = 0.0f;
                     }
@@ -2306,9 +2279,10 @@ int win32_main(int argc, char* argv[])
         auto commandSubmissionTimerStart = GetCounter();
       
         gfx::BeginRenderPass(gfxDevice, cmdBuffer, mainPass, &clearAllAction);
-        EntityListNode* it = entities.head;
-        while (it != nullptr) {
-           
+
+        for (size_t i = 0; i < numEntities; ++i) {
+            entity_system::Entity entity = entityList[i];
+
             void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
             if (cBufferMem != nullptr) {
                 ConstantData object;
@@ -2319,7 +2293,7 @@ int win32_main(int argc, char* argv[])
                 util::Make4x4FloatMatrixIdentity(object.projection);
                 util::Make4x4FloatMatrixIdentity(object.model);
 
-                util::Copy4x4FloatMatrixCM(entity_system::GetEntityTransform(mainWorld, it->entity), object.model);
+                util::Copy4x4FloatMatrixCM(entity_system::GetEntityTransform(mainWorld, entity), object.model);
   
                
                 float modelView[16];
@@ -2339,7 +2313,6 @@ int win32_main(int argc, char* argv[])
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
             gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
-            it = it->next;
         }
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 

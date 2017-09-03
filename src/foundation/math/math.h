@@ -264,6 +264,10 @@ namespace fnd
         typedef Vector<float, 3> float3;
         typedef Vector<float, 4> float4;
 
+        typedef Vector<double, 2> double2;
+        typedef Vector<double, 3> double3;
+        typedef Vector<double, 4> double4;
+
         typedef Vector<int, 2> int2;
         typedef Vector<int, 3> int3;
         typedef Vector<int, 4> int4;
@@ -513,7 +517,7 @@ namespace util
         Set4x4FloatMatrixValueCM(mat, 3, 3, 1.0f);
     }
 
-    static fnd::math::float4 Get4x4FloatMatrixColumn(float* mat, int column)
+    static fnd::math::float4 Get4x4FloatMatrixColumnCM(float* mat, int column)
     {
         return {
             Get4x4FloatMatrixValueCM(mat, column, 0),
@@ -521,6 +525,13 @@ namespace util
             Get4x4FloatMatrixValueCM(mat, column, 2),
             Get4x4FloatMatrixValueCM(mat, column, 3),
         };
+    }
+
+    static void Set4x4FloatMatrixColumnCM(float* mat, int column, fnd::math::float4 value)
+    {
+        for (int i = 0; i < 4; ++i) {
+            Set4x4FloatMatrixValueCM(mat, column, i, value[i]);
+        }
     }
 
     static void Make4x4FloatRotationMatrixCMLH(float* mat, fnd::math::float3 axisIn, float rad)
@@ -550,10 +561,10 @@ namespace util
         Set4x4FloatMatrixValueCM(rotate, 2, 1, temp[2] * axis[1] - s * axis[0]);
         Set4x4FloatMatrixValueCM(rotate, 2, 2, c + temp[2] * axis[2]);
 
-        fnd::math::float4 m0 = Get4x4FloatMatrixColumn(base, 0);
-        fnd::math::float4 m1 = Get4x4FloatMatrixColumn(base, 1);
-        fnd::math::float4 m2 = Get4x4FloatMatrixColumn(base, 2);
-        fnd::math::float4 m3 = Get4x4FloatMatrixColumn(base, 3);
+        fnd::math::float4 m0 = Get4x4FloatMatrixColumnCM(base, 0);
+        fnd::math::float4 m1 = Get4x4FloatMatrixColumnCM(base, 1);
+        fnd::math::float4 m2 = Get4x4FloatMatrixColumnCM(base, 2);
+        fnd::math::float4 m3 = Get4x4FloatMatrixColumnCM(base, 3);
 
         float r00 = Get4x4FloatMatrixValueCM(rotate, 0, 0);
         float r11 = Get4x4FloatMatrixValueCM(rotate, 1, 1);

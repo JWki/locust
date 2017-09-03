@@ -94,6 +94,8 @@ namespace entity_system
         char name[ENTITY_NAME_SIZE] = "Entity";
         float transform[16];
 
+        bool isAlive = false;
+
         EntityData()
         {
             util::Make4x4FloatMatrixIdentity(transform);
@@ -153,11 +155,43 @@ namespace entity_system
         if (!world->entities.Allocate(&entityData, &entity.id)) {
             return { INVALID_ID };
         }
+        entityData->isAlive = true;
         return entity;
     }
 
     void DestroyEntity(World* world, Entity entity)
     {
+        world->entities.Get(entity.id)->isAlive = false;
         world->entities.Free(entity.id);
     }
+
+
+    void GetAllEntities(World* world, Entity* entities, size_t* numEntities)
+    {
+        *numEntities = 0;
+        for (uint32_t i = 0; i < world->entities.size; ++i) {
+            EntityData* data = &world->entities.buffer[i];
+            if (data->isAlive) {
+                if (entities != nullptr) {
+                    entities[(*numEntities)].id = MAKE_HANDLE(i, data->generation);
+                }
+                (*numEntities)++;
+            }
+        }
+    }
+}
+
+
+
+bool entity_system_get_interface(entity_system::EntitySystemInterface* interface) 
+{
+    interface->CreateWorld = &entity_system::CreateWorld;
+    interface->DestroyWorld = &entity_system::DestroyWorld;
+    interface->CreateEntity = &entity_system::CreateEntity;
+    interface->DestroyEntity = &entity_system::DestroyEntity;
+    interface->SetEntityName = &entity_system::SetEntityName;
+    interface->GetEntityName = &entity_system::GetEntityNameBuf;
+    interface->GetEntityTransform = &entity_system::GetEntityTransform;
+
+    return true;
 }

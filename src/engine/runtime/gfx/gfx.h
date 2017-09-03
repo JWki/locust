@@ -582,4 +582,5 @@ namespace gfx
 
     void*   MapBuffer(Device* device, Buffer buffer, MapType mapType);
     void    UnmapBuffer(Device* device, Buffer buffer);
+
 }

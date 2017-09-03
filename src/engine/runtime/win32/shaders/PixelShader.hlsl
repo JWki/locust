@@ -104,32 +104,27 @@ float4 main(PixelInput input) : SV_TARGET
     float3 viewPos = mul(InverseView, float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
 
     float3 N = normalize(input.normal).xyz;
-    float3 paintN = paintNormal.Sample(sampler8, input.uv).rgb;
+    //float3 paintN = paintNormal.Sample(sampler8, input.uv).rgb;
     
     N = normalMap.Sample(sampler6, input.uv).rgb;
-    //N = paintN;
-    N = blend_rnm(N, paintN);
-    //N = normalize(N * 2.0f - 1.0f);
+    N = N * 2.0f - 1.0f;
+    //N = blend_rnm(N, paintN);
     N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
 
-    //return float4(N , 1.0f);
+    //return float4(N * 0.5f + 0.5f, 1.0f);
 
     float3 V = normalize(viewPos - input.worldPos.xyz);
     float3 L = normalize(-LightDir.xyz);
     float3 H = normalize(L + V);
  
-    float4 paintColor = paintDiffuse.Sample(sampler1, input.uv.xy);
-    float4 albedo = (pow(diffuseMap.Sample(sampler0, input.uv.xy), 2.2f) * paintColor.a + float4(paintColor.rgb, 1.0f));
-    //albedo = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    //float4 paintColor = paintDiffuse.Sample(sampler1, input.uv.xy);
+    float4 albedo = pow(diffuseMap.Sample(sampler0, input.uv.xy), 2.2f); // * paintColor.a + float4(paintColor.rgb, 1.0f);
 
-    float roughness = paintRoughness.Sample(sampler4, input.uv.xy).r;
-    float metallic = paintMetallic.Sample(sampler5, input.uv.xy).r;
+    float roughness = roughnessMap.Sample(sampler1, input.uv.xy).r; // *paintColor.a + roughness;
+    float metallic = metallicMap.Sample(sampler2, input.uv.xy).r; // *paintColor.a + metallic;
 
-    roughness = roughnessMap.Sample(sampler1, input.uv.xy).r * paintColor.a + roughness;
-    metallic = metallicMap.Sample(sampler2, input.uv.xy).r * paintColor.a + metallic;
-    
-    //roughness = Roughness;
-    //metallic = Metallic;
+    //roughness = roughness + paintRoughness.Sample(sampler4, input.uv.xy).r;
+    //metallic = metallic + paintMetallic.Sample(sampler5, input.uv.xy).r;
 
     roughness = clamp(roughness, 0.01f, 1.0f);
     metallic = clamp(metallic, 0.04f, 0.99f);
@@ -146,6 +141,11 @@ float4 main(PixelInput input) : SV_TARGET
     float G = GeometrySmith(NdotV, NdotL, roughness);
     float3 F = FresnelSchlick(HdotV, F0);
    
+    float3 id = float3(1.0f, 1.0f, 1.0f);
+    //return float4(id * NDF, 1.0f);
+    //return float4(id * G, 1.0f);
+    //return float4(F, 1.0f);
+
     float3 nominator = NDF * G * F;
     float denominator = 4.0f * NdotV * NdotL + 0.001f;
     
@@ -157,12 +157,11 @@ float4 main(PixelInput input) : SV_TARGET
 
     float3 directLight = LightDir.w * NdotL * (kD * albedo.rgb / PI + specular);
 
+    //return float4(directLight, 1.0f);
+
     float3 r = normalize(reflect(-V, N));
     float3 indirectLight = metallic * pow(cubemap.Sample(sampler7, r).rgb, 2.2f);
-    //return float4(indirectLight, 1.0f);
     float3 light = indirectLight + directLight;
 
-
-    //return float4(float3(1.0f, 1.0f, 1.0f) * metallic, 1.0f);
     return float4((light) * albedo.rgb, 1.0f);
 }
