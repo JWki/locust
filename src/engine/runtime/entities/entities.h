@@ -8,6 +8,8 @@ namespace fnd
     }
 }
 
+#define ENTITY_SYSTEM_API_NAME "entity_system"
+
 #define ENTITY_NAME_SIZE 128
 namespace entity_system
 {
@@ -39,15 +41,15 @@ namespace entity_system
 
     struct EntitySystemInterface
     {
-        bool(*CreateWorld)(World**, fnd::memory::MemoryArenaBase*, WorldConfig*);
-        void(*DestroyWorld)(World*);
-        Entity(*CreateEntity)(World*);
-        void(*DestroyEntity)(World*, Entity);
-        bool(*IsEntityAlive)(World*, Entity);
-        void(*SetEntityName)(World*, Entity, const char*);
-        char*(*GetEntityName)(World*, Entity);
-        float*(*GetEntityTransform)(World*, Entity);
-        void(*GetAllEntities)(World*, Entity*, size_t*);
+        bool(*CreateWorld)(World**, fnd::memory::MemoryArenaBase*, WorldConfig*) = nullptr;
+        void(*DestroyWorld)(World*) = nullptr;
+        Entity(*CreateEntity)(World*) = nullptr;
+        void(*DestroyEntity)(World*, Entity) = nullptr;
+        bool(*IsEntityAlive)(World*, Entity) = nullptr;
+        void(*SetEntityName)(World*, Entity, const char*) = nullptr;
+        char*(*GetEntityName)(World*, Entity) = nullptr;
+        float*(*GetEntityTransform)(World*, Entity) = nullptr;
+        void(*GetAllEntities)(World*, Entity*, size_t*) = nullptr;
     };
 }
 

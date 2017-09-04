@@ -26,6 +26,8 @@
 #include <foundation/math/math.h>
 #define IS_POW_OF_TWO(n) ((n & (n - 1)) == 0)
 
+#include <engine/runtime/core/api_registry.h>
+
 int WINDOW_WIDTH = 1920;
 int WINDOW_HEIGHT = 1080;
 
@@ -1075,7 +1077,7 @@ int win32_main(int argc, char* argv[])
     
     MeshAsset cubeAsset;
 
-#define MODEL_FILE_PATH "../../sponza.fbx"
+#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1824,28 +1826,47 @@ int win32_main(int argc, char* argv[])
     math::float4 color(1.0f, 1.0f, 1.0f, 1.0f);
 
 
+
+    core::api_registry::APIRegistry* apiRegistry = nullptr;
+    core::api_registry::APIRegistryInterface apiRegistryInterface;
+
+    api_registry_get_interface(&apiRegistryInterface);
+    core::api_registry::CreateRegistry(&apiRegistry, &applicationArena);
+
     entity_system::EntitySystemInterface entitySystem;
     entity_system_get_interface(&entitySystem);
+    
+    core::api_registry::Add(apiRegistry, ENTITY_SYSTEM_API_NAME, &entitySystem);
 
-    void(*ExecuteModule)(void*, entity_system::World*, entity_system::EntitySystemInterface*);
-    void*(*InitializeModule)(memory::MemoryArenaBase*);
+
+    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*);
+    void*(*InitializeModule)(memory::MemoryArenaBase*, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiInterface);
 
     char tempPath[512] = "";
     snprintf(tempPath, 512, "test_module_%s.dll", "temp");
 
+   
+    FILETIME testModuleTimestamp;
+    HANDLE testModuleWatchHandle;
+    testModuleWatchHandle = CreateFileA("test_module.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    assert(testModuleWatchHandle);
+    BOOL res = GetFileTime(testModuleWatchHandle, nullptr, nullptr, &testModuleTimestamp);
+    assert(res);
+    CloseHandle(testModuleWatchHandle);
+
     GetLastError();
-    BOOL res = CopyFileA("test_module.dll", tempPath, FALSE);
+    res = CopyFileA("test_module.dll", tempPath, FALSE);
     if (res == FALSE) {
-        GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)\n", "test_module.dll", tempPath, GetLastError());
+        GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)", "test_module.dll", tempPath, GetLastError());
     }
 
     HMODULE testModule = LoadLibraryA(tempPath);
     assert(testModule);
-    ExecuteModule = (void(*)(void*, entity_system::World*, entity_system::EntitySystemInterface*)) GetProcAddress(testModule, "Execute");
-    assert(ExecuteModule);
-    InitializeModule = (void*(*)(memory::MemoryArenaBase*)) GetProcAddress(testModule, "Initialize");
-    
-    void* testModuleState = InitializeModule(&applicationArena);
+    UpdateModule = (decltype(UpdateModule)) GetProcAddress(testModule, "Update");
+    assert(UpdateModule);
+    InitializeModule = (decltype(InitializeModule)) GetProcAddress(testModule, "Initialize");
+
+    void* testModuleState = InitializeModule(&applicationArena, apiRegistry, &apiRegistryInterface);
 
     size_t numEntities = 0;
 
@@ -1862,19 +1883,7 @@ int win32_main(int argc, char* argv[])
 
         bool didUpdate = false;
 
-        FreeLibrary(testModule);
-        GetLastError();
-        res = CopyFileA("test_module.dll", tempPath, FALSE);
-        if (res == FALSE) {
-            GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)\n", "test_module.dll", tempPath, GetLastError());
-        }
-
-        testModule = LoadLibraryA(tempPath);
-        assert(testModule);
-        ExecuteModule = (void(*)(void*, entity_system::World*, entity_system::EntitySystemInterface*)) GetProcAddress(testModule, "Execute");
-        assert(ExecuteModule);
-
-
+        
         while (accumulator >= dt) {
             didUpdate = true;
 
@@ -1890,7 +1899,44 @@ int win32_main(int argc, char* argv[])
 
             toolServer.Tick();
 
-               
+            FILETIME currentTestModuleTimestamp;
+
+            testModuleWatchHandle = CreateFileA("test_module.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+            assert(testModuleWatchHandle);
+            BOOL res = GetFileTime(testModuleWatchHandle, nullptr, nullptr, &currentTestModuleTimestamp);
+            assert(res);
+            CloseHandle(testModuleWatchHandle);
+
+            auto comp = CompareFileTime(&testModuleTimestamp, &currentTestModuleTimestamp);
+            testModuleTimestamp = currentTestModuleTimestamp;
+            //GT_LOG_DEBUG("DLL Hotloader", "comp = %li", comp);
+            if (comp < 0) {
+                Sleep(500);     // because otherwise windows will still be locking this
+                GT_LOG_INFO("DLL Hotloader", "Change detected, reloading %s", "test_module.dll");
+                FreeLibrary(testModule);
+                UpdateModule = nullptr;
+
+                GetLastError();
+                res = CopyFileA("test_module.dll", tempPath, FALSE);
+                if (res == FALSE) {
+                    GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)", "test_module.dll", tempPath, GetLastError());
+                }
+                else {
+                    GT_LOG_INFO("DLL Hotloader", "reloaded %s", "test_module.dll");
+                    testModule = LoadLibraryA(tempPath);
+                    assert(testModule);
+                    UpdateModule = (decltype(UpdateModule))GetProcAddress(testModule, "Update");
+                    assert(UpdateModule);
+                }
+
+                testModuleWatchHandle = CreateFileA("test_module.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+                assert(testModuleWatchHandle);
+                BOOL res = GetFileTime(testModuleWatchHandle, nullptr, nullptr, &testModuleTimestamp);
+                assert(res);
+                CloseHandle(testModuleWatchHandle);
+            }
+
+
             /* Begin sim frame*/
             while (PeekMessage(&msg, NULL, 0U, 0U, PM_REMOVE))
             {
@@ -1907,14 +1953,11 @@ int win32_main(int argc, char* argv[])
             ImGui_ImplDX11_NewFrame();
             ImGuizmo::BeginFrame();
 
+            if (UpdateModule) {
+                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld);
+            }
+
             if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer")) {
-
-                if (ExecuteModule) {
-                    if (ImGui::Button("test_module::Execute()")) {
-                        ExecuteModule(testModuleState, mainWorld, &entitySystem);
-                    }
-                }
-
 
                 if (ImGui::Button("Create New")) {
                     selectedEntity = entity_system::CreateEntity(mainWorld);
@@ -2126,6 +2169,11 @@ int win32_main(int argc, char* argv[])
                         ImGui::TreePop();
                     } ImGui::PopID();
                 }
+
+                cubeDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
+                cubeDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
+                cubeDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
+                cubeDrawCall.psImageInputs[3] = materials[selectionIndex].normal;
 
                 cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
                 cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
