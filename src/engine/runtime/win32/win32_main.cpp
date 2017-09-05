@@ -746,69 +746,7 @@ public:
 
 
 
-#include <engine/runtime/ImGuizmo/ImGuizmo.h>
-void EditTransform(float camera[16], float projection[16], float matrix[16])
-{
-    static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
-    static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::WORLD);
-    if (ImGui::IsKeyPressed(90)) 
-        mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-    if (ImGui::IsKeyPressed(69))
-        mCurrentGizmoOperation = ImGuizmo::ROTATE;
-    if (ImGui::IsKeyPressed(82)) // r Key
-        mCurrentGizmoOperation = ImGuizmo::SCALE;
-    if (ImGui::RadioButton(" " ICON_FA_ARROWS "  Translation", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
-        mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-    ImGui::SameLine();
-    if (ImGui::RadioButton(" " ICON_FA_REFRESH "  Rotation", mCurrentGizmoOperation == ImGuizmo::ROTATE))
-        mCurrentGizmoOperation = ImGuizmo::ROTATE;
-    ImGui::SameLine();
-    if (ImGui::RadioButton(" " ICON_FA_EXPAND "  Scaling", mCurrentGizmoOperation == ImGuizmo::SCALE))
-        mCurrentGizmoOperation = ImGuizmo::SCALE;
-    fnd::math::float3 matrixTranslation, matrixRotation, matrixScale;
-    ImGuizmo::DecomposeMatrixToComponents(matrix, (float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale);
-    ImGui::DragFloat3(" " ICON_FA_ARROWS, (float*)matrixTranslation, 0.01f);
-    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##translate")) { matrixTranslation = {0.0f, 0.0f, 0.0f}; }
-    ImGui::DragFloat3(" " ICON_FA_REFRESH, (float*)matrixRotation, 0.1f);
-    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##rotation")) { matrixRotation = { 0.0f, 0.0f, 0.0f }; }
-    ImGui::DragFloat3(" " ICON_FA_EXPAND, (float*)matrixScale, 0.1f);
-    ImGui::SameLine(); if (ImGui::Button(ICON_FA_UNDO "##scale")) { matrixScale = { 1.0f, 1.0f, 1.0f }; }
-    ImGuizmo::RecomposeMatrixFromComponents((float*)matrixTranslation, (float*)matrixRotation, (float*)matrixScale, matrix);
 
-    if (mCurrentGizmoOperation != ImGuizmo::SCALE)
-    {
-        if (ImGui::RadioButton(" " ICON_FA_CUBE "  Local", mCurrentGizmoMode == ImGuizmo::LOCAL))
-            mCurrentGizmoMode = ImGuizmo::LOCAL;
-        ImGui::SameLine();
-        if (ImGui::RadioButton(" " ICON_FA_GLOBE "  World", mCurrentGizmoMode == ImGuizmo::WORLD))
-            mCurrentGizmoMode = ImGuizmo::WORLD;
-    }
-    static bool useSnap(false);
-    if (ImGui::IsKeyPressed(83))
-        useSnap = !useSnap;
-    // lol
-    ImGui::Checkbox("##snap", &useSnap);
-    ImGui::SameLine();
-    static fnd::math::float3 snap = { 0.1f, 0.1f, 0.1f };
-    switch (mCurrentGizmoOperation)
-    {
-    case ImGuizmo::TRANSLATE:
-        //snap = fnd::math::float3(0.1f);
-        ImGui::InputFloat3(" " ICON_FA_TH "  Snap", &snap.x);
-        break;
-    case ImGuizmo::ROTATE:
-        //snap = fnd::math::float3(0.1f);
-        ImGui::InputFloat(" " ICON_FA_TH "  Snap", &snap.x);
-        break;
-    case ImGuizmo::SCALE:
-        //snap = fnd::math::float3(0.1f);
-        ImGui::InputFloat(" " ICON_FA_TH "  Snap", &snap.x);
-        break;
-    }
-    ImGuiIO& io = ImGui::GetIO();
-    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-    ImGuizmo::Manipulate(camera, projection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap.x : NULL);
-}
 
 #pragma warning(push, 0)    // lots of warnings in here  
 #define PAR_SHAPES_IMPLEMENTATION
@@ -1839,7 +1777,7 @@ int win32_main(int argc, char* argv[])
     core::api_registry::Add(apiRegistry, ENTITY_SYSTEM_API_NAME, &entitySystem);
 
 
-    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*);
+    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*, float*, float*);
     void*(*InitializeModule)(memory::MemoryArenaBase*, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiInterface);
 
     char tempPath[512] = "";
@@ -1951,57 +1889,13 @@ int win32_main(int argc, char* argv[])
             if (msg.message == WM_QUIT) { exitFlag = true; }
 
             ImGui_ImplDX11_NewFrame();
-            ImGuizmo::BeginFrame();
 
             if (UpdateModule) {
-                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld);
+                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld, camera, proj);
             }
 
-            if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer")) {
-
-                if (ImGui::Button("Create New")) {
-                    selectedEntity = entity_system::CreateEntity(mainWorld);
-                }
-                if (selectedEntity.id != 0) {
-                    ImGui::SameLine();
-                    if (ImGui::Button("Delete")) {
-                        entity_system::DestroyEntity(mainWorld, selectedEntity);
-                        for (int i = 0; i < numEntities; ++i) {
-                            if (selectedEntity.id == entityList[i].id) {
-                                if (i > 0) {
-                                    selectedEntity = entityList[i - 1];
-                                }
-                                else {
-                                    selectedEntity = { entity_system::INVALID_ID };
-                                }
-                            }
-                        }
-                    }
-                }
-
-                entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
-
-
-                for(size_t i = 0; i < numEntities; ++i) {
-                    entity_system::Entity entity = entityList[i];
-                    const char* name = entity_system::GetEntityNameBuf(mainWorld, entity);
-                    ImGui::PushID(entity.id);
-                    if (ImGui::Selectable(name, selectedEntity.id == entity.id)) {
-                        selectedEntity = entity;
-                    }
-                    if(ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(MOUSE_LEFT)) {
-                        camPos = util::Get4x4FloatMatrixColumnCM(entity_system::GetEntityTransform(mainWorld, selectedEntity), 3).xyz;
-                    }
-                    ImGui::SameLine();
-                    ImGui::Text("(id = %i)", entity.id);
-                    ImGui::PopID();
-                }
-
-            }
-            else {
-                // @NOTE we duplicate this here to not introduce one frame of potential stale handles
-                entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
-            }ImGui::End();
+          
+            entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
 
 
 #ifdef GT_DEVELOPMENT
@@ -2072,28 +1966,7 @@ int win32_main(int argc, char* argv[])
                 ImGui::SliderFloat("Sun Intensity", &lightDir.w, 0.0f, 500.0f);
             } ImGui::End();
 
-            ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
-                if (selectedEntity.id != 0) {
-                    
-                    if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
-                        if (ImGui::InputText(" " ICON_FA_TAG " Name", entity_system::GetEntityNameBuf(mainWorld, selectedEntity), ENTITY_NAME_SIZE, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            entity_system::SetEntityName(mainWorld, selectedEntity, entity_system::GetEntityNameBuf(mainWorld, selectedEntity));
-                        }
-                        ImGui::TreePop();
-                    }
-                    if (ImGui::TreeNode(ICON_FA_LOCATION_ARROW "    Transform")) {
-                        EditTransform(camera, proj, GetEntityTransform(mainWorld, selectedEntity));
-                        ImGui::TreePop();
-                    }
-                    if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
-                        //ImGui::SliderFloat("Metallic", &object.metallic, 0.0f, 1.0f);
-                        //ImGui::SliderFloat("Roughness", &object.roughness, 0.0f, 1.0f);
-
-                        ImGui::TreePop();
-                    }
-                }
-                
-            } ImGui::End();
+            
 
             paint = false;
             if (ImGui::Begin(ICON_FA_PAINT_BRUSH "    Painting")) {
