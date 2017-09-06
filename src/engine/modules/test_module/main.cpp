@@ -198,6 +198,8 @@ bool IsEntityInList(EntityNodeList* list, entity_system::Entity ent, EntityNode*
     return false;
 }
 
+
+
 #define ENTITY_NODE_POOL_SIZE 512
 struct State {
     core::api_registry::APIRegistry* apiRegistry = nullptr;
@@ -205,6 +207,8 @@ struct State {
 
     EntityNodeList entitySelection;
     entity_system::Entity lastSelected;
+
+    //EntityNodeGroup entityGroups;
 
     EntityNode entityNodePool[ENTITY_NODE_POOL_SIZE];
 
@@ -256,6 +260,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
             selectionNode->ent = ent;
             AddToList(&state->entitySelection, selectionNode);
+            state->lastSelected = ent;
         }
         
         entitySystem->GetAllEntities(world, entityList, &numEntities);
@@ -353,7 +358,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     AddToList(&state->entitySelection, selectionNode);
                 }
 
-                if (!ImGui::GetIO().KeyCtrl) {
+                if (IsEntityInList(&state->entitySelection, entity)) {
                     state->lastSelected = entity;
                 }
             }
