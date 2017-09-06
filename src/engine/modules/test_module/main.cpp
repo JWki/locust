@@ -106,16 +106,114 @@ public:
 typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, PrintfWriter> ConsoleLogger;
 
 
+struct EntityNode
+{
+    EntityNode* next = nullptr;
+    EntityNode* prev = nullptr;
+    entity_system::Entity ent;
+
+    bool isFree = true;
+};
+
+EntityNode* AllocateEntityNode(EntityNode* pool, size_t poolSize)
+{
+    for (size_t i = 0; i < poolSize; ++i) {
+        if (pool[i].isFree) {
+            pool[i].isFree = false;
+            pool[i].ent = { entity_system::INVALID_ID };
+            return &pool[i];
+        }
+    }
+    return nullptr;
+}
+
+struct EntityNodeList
+{
+    EntityNode* head = nullptr;
+};
+
+void FreeEntityNode(EntityNode* node)
+{
+    node->isFree = true;
+    node->ent = { entity_system::INVALID_ID };
+    node->next = node->prev = nullptr;
+}
+
+void ClearList(EntityNodeList* list)
+{
+    EntityNode* it = list->head;
+    while (it != nullptr) {
+        EntityNode* node = it;
+        it = it->next;
+        FreeEntityNode(node);
+    }
+}
+
+void AddToList(EntityNodeList* list, EntityNode* node)
+{
+    if (node == nullptr) { return; }
+    EntityNode* it = list->head;
+    if (it == nullptr) {
+        list->head = node;
+        node->prev = nullptr;
+        node->next = nullptr;
+        return;
+    }
+    while (it->next != nullptr) {
+        if (it->ent.id == node->ent.id || node == it) {
+            assert(false);
+        }
+        it = it->next;
+    }
+    it->next = node;
+    node->prev = it;
+    node->next = nullptr;
+}
+
+void RemoveFromList(EntityNodeList* list, EntityNode* node)
+{
+    if (node == nullptr) { return; }
+    if (node->next != nullptr) {
+        node->next->prev = node->prev;
+    }
+    if (node->prev != nullptr) {
+        node->prev->next = node->next;
+    }
+    if (node == list->head) { list->head = node->next; }
+    node->prev = node->next = nullptr;
+}
+
+bool IsEntityInList(EntityNodeList* list, entity_system::Entity ent, EntityNode** outNode = nullptr)
+{
+    EntityNode* it = list->head;
+    while (it != nullptr) {
+        if (it->ent.id == ent.id) { 
+            if (outNode != nullptr) {
+                *outNode = it;
+            }
+            return true; 
+        }
+        it = it->next;
+    }
+    return false;
+}
+
+#define ENTITY_NODE_POOL_SIZE 512
 struct State {
     core::api_registry::APIRegistry* apiRegistry = nullptr;
     core::api_registry::APIRegistryInterface* apiRegistryInterface = nullptr;
 
-    entity_system::Entity selectedEntity;
+    EntityNodeList entitySelection;
+    entity_system::Entity lastSelected;
+
+    EntityNode entityNodePool[ENTITY_NODE_POOL_SIZE];
 
     char padding[1024 * 1024 - 
         ((  sizeof(core::api_registry::APIRegistry*) +
             sizeof(core::api_registry::APIRegistryInterface*) +
-            sizeof(entity_system::Entity)))];
+            sizeof(EntityNodeList) +
+            sizeof(entity_system::Entity) * 2 +     // @NOTE because padding between member fields (members are padded to 64 bit in this struct)
+            sizeof(EntityNode) * ENTITY_NODE_POOL_SIZE))];
 };
 static_assert(sizeof(State) == 1024 * 1024, "");
 
@@ -151,32 +249,26 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         /* Add / delete of entities */
         
         if (ImGui::Button(ICON_FA_USER_PLUS "  Create New")) {
-            state->selectedEntity = entitySystem->CreateEntity(world);
+            entity_system::Entity ent = entitySystem->CreateEntity(world);
+            if (!ImGui::GetIO().KeyCtrl) {
+                ClearList(&state->entitySelection);
+            }
+            EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+            selectionNode->ent = ent;
+            AddToList(&state->entitySelection, selectionNode);
         }
         
         entitySystem->GetAllEntities(world, entityList, &numEntities);
 
-        if (entitySystem->IsEntityAlive(world, state->selectedEntity)) {
+        if (state->entitySelection.head != nullptr && entitySystem->IsEntityAlive(world, state->entitySelection.head->ent)) {
             ImGui::SameLine();
             if (ImGui::Button(ICON_FA_USER_TIMES "  Delete")) {
-                entitySystem->DestroyEntity(world, state->selectedEntity);
-                int index = -1;
-                for (int i = 0; i < numEntities; ++i) {
-                    if (entityList[i].id == state->selectedEntity.id) {
-                        index = i;
-                    }
+                EntityNode* it = state->entitySelection.head;
+                while (it) {
+                    entitySystem->DestroyEntity(world, it->ent);
+                    it = it->next;
                 }
-                if (index > 0) {
-                    state->selectedEntity = entityList[index - 1];
-                }
-                else {
-                    if (numEntities > 1) {
-                        state->selectedEntity = entityList[1];
-                    }
-                    else {
-                        state->selectedEntity = { entity_system::INVALID_ID };
-                    }
-                }
+                ClearList(&state->entitySelection);
             }
         }
 
@@ -195,8 +287,78 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             entity_system::Entity entity = entityList[i];
             const char* name = entitySystem->GetEntityName(world, entity);
             ImGui::PushID(entity.id);
-            if (ImGui::Selectable(name, state->selectedEntity.id == entity.id)) {
-                state->selectedEntity = entity;
+            
+            auto GetIndex = [](entity_system::Entity entity, entity_system::Entity* entities, size_t numEntities) -> int {
+                int index = -1;
+                for (size_t i = 0; i < numEntities; ++i) {
+                    if (entity.id == entities[i].id) {
+                        index = (int)i;
+                        break;
+                    }
+                }
+                return index;
+            };
+
+            int lastSelectedIndex = GetIndex(state->lastSelected, entityList, numEntities);
+            ImGui::PushStyleColor(ImGuiCol_Header, lastSelectedIndex == (int)i ? ImVec4(0.2f, 0.4f, 1.0f, 1.0f) : ImGui::GetStyle().Colors[ImGuiCol_Header]);
+            if (ImGui::Selectable(name, IsEntityInList(&state->entitySelection, entity))) {
+                ImGui::PopStyleColor();
+
+                if (ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl) {  // multiselection
+                    if(ImGui::GetIO().KeyShift) {
+                        
+                        int clickedIndex = (int)i;
+                        if (clickedIndex > lastSelectedIndex) {
+                            for (int i = lastSelectedIndex; i <= clickedIndex; ++i) {
+                                if (!IsEntityInList(&state->entitySelection, entityList[i])) {
+                                    EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                                    selectionNode->ent = entityList[i];
+                                    AddToList(&state->entitySelection, selectionNode);
+                                }
+                            }
+                        }
+                        else {
+                            if (clickedIndex < lastSelectedIndex) {
+                                for (int i = lastSelectedIndex; i >= clickedIndex; --i) {
+                                    if (!IsEntityInList(&state->entitySelection, entityList[i])) {
+                                        EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                                        selectionNode->ent = entityList[i];
+                                        AddToList(&state->entitySelection, selectionNode);
+                                    }
+                                }
+                            }
+                            else {
+                                // @TODO what to do in this case?
+                                GT_LOG_WARNING("Editor", "Meh.");
+                            }
+                        }
+                    }
+                    else {
+                        EntityNode* node = nullptr;
+                        if (!IsEntityInList(&state->entitySelection, entity, &node)) {  // ADD
+                            EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                            selectionNode->ent = entity;
+                            AddToList(&state->entitySelection, selectionNode);
+                        }
+                        else {  // REMOVE
+                            RemoveFromList(&state->entitySelection, node);
+                            FreeEntityNode(node);
+                        }
+                    }
+                }
+                else {  // SET selection
+                    ClearList(&state->entitySelection);
+                    EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                    selectionNode->ent = entity;
+                    AddToList(&state->entitySelection, selectionNode);
+                }
+
+                if (!ImGui::GetIO().KeyCtrl) {
+                    state->lastSelected = entity;
+                }
+            }
+            else {
+                ImGui::PopStyleColor();
             }
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
                 //camPos = util::Get4x4FloatMatrixColumnCM(entity_system::GetEntityTransform(world, state->selectedEntity), 3).xyz;
@@ -206,23 +368,52 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             ImGui::PopID();
         }
         if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(0)) {
-            state->selectedEntity = { entity_system::INVALID_ID };
+            ClearList(&state->entitySelection);
         }
         ImGui::EndChild();
 
     } ImGui::End();
 
     ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
-        if (state->selectedEntity.id != 0) {
+        static entity_system::Entity selectedEntity = { entity_system::INVALID_ID };
+        if (!IsEntityInList(&state->entitySelection, selectedEntity)) {
+            selectedEntity = { entity_system::INVALID_ID };
+        }
+        EntityNode* it = state->entitySelection.head;
+        if (selectedEntity.id == entity_system::INVALID_ID && it != nullptr) {
+            selectedEntity = it->ent;
+        }
+        while (it != nullptr && it->ent.id != 0) {
 
+            ImGuiWindowFlags flags = ImGuiWindowFlags_HorizontalScrollbar;
+
+            ImVec2 contentRegion = ImGui::GetContentRegionAvail();
+
+            ImGui::BeginChild("##tabs", ImVec2(contentRegion.x, 50), false, flags);
+            ImGui::PushID(it->ent.id);
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, selectedEntity.id != it->ent.id ? ImGui::GetStyle().Alpha * 0.4f : ImGui::GetStyle().Alpha);
+            if (ImGui::Button(entitySystem->GetEntityName(world, it->ent))) {
+                selectedEntity = it->ent;
+            }
+            ImGui::PopStyleVar();
+            ImGui::SameLine();
+            ImGui::PopID();
+            ImGui::EndChild();
+
+            it = it->next;
+        }
+
+        ImVec2 contentRegion = ImGui::GetContentRegionAvail();
+        ImGui::BeginChild("##properties", contentRegion);
+        if (selectedEntity.id != entity_system::INVALID_ID) {
             if (ImGui::TreeNode(ICON_FA_PENCIL "    Object")) {
-                if (ImGui::InputText(" " ICON_FA_TAG " Name", entitySystem->GetEntityName(world, state->selectedEntity), ENTITY_NAME_SIZE, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                    entitySystem->SetEntityName(world, state->selectedEntity, entitySystem->GetEntityName(world, state->selectedEntity));
+                if (ImGui::InputText(" " ICON_FA_TAG " Name", entitySystem->GetEntityName(world, selectedEntity), ENTITY_NAME_SIZE, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    //entitySystem->SetEntityName(world, selectedEntity, entitySystem->GetEntityName(world, selectedEntity));
                 }
                 ImGui::TreePop();
             }
             if (ImGui::TreeNode(ICON_FA_LOCATION_ARROW "    Transform")) {
-                EditTransform(camera, projection, entitySystem->GetEntityTransform(world, state->selectedEntity));
+                EditTransform(camera, projection, entitySystem->GetEntityTransform(world, selectedEntity));
                 ImGui::TreePop();
             }
             if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
@@ -232,7 +423,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::TreePop();
             }
         }
-
+        ImGui::EndChild();
     } ImGui::End();
 
     return;

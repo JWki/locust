@@ -1758,7 +1758,6 @@ int win32_main(int argc, char* argv[])
     }
 
     entity_system::Entity* entityList = GT_NEW_ARRAY(entity_system::Entity, worldConfig.maxNumEntities, &applicationArena);
-    entity_system::Entity selectedEntity;
 
     math::float4 lightDir(1.0f, -1.0f, 0.0f, 15.0f);
     math::float4 color(1.0f, 1.0f, 1.0f, 1.0f);
@@ -2196,7 +2195,7 @@ int win32_main(int argc, char* argv[])
             float steps = 0.0f;
             while (steps < 1.0f) {
                 if (paint) {
-                    void* cBufferMem = gfx::MapBuffer(gfxDevice, cPaintBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+                   /* void* cBufferMem = gfx::MapBuffer(gfxDevice, cPaintBuffer, gfx::MapType::MAP_WRITE_DISCARD);
                     if (cBufferMem != nullptr) {
                         PaintConstantData* data = (PaintConstantData*)cBufferMem;
                         data->cursorPos = mousePosScreen.xy * steps + mousePosScreenCache.xy * (1.0f - steps);
@@ -2208,7 +2207,7 @@ int win32_main(int argc, char* argv[])
                         data->brushSize = brushSize;
                         gfx::UnmapBuffer(gfxDevice, cPaintBuffer);
                     }
-
+                    */
                     gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
                     gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubePaintDrawCall);
                     gfx::EndRenderPass(gfxDevice, cmdBuffer);
