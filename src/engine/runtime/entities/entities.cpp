@@ -166,6 +166,19 @@ namespace entity_system
         world->entities.Free(entity.id);
     }
 
+    Entity CopyEntity(World* world, Entity entity)
+    {
+        Entity newEnt = CreateEntity(world);
+        if (newEnt.id != INVALID_ID) {
+            EntityData* from = world->entities.Get(entity.id);
+            EntityData* to = world->entities.Get(newEnt.id);
+            assert(from); 
+            assert(to);
+            memcpy(to, from, sizeof(EntityData));
+        }
+        return newEnt;
+    }
+
     bool IsEntityAlive(World* world, Entity entity)
     {
         EntityData* data = world->entities.Get(entity.id);
@@ -195,6 +208,7 @@ bool entity_system_get_interface(entity_system::EntitySystemInterface* interface
     interface->DestroyWorld = &entity_system::DestroyWorld;
     interface->CreateEntity = &entity_system::CreateEntity;
     interface->DestroyEntity = &entity_system::DestroyEntity;
+    interface->CopyEntity = &entity_system::CopyEntity;
     interface->IsEntityAlive = &entity_system::IsEntityAlive;
     interface->SetEntityName = &entity_system::SetEntityName;
     interface->GetEntityName = &entity_system::GetEntityNameBuf;

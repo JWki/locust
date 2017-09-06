@@ -32,6 +32,8 @@ namespace entity_system
     void DestroyEntity(World* world, Entity entity);
     bool IsEntityAlive(World* world, Entity entity);
 
+    Entity CopyEntity(World* world, Entity entity);
+
     void SetEntityName(World* world, Entity entity, const char* name);
     char* GetEntityNameBuf(World* world, Entity entity);
 
@@ -45,6 +47,7 @@ namespace entity_system
         void(*DestroyWorld)(World*) = nullptr;
         Entity(*CreateEntity)(World*) = nullptr;
         void(*DestroyEntity)(World*, Entity) = nullptr;
+        Entity(*CopyEntity)(World*, Entity) = nullptr;
         bool(*IsEntityAlive)(World*, Entity) = nullptr;
         void(*SetEntityName)(World*, Entity, const char*) = nullptr;
         char*(*GetEntityName)(World*, Entity) = nullptr;

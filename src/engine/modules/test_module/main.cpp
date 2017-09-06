@@ -147,6 +147,7 @@ void ClearList(EntityNodeList* list)
         it = it->next;
         FreeEntityNode(node);
     }
+    list->head = nullptr;
 }
 
 void AddToList(EntityNodeList* list, EntityNode* node)
@@ -275,6 +276,26 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 }
                 ClearList(&state->entitySelection);
             }
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_FA_USERS "  Copy")) {
+                EntityNode* it = state->entitySelection.head;
+                EntityNodeList copies;
+                while (it) {
+                    auto newEntity = entitySystem->CopyEntity(world, it->ent);
+                    EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                    selectionNode->ent = newEntity;
+                    AddToList(&copies, selectionNode);
+                    state->lastSelected = newEntity;
+                    it = it->next;
+                }
+                ClearList(&state->entitySelection);
+                it = copies.head;
+                while (it) {
+                    auto next = it->next;
+                    AddToList(&state->entitySelection, it);
+                    it = next;
+                }
+            }
         }
 
         /* List of alive entities */
@@ -311,24 +332,35 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                 if (ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl) {  // multiselection
                     if(ImGui::GetIO().KeyShift) {
-                        
+                        EntityNode* node = nullptr;
+
                         int clickedIndex = (int)i;
                         if (clickedIndex > lastSelectedIndex) {
                             for (int i = lastSelectedIndex; i <= clickedIndex; ++i) {
-                                if (!IsEntityInList(&state->entitySelection, entityList[i])) {
+                                if (!IsEntityInList(&state->entitySelection, entityList[i], &node) && !ImGui::GetIO().KeyCtrl) {
                                     EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
                                     selectionNode->ent = entityList[i];
                                     AddToList(&state->entitySelection, selectionNode);
+                                }
+                                else {
+                                    if (ImGui::GetIO().KeyCtrl) {
+                                        RemoveFromList(&state->entitySelection, node);
+                                    }
                                 }
                             }
                         }
                         else {
                             if (clickedIndex < lastSelectedIndex) {
                                 for (int i = lastSelectedIndex; i >= clickedIndex; --i) {
-                                    if (!IsEntityInList(&state->entitySelection, entityList[i])) {
+                                    if (!IsEntityInList(&state->entitySelection, entityList[i], &node) && !ImGui::GetIO().KeyCtrl) {
                                         EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
                                         selectionNode->ent = entityList[i];
                                         AddToList(&state->entitySelection, selectionNode);
+                                    }
+                                    else {
+                                        if (ImGui::GetIO().KeyCtrl) {
+                                            RemoveFromList(&state->entitySelection, node);
+                                        }
                                     }
                                 }
                             }
@@ -388,6 +420,9 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         if (selectedEntity.id == entity_system::INVALID_ID && it != nullptr) {
             selectedEntity = it->ent;
         }
+
+        math::float3 meanPosition;
+        int numPositions = 0;
         while (it != nullptr && it->ent.id != 0) {
 
             ImGuiWindowFlags flags = ImGuiWindowFlags_HorizontalScrollbar;
@@ -405,8 +440,21 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             ImGui::PopID();
             ImGui::EndChild();
 
+            float* transform = entitySystem->GetEntityTransform(world, it->ent);
+            math::float3 position = util::Get4x4FloatMatrixColumnCM(transform, 3).xyz;
+
+            meanPosition += position;
+            numPositions++;
+
             it = it->next;
         }
+
+        // @NOTE avoid divide by zero
+        if (numPositions == 0) { numPositions = 1; }
+        meanPosition /= (float)numPositions;
+        float groupTransform[16];
+        util::Make4x4FloatMatrixIdentity(groupTransform);
+        util::Set4x4FloatMatrixColumnCM(groupTransform, 3, math::float4(meanPosition, 1.0f));
 
         ImVec2 contentRegion = ImGui::GetContentRegionAvail();
         ImGui::BeginChild("##properties", contentRegion);
@@ -418,7 +466,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::TreePop();
             }
             if (ImGui::TreeNode(ICON_FA_LOCATION_ARROW "    Transform")) {
-                EditTransform(camera, projection, entitySystem->GetEntityTransform(world, selectedEntity));
+                EditTransform(camera, projection, groupTransform);
                 ImGui::TreePop();
             }
             if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
@@ -429,6 +477,18 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             }
         }
         ImGui::EndChild();
+
+        math::float3 newPosition = util::Get4x4FloatMatrixColumnCM(groupTransform, 3).xyz;
+        auto posDifference = newPosition - meanPosition;
+
+        it = state->entitySelection.head;
+        while (it) {
+            math::float3 pos = util::Get4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, it->ent), 3).xyz;
+            math::float3 newPos = pos + posDifference;
+            util::Set4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, it->ent), 3, math::float4(newPos, 1.0f));
+            it = it->next;
+        }
+
     } ImGui::End();
 
     return;
