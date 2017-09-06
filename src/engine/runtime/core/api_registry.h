@@ -36,3 +36,4 @@ void api_registry_get_interface(core::api_registry::APIRegistryInterface* outInt
 
 #define SIM_UPDATE_API_NAME "sim_update"
 #define RENDER_UPDATE_API_NAME "render_update"
+

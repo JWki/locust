@@ -1015,7 +1015,7 @@ int win32_main(int argc, char* argv[])
     
     MeshAsset cubeAsset;
 
-#define MODEL_FILE_PATH "../../Cerberus_LP.fbx"
+#define MODEL_FILE_PATH "../../test.fbx"
 
     {
         size_t modelFileSize = 0;

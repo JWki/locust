@@ -213,11 +213,15 @@ struct State {
 
     EntityNode entityNodePool[ENTITY_NODE_POOL_SIZE];
 
+    bool isEditing = false;
+    
+
     char padding[1024 * 1024 - 
         ((  sizeof(core::api_registry::APIRegistry*) +
             sizeof(core::api_registry::APIRegistryInterface*) +
             sizeof(EntityNodeList) +
             sizeof(entity_system::Entity) * 2 +     // @NOTE because padding between member fields (members are padded to 64 bit in this struct)
+            sizeof(bool) * 2 +
             sizeof(EntityNode) * ENTITY_NODE_POOL_SIZE))];
 };
 static_assert(sizeof(State) == 1024 * 1024, "");
@@ -246,9 +250,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     
     ImGuizmo::BeginFrame();
 
+
+
     ImGuiWindowFlags windowFlags = 0;
     if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer", nullptr, windowFlags)) {
-        entity_system::Entity entityList[64];
+        entity_system::Entity entityList[512];
         size_t numEntities = 0;
 
         /* Add / delete of entities */
@@ -422,6 +428,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         }
 
         math::float3 meanPosition;
+        math::float3 meanRotation;
+        math::float3 meanScale;
         int numPositions = 0;
         while (it != nullptr && it->ent.id != 0) {
 
@@ -444,6 +452,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             math::float3 position = util::Get4x4FloatMatrixColumnCM(transform, 3).xyz;
 
             meanPosition += position;
+
             numPositions++;
 
             it = it->next;
@@ -452,9 +461,15 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         // @NOTE avoid divide by zero
         if (numPositions == 0) { numPositions = 1; }
         meanPosition /= (float)numPositions;
+        meanRotation /= (float)numPositions;
+        meanScale /= (float)numPositions;
+
         float groupTransform[16];
         util::Make4x4FloatMatrixIdentity(groupTransform);
         util::Set4x4FloatMatrixColumnCM(groupTransform, 3, math::float4(meanPosition, 1.0f));
+        //ImGuizmo::RecomposeMatrixFromComponents((float*)meanPosition, (float*)meanRotation, (float*)meanScale, groupTransform);
+
+        ImGui::Text("Editing %s", state->isEditing ? ICON_FA_CHECK : ICON_FA_TIMES);
 
         ImVec2 contentRegion = ImGui::GetContentRegionAvail();
         ImGui::BeginChild("##properties", contentRegion);
@@ -479,13 +494,27 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         ImGui::EndChild();
 
         math::float3 newPosition = util::Get4x4FloatMatrixColumnCM(groupTransform, 3).xyz;
+
         auto posDifference = newPosition - meanPosition;
+
+        if (math::Length(posDifference) > 0.001f) {
+            if (!state->isEditing) {
+                state->isEditing = true;
+                
+            }
+        }
+        else {
+            if (state->isEditing) {
+                state->isEditing = false;
+            }
+        }
 
         it = state->entitySelection.head;
         while (it) {
             math::float3 pos = util::Get4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, it->ent), 3).xyz;
             math::float3 newPos = pos + posDifference;
             util::Set4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, it->ent), 3, math::float4(newPos, 1.0f));
+
             it = it->next;
         }
 
