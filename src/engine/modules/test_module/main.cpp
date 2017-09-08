@@ -466,6 +466,9 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
         float groupTransform[16];
         util::Make4x4FloatMatrixIdentity(groupTransform);
+        if (selectedEntity.id != entity_system::INVALID_ID) {
+            util::Copy4x4FloatMatrixCM(entitySystem->GetEntityTransform(world, selectedEntity), groupTransform);
+        }
         util::Set4x4FloatMatrixColumnCM(groupTransform, 3, math::float4(meanPosition, 1.0f));
         //ImGuizmo::RecomposeMatrixFromComponents((float*)meanPosition, (float*)meanRotation, (float*)meanScale, groupTransform);
 
@@ -509,9 +512,15 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             }
         }
 
+
         it = state->entitySelection.head;
         while (it) {
             math::float3 pos = util::Get4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, it->ent), 3).xyz;
+
+            if (it->ent.id == selectedEntity.id) {
+                util::Copy4x4FloatMatrixCM(groupTransform, entitySystem->GetEntityTransform(world, selectedEntity));
+            }
+
             math::float3 newPos = pos + posDifference;
             util::Set4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, it->ent), 3, math::float4(newPos, 1.0f));
 

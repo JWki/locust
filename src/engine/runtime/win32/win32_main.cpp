@@ -937,6 +937,19 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
     }
 
+
+    size_t vCubemapShaderCodeSize = 0;
+    char* vCubemapShaderCode = static_cast<char*>(LoadFileContents("CubemapVertexShader.cso", &applicationArena, &vCubemapShaderCodeSize));
+    if (!vCubemapShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
+    }
+
+    size_t pCubemapShaderCodeSize = 0;
+    char* pCubemapShaderCode = static_cast<char*>(LoadFileContents("CubemapPixelShader.cso", &applicationArena, &pCubemapShaderCodeSize));
+    if (!pCubemapShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
+    }
+
     //
  
     gfx::Interface* gfxInterface = nullptr;
@@ -1001,6 +1014,13 @@ int win32_main(int argc, char* argv[])
     
 
     //
+    auto cubeMesh = par_shapes_create_cube();
+    par_shapes_translate(cubeMesh, -0.5f, -0.5f, -0.5f);
+    float* cubePositions = cubeMesh->points;
+    size_t numCubeVertices = cubeMesh->npoints;
+    uint16_t* cubeIndices = cubeMesh->triangles;
+    size_t numCubeIndices = 3 * cubeMesh->ntriangles;
+
 
     HMODULE fbxImporter = LoadLibraryA("fbx_importer.dll");
     if (!fbxImporter) {
@@ -1010,10 +1030,8 @@ int win32_main(int argc, char* argv[])
     if (!FBXImportAsset) {
         GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXImportAsset", "fbx_importer.dll");
     }
-    auto cubeMesh = par_shapes_create_torus(35, 35, 0.5f);
-    //par_shapes_translate(cubeMesh, 0.5f, 0.5f, 0.5f);
-    
-    MeshAsset cubeAsset;
+
+    MeshAsset meshAsset;
 
 #define MODEL_FILE_PATH "../../test.fbx"
 
@@ -1022,7 +1040,7 @@ int win32_main(int argc, char* argv[])
         void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
         if (modelFileData && modelFileSize > 0) {
             GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
-            bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, &cubeAsset);
+            bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, &meshAsset);
             if (!res) {
                 GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
             }
@@ -1230,65 +1248,85 @@ int win32_main(int argc, char* argv[])
         }
     }
 
-    gfx::BufferDesc cubeVertexBufferDesc;
-    cubeVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    cubeVertexBufferDesc.byteWidth = sizeof(math::float3) * cubeAsset.numVertices;
-    cubeVertexBufferDesc.initialData = cubeAsset.vertexPositions;
-    cubeVertexBufferDesc.initialDataSize = cubeVertexBufferDesc.byteWidth;
-    gfx::Buffer cubeVertexBuffer = gfx::CreateBuffer(gfxDevice, &cubeVertexBufferDesc);
-    if (!GFX_CHECK_RESOURCE(cubeVertexBuffer)) {
+    gfx::BufferDesc meshVertexBufferDesc;
+    meshVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    meshVertexBufferDesc.byteWidth = sizeof(math::float3) * meshAsset.numVertices;
+    meshVertexBufferDesc.initialData = meshAsset.vertexPositions;
+    meshVertexBufferDesc.initialDataSize = meshVertexBufferDesc.byteWidth;
+    gfx::Buffer meshVertexBuffer = gfx::CreateBuffer(gfxDevice, &meshVertexBufferDesc);
+    if (!GFX_CHECK_RESOURCE(meshVertexBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create cube vertex buffer");
     }
 
-    gfx::BufferDesc cubeNormalBufferDesc;
-    cubeNormalBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    cubeNormalBufferDesc.byteWidth = sizeof(math::float3) * cubeAsset.numVertices;
-    cubeNormalBufferDesc.initialData = cubeAsset.vertexNormals;
-    cubeNormalBufferDesc.initialDataSize = cubeNormalBufferDesc.byteWidth;
-    gfx::Buffer cubeNormalBuffer = gfx::CreateBuffer(gfxDevice, &cubeNormalBufferDesc);
-    if (!GFX_CHECK_RESOURCE(cubeNormalBuffer)) {
+    gfx::BufferDesc meshNormalBufferDesc;
+    meshNormalBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    meshNormalBufferDesc.byteWidth = sizeof(math::float3) * meshAsset.numVertices;
+    meshNormalBufferDesc.initialData = meshAsset.vertexNormals;
+    meshNormalBufferDesc.initialDataSize = meshNormalBufferDesc.byteWidth;
+    gfx::Buffer meshNormalBuffer = gfx::CreateBuffer(gfxDevice, &meshNormalBufferDesc);
+    if (!GFX_CHECK_RESOURCE(meshNormalBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create cube normal buffer");
     }
 
-    gfx::Buffer cubeTangentBuffer;
-    if (cubeAsset.vertexTangents != nullptr) {
-        gfx::BufferDesc cubeTangentBufferDesc;
-        cubeTangentBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-        cubeTangentBufferDesc.byteWidth = sizeof(math::float3) * cubeAsset.numVertices;
-        cubeTangentBufferDesc.initialData = cubeAsset.vertexTangents;
-        cubeTangentBufferDesc.initialDataSize = cubeTangentBufferDesc.byteWidth;
-        cubeTangentBuffer = gfx::CreateBuffer(gfxDevice, &cubeTangentBufferDesc);
-        if (!GFX_CHECK_RESOURCE(cubeTangentBuffer)) {
+    gfx::Buffer meshTangentBuffer;
+    if (meshAsset.vertexTangents != nullptr) {
+        gfx::BufferDesc meshTangentBufferDesc;
+        meshTangentBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+        meshTangentBufferDesc.byteWidth = sizeof(math::float3) * meshAsset.numVertices;
+        meshTangentBufferDesc.initialData = meshAsset.vertexTangents;
+        meshTangentBufferDesc.initialDataSize = meshTangentBufferDesc.byteWidth;
+        meshTangentBuffer = gfx::CreateBuffer(gfxDevice, &meshTangentBufferDesc);
+        if (!GFX_CHECK_RESOURCE(meshTangentBuffer)) {
             GT_LOG_ERROR("Renderer", "Failed to create cube Tangent buffer");
         }
     }
 
-    gfx::BufferDesc cubeUVBufferDesc;
-    cubeUVBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    cubeUVBufferDesc.byteWidth = sizeof(math::float2) * cubeAsset.numVertices;
-    cubeUVBufferDesc.initialData = cubeAsset.vertexUVs;
-    cubeUVBufferDesc.initialDataSize = cubeUVBufferDesc.byteWidth;
-    gfx::Buffer cubeUVBuffer = gfx::CreateBuffer(gfxDevice, &cubeUVBufferDesc);
-    if (!GFX_CHECK_RESOURCE(cubeUVBuffer)) {
+    gfx::BufferDesc meshUVBufferDesc;
+    meshUVBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    meshUVBufferDesc.byteWidth = sizeof(math::float2) * meshAsset.numVertices;
+    meshUVBufferDesc.initialData = meshAsset.vertexUVs;
+    meshUVBufferDesc.initialDataSize = meshUVBufferDesc.byteWidth;
+    gfx::Buffer meshUVBuffer = gfx::CreateBuffer(gfxDevice, &meshUVBufferDesc);
+    if (!GFX_CHECK_RESOURCE(meshUVBuffer)) {
         GT_LOG_ERROR("Renderer", "Failed to create cube uv buffer");
+    }
+
+    gfx::BufferDesc meshIndexBufferDesc;
+    meshIndexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
+    size_t indexByteWidth = 0;
+    if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
+        meshIndexBufferDesc.initialData = meshAsset.indices.as_uint16;
+        indexByteWidth = sizeof(uint16_t);
+    }
+    else {
+        meshIndexBufferDesc.initialData = meshAsset.indices.as_uint32;
+        indexByteWidth = sizeof(uint32_t);
+    }
+    meshIndexBufferDesc.byteWidth = indexByteWidth * meshAsset.numIndices;
+    meshIndexBufferDesc.initialDataSize = meshIndexBufferDesc.byteWidth;
+    gfx::Buffer meshIndexBuffer = gfx::CreateBuffer(gfxDevice, &meshIndexBufferDesc);
+    if (!GFX_CHECK_RESOURCE(meshIndexBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create cube index buffer");
+    }
+
+    gfx::BufferDesc cubeVertexBufferDesc;
+    cubeVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
+    cubeVertexBufferDesc.byteWidth = sizeof(float) * 3 * numCubeVertices;
+    cubeVertexBufferDesc.initialData = cubePositions;
+    cubeVertexBufferDesc.initialDataSize = cubeVertexBufferDesc.byteWidth;
+    gfx::Buffer cubeVertexBuffer = gfx::CreateBuffer(gfxDevice, &cubeVertexBufferDesc);
+    if (!GFX_CHECK_RESOURCE(cubeVertexBuffer)) {
+        GT_LOG_ERROR("Renderer", "Failed to create cubemap vertex buffer");
     }
 
     gfx::BufferDesc cubeIndexBufferDesc;
     cubeIndexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
-    size_t indexByteWidth = 0;
-    if (cubeAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
-        cubeIndexBufferDesc.initialData = cubeAsset.indices.as_uint16;
-        indexByteWidth = sizeof(uint16_t);
-    }
-    else {
-        cubeIndexBufferDesc.initialData = cubeAsset.indices.as_uint32;
-        indexByteWidth = sizeof(uint32_t);
-    }
-    cubeIndexBufferDesc.byteWidth = indexByteWidth * cubeAsset.numIndices;
+    cubeIndexBufferDesc.byteWidth = sizeof(uint16_t) * numCubeIndices;
+    cubeIndexBufferDesc.initialData = cubeIndices;
     cubeIndexBufferDesc.initialDataSize = cubeIndexBufferDesc.byteWidth;
     gfx::Buffer cubeIndexBuffer = gfx::CreateBuffer(gfxDevice, &cubeIndexBufferDesc);
     if (!GFX_CHECK_RESOURCE(cubeIndexBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create cube index buffer");
+        GT_LOG_ERROR("Renderer", "Failed to create cubemap Index buffer");
     }
 
     struct PaintConstantData
@@ -1362,6 +1400,15 @@ int win32_main(int argc, char* argv[])
     pPaintShaderDesc.code = pPaintShaderCode;
     pPaintShaderDesc.codeSize = pPaintShaderCodeSize;
 
+    gfx::ShaderDesc vCubemapShaderDesc;
+    vCubemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
+    vCubemapShaderDesc.code = vCubemapShaderCode;
+    vCubemapShaderDesc.codeSize = vCubemapShaderCodeSize;
+    gfx::ShaderDesc pCubemapShaderDesc;
+    pCubemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+    pCubemapShaderDesc.code = pCubemapShaderCode;
+    pCubemapShaderDesc.codeSize = pCubemapShaderCodeSize;
+
     gfx::Shader vCubeShader = gfx::CreateShader(gfxDevice, &vCubeShaderDesc);
     if (!GFX_CHECK_RESOURCE(vCubeShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
@@ -1402,34 +1449,53 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
     }
 
+    gfx::Shader vCubemapShader = gfx::CreateShader(gfxDevice, &vCubemapShaderDesc);
+    if (!GFX_CHECK_RESOURCE(vCubemapShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
+    }
 
-    gfx::PipelineStateDesc cubePipelineStateDesc;
-    cubePipelineStateDesc.blendState.enableBlend = true;
-    cubePipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
-    cubePipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
-    cubePipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+    gfx::Shader pCubemapShader = gfx::CreateShader(gfxDevice, &pCubemapShaderDesc);
+    if (!GFX_CHECK_RESOURCE(pCubemapShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+    }
 
-    //cubePipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
-    //cubePipelineStateDesc.rasterState.cullOrder = gfx::CullOrder::CULL_ORDER_CCLOCKWISE;
-    if (cubeAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
-        cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+    gfx::PipelineStateDesc meshPipelineState;
+    meshPipelineState.blendState.enableBlend = true;
+    meshPipelineState.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+    meshPipelineState.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
+    meshPipelineState.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+    if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
+        meshPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     }
     else {
-        cubePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT32;
+        meshPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT32;
     }
-    cubePipelineStateDesc.vertexShader = vCubeShader;
-    cubePipelineStateDesc.pixelShader = pShader;
-    cubePipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-    cubePipelineStateDesc.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-    cubePipelineStateDesc.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 2, gfx::VertexFormat::VERTEX_FORMAT_FLOAT2 };
-    //if (cubeTangents != nullptr) {
-        cubePipelineStateDesc.vertexLayout.attribs[3] = { "TEXCOORD", 1, 0, 3, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-    //}
+    meshPipelineState.vertexShader = vCubeShader;
+    meshPipelineState.pixelShader = pShader;
+    meshPipelineState.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    meshPipelineState.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+    meshPipelineState.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 2, gfx::VertexFormat::VERTEX_FORMAT_FLOAT2 };
+    meshPipelineState.vertexLayout.attribs[3] = { "TEXCOORD", 1, 0, 3, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
 
-    gfx::PipelineState cubePipeline = gfx::CreatePipelineState(gfxDevice, &cubePipelineStateDesc);
-    if (!GFX_CHECK_RESOURCE(cubePipeline)) {
+    gfx::PipelineState meshPipeline = gfx::CreatePipelineState(gfxDevice, &meshPipelineState);
+    if (!GFX_CHECK_RESOURCE(meshPipeline)) {
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cube");
     }
+
+    gfx::PipelineStateDesc cubemapPipelineState;
+    cubemapPipelineState.depthStencilState.enableDepth = false;
+    cubemapPipelineState.rasterState.cullMode = gfx::CullMode::CULL_FRONT;
+    cubemapPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
+   
+    cubemapPipelineState.vertexShader = vCubemapShader;
+    cubemapPipelineState.pixelShader = pCubemapShader;
+    cubemapPipelineState.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
+
+    gfx::PipelineState cubemapPipeline = gfx::CreatePipelineState(gfxDevice, &cubemapPipelineState);
+    if (!GFX_CHECK_RESOURCE(cubemapPipeline)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cubemap");
+    }
+
 
     gfx::PipelineStateDesc blitPipelineStateDesc;
     blitPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
@@ -1580,7 +1646,7 @@ int win32_main(int argc, char* argv[])
 
     paintObjPipelineStateDesc.depthStencilState.enableDepth = false;
     paintObjPipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
-    if (cubeAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
+    if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
         paintObjPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     }
     else {
@@ -1597,49 +1663,58 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for painting");
     }
 
-    gfx::DrawCall cubeDrawCall;
-    cubeDrawCall.vertexBuffers[0] = cubeVertexBuffer;
-    cubeDrawCall.vertexOffsets[0] = 0;
-    cubeDrawCall.vertexStrides[0] = sizeof(float) * 3;
-    cubeDrawCall.vertexBuffers[1] = cubeNormalBuffer;
-    cubeDrawCall.vertexOffsets[1] = 0;
-    cubeDrawCall.vertexStrides[1] = sizeof(float) * 3;
-    cubeDrawCall.vertexBuffers[2] = cubeUVBuffer;
-    cubeDrawCall.vertexOffsets[2] = 0;
-    cubeDrawCall.vertexStrides[2] = sizeof(float) * 2;
-    if (GFX_CHECK_RESOURCE(cubeTangentBuffer)) {
-        cubeDrawCall.vertexBuffers[3] = cubeTangentBuffer;
-        cubeDrawCall.vertexOffsets[3] = 0;
-        cubeDrawCall.vertexStrides[3] = sizeof(float) * 3;
+    gfx::DrawCall meshDrawCall;
+    meshDrawCall.vertexBuffers[0] = meshVertexBuffer;
+    meshDrawCall.vertexOffsets[0] = 0;
+    meshDrawCall.vertexStrides[0] = sizeof(float) * 3;
+    meshDrawCall.vertexBuffers[1] = meshNormalBuffer;
+    meshDrawCall.vertexOffsets[1] = 0;
+    meshDrawCall.vertexStrides[1] = sizeof(float) * 3;
+    meshDrawCall.vertexBuffers[2] = meshUVBuffer;
+    meshDrawCall.vertexOffsets[2] = 0;
+    meshDrawCall.vertexStrides[2] = sizeof(float) * 2;
+    if (GFX_CHECK_RESOURCE(meshTangentBuffer)) {
+        meshDrawCall.vertexBuffers[3] = meshTangentBuffer;
+        meshDrawCall.vertexOffsets[3] = 0;
+        meshDrawCall.vertexStrides[3] = sizeof(float) * 3;
     }
-    cubeDrawCall.indexBuffer = cubeIndexBuffer;
-    cubeDrawCall.numElements = cubeAsset.numIndices;
-    cubeDrawCall.pipelineState = cubePipeline;
-    cubeDrawCall.vsConstantInputs[0] = cBuffer;
-    cubeDrawCall.psConstantInputs[0] = cBuffer;
-    cubeDrawCall.psImageInputs[0] = materials[0].diffuse;
-    cubeDrawCall.psImageInputs[1] = materials[0].roughness;
-    cubeDrawCall.psImageInputs[2] = materials[0].metallic;
-    cubeDrawCall.psImageInputs[3] = materials[0].normal;
+    meshDrawCall.indexBuffer = meshIndexBuffer;
+    meshDrawCall.numElements = meshAsset.numIndices;
+    meshDrawCall.pipelineState = meshPipeline;
+    meshDrawCall.vsConstantInputs[0] = cBuffer;
+    meshDrawCall.psConstantInputs[0] = cBuffer;
+    meshDrawCall.psImageInputs[0] = materials[0].diffuse;
+    meshDrawCall.psImageInputs[1] = materials[0].roughness;
+    meshDrawCall.psImageInputs[2] = materials[0].metallic;
+    meshDrawCall.psImageInputs[3] = materials[0].normal;
+    meshDrawCall.psImageInputs[4] = paintDiffuseRT;
+    meshDrawCall.psImageInputs[5] = paintRoughnessRT;
+    meshDrawCall.psImageInputs[6] = paintMetallicRT;
+    meshDrawCall.psImageInputs[7] = paintNormalRT;
+    meshDrawCall.psImageInputs[8] = cubemapTexture;
 
-    cubeDrawCall.psImageInputs[4] = paintDiffuseRT;
-    cubeDrawCall.psImageInputs[5] = paintRoughnessRT;
-    cubeDrawCall.psImageInputs[6] = paintMetallicRT;
-    cubeDrawCall.psImageInputs[7] = paintNormalRT;
-    cubeDrawCall.psImageInputs[8] = cubemapTexture;
+    gfx::DrawCall cubemapDrawCall;
+    cubemapDrawCall.vertexBuffers[0] = cubeVertexBuffer;
+    cubemapDrawCall.vertexOffsets[0] = 0;
+    cubemapDrawCall.vertexStrides[0] = sizeof(float) * 3;
+    cubemapDrawCall.indexBuffer = cubeIndexBuffer;
+    cubemapDrawCall.numElements = (uint32_t)numCubeIndices;
+    cubemapDrawCall.pipelineState = cubemapPipeline;
+    cubemapDrawCall.vsConstantInputs[0] = cBuffer;
+    cubemapDrawCall.psImageInputs[0] = cubemapTexture;
 
     gfx::DrawCall cubePaintDrawCall;
-    cubePaintDrawCall.vertexBuffers[0] = cubeVertexBuffer;
+    cubePaintDrawCall.vertexBuffers[0] = meshVertexBuffer;
     cubePaintDrawCall.vertexOffsets[0] = 0;
     cubePaintDrawCall.vertexStrides[0] = sizeof(float) * 3;
-    cubePaintDrawCall.vertexBuffers[1] = cubeNormalBuffer;
+    cubePaintDrawCall.vertexBuffers[1] = meshNormalBuffer;
     cubePaintDrawCall.vertexOffsets[1] = 0;
     cubePaintDrawCall.vertexStrides[1] = sizeof(float) * 3;
-    cubePaintDrawCall.vertexBuffers[2] = cubeUVBuffer;
+    cubePaintDrawCall.vertexBuffers[2] = meshUVBuffer;
     cubePaintDrawCall.vertexOffsets[2] = 0;
     cubePaintDrawCall.vertexStrides[2] = sizeof(float) * 2;
-    cubePaintDrawCall.indexBuffer = cubeIndexBuffer;
-    cubePaintDrawCall.numElements = cubeAsset.numIndices;
+    cubePaintDrawCall.indexBuffer = meshIndexBuffer;
+    cubePaintDrawCall.numElements = meshAsset.numIndices;
     cubePaintDrawCall.pipelineState = paintObjPipelineState;
     cubePaintDrawCall.vsConstantInputs[0] = cPaintBuffer;
     cubePaintDrawCall.psConstantInputs[0] = cPaintBuffer;
@@ -2042,10 +2117,10 @@ int win32_main(int argc, char* argv[])
                     } ImGui::PopID();
                 }
 
-                cubeDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
-                cubeDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
-                cubeDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
-                cubeDrawCall.psImageInputs[3] = materials[selectionIndex].normal;
+                meshDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
+                meshDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
+                meshDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
+                meshDrawCall.psImageInputs[3] = materials[selectionIndex].normal;
 
                 cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
                 cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
@@ -2225,6 +2300,33 @@ int win32_main(int argc, char* argv[])
         }
         if (didUpdate) {
   
+            void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+            if (cBufferMem != nullptr) {
+                ConstantData object;
+                util::Make4x4FloatMatrixIdentity(object.MVP);
+                util::Make4x4FloatMatrixIdentity(object.MV);
+                util::Make4x4FloatMatrixIdentity(object.VP);
+                util::Make4x4FloatMatrixIdentity(object.view);
+                util::Make4x4FloatMatrixIdentity(object.projection);
+                util::Make4x4FloatMatrixIdentity(object.model);
+
+                float modelView[16];
+                util::MultiplyMatricesCM(camera, object.model, modelView);
+                util::MultiplyMatricesCM(proj, modelView, object.MVP);
+                util::Copy4x4FloatMatrixCM(camera, object.view);
+                util::Inverse4x4FloatMatrixCM(camera, object.inverseView);
+                util::Copy4x4FloatMatrixCM(object.model, object.model);
+                util::Copy4x4FloatMatrixCM(modelView, object.MV);
+                util::Copy4x4FloatMatrixCM(proj, object.projection);
+                util::MultiplyMatricesCM(proj, camera, object.VP);
+
+                object.color = color;
+                object.lightDir = lightDir;
+
+                memcpy(cBufferMem, &object, sizeof(ConstantData));
+                gfx::UnmapBuffer(gfxDevice, cBuffer);
+            }
+
         }
 
         
@@ -2238,6 +2340,8 @@ int win32_main(int argc, char* argv[])
         auto commandSubmissionTimerStart = GetCounter();
       
         gfx::BeginRenderPass(gfxDevice, cmdBuffer, mainPass, &clearAllAction);
+
+        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubemapDrawCall);
 
         for (size_t i = 0; i < numEntities; ++i) {
             entity_system::Entity entity = entityList[i];
@@ -2271,7 +2375,7 @@ int win32_main(int argc, char* argv[])
                 memcpy(cBufferMem, &object, sizeof(ConstantData));
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
-            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubeDrawCall);
+            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &meshDrawCall);
         }
         gfx::EndRenderPass(gfxDevice, cmdBuffer);
 

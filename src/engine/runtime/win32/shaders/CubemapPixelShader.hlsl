@@ -1,13 +1,13 @@
 struct PixelInput
 {
-    float4 pos : SV_POSITION;
-    float2 uv : TEXCOORD;
+    float4 clipPos : SV_POSITION;
+    float4 localPos : TEXCOORD0;
 };
 
-Texture2D texture0;
+TextureCube cubemap;
 sampler   sampler0;
 
 float4 main(PixelInput input) : SV_Target
 {
-    return texture0.Sample(sampler0, input.uv);
+    return pow(cubemap.Sample(sampler0, normalize(input.localPos)), 2.2f);
 }
