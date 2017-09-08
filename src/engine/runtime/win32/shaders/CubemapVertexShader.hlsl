@@ -31,13 +31,9 @@ PixelInput main(Vertex vertex)
     PixelInput output;
 
     // isolate rotation from View matrix
-    float4x4 viewRot = (float4x4(View._m00_m01_m02_m03,
-                                View._m10_m11_m12_m13,
-                                View._m20_m21_m22_m23,
-                                float4(0.0f, 0.0f, 0.0f, 1.0f)));
-
     float3 rotPosition = mul((float3x3)View, vertex.pos.xyz);
     output.clipPos = mul(Projection, float4(rotPosition, 1.0f));
+    //output.clipPos = mul(ViewProjection, vertex.pos);
     output.localPos = vertex.pos;
 
     return output;

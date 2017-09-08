@@ -27,10 +27,12 @@ float4 main(PixelInput input) : SV_Target
 {
     float3 texColor = texture0.Sample(sampler0, input.uv).rgb;
 
+    texColor *= 4.0f;
+
     float ExposureBias = 2.0f;
     float3 curr = Uncharted2Tonemap(ExposureBias*texColor);
 
-    float3 whiteScale = 1.0f / Uncharted2Tonemap(float3(W, W, W));
+    float3 whiteScale = 1.0f / Uncharted2Tonemap(W);
     float3 color = curr * whiteScale;
 
     float3 retColor = pow(color, 1.0f / 2.2f);

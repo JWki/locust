@@ -47,12 +47,25 @@ sampler sampler8 : register(s7);
 
 TextureCube cubemap : register(t8);
 sampler sampler7 : register(s8);
+Texture2D hdrCubemap : register(t9);
+sampler sampler9 : register(s9);
+Texture2D hdrDiffuse : register(t10);
+sampler sampler10 : register(s10);
+
+Texture2D brdfLUT : register(t11);
+sampler sampler11 : register(s11);
 
 static const float PI = 3.14159264359f;
 
 float3 FresnelSchlick(float cosTheta, float3 F0)
 {
     return F0 + (float3(1.0f, 1.0f, 1.0f) - F0) * pow(1.0f - cosTheta, 5.0f);
+}
+
+float3 FresnelSchlickRoughness(float cosTheta, float3 F0, float roughness)
+{
+    //max(vec3(1.0 - roughness), F0)
+    return F0 + (max(float3(1.0f, 1.0f, 1.0f) - roughness, F0) - F0) * pow(1.0f - cosTheta, 5.0f);
 }
 
 float DistributionGGX(float NdotH, float roughness)
@@ -97,6 +110,79 @@ float3 blend_rnm(float3 n1, float3 n2)
     return normalize(r);
 }
 
+
+static const float2 invAtan = float2(0.1591f, 0.3183f);
+float2 SampleSphericalMap(float3 dir)
+{
+    float2 uv = float2(atan2(-dir.z, dir.x), asin(dir.y));
+    uv *= invAtan;
+    uv += 0.5f;
+    return uv;
+}
+
+
+float RadicalInverse_VdC(uint bits)
+{
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+}
+// ----------------------------------------------------------------------------
+float2 Hammersley(uint i, uint N)
+{
+    return float2(float(i) / float(N), RadicalInverse_VdC(i));
+}
+
+float3 ImportanceSampleGGX(float2 Xi, float3 N, float roughness)
+{
+    float a = roughness*roughness;
+
+    float phi = 2.0 * PI * Xi.x;
+    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
+    float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
+
+    // from spherical coordinates to cartesian coordinates
+    float3 H;
+    H.x = cos(phi) * sinTheta;
+    H.y = sin(phi) * sinTheta;
+    H.z = cosTheta;
+
+    // from tangent-space vector to world-space sample vector
+    float3 up = abs(N.z) < 0.999 ? float3(0.0, 0.0, 1.0) : float3(1.0, 0.0, 0.0);
+    float3 tangent = normalize(cross(up, N));
+    float3 bitangent = cross(N, tangent);
+
+    float3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
+    return normalize(sampleVec);
+}
+
+static const uint GLOBAL_SAMPLE_COUNT = 512u;
+
+float3 FilterCubemap(float3 V, float3 H, float3 N, float roughness)
+{
+    const uint SAMPLE_COUNT = GLOBAL_SAMPLE_COUNT;
+    float totalWeight = 0.0f;
+    float3 prefilteredColor = float3(0.0f, 0.0f, 0.0f);
+    for (uint i = 0u; i < SAMPLE_COUNT; ++i)
+    {
+        float2 Xi = Hammersley(i, SAMPLE_COUNT);
+        float3 H = ImportanceSampleGGX(Xi, N, roughness);
+        float3 L = normalize(2.0f * dot(V, H) * H - V);
+
+        float NdotL = max(dot(N, L), 0.0f);
+        if (NdotL > 0.0f)
+        {
+            prefilteredColor += hdrCubemap.Sample(sampler9, SampleSphericalMap(L)).rgb * NdotL;
+            totalWeight += NdotL;
+        }
+    }
+    prefilteredColor = prefilteredColor / totalWeight;
+
+    return prefilteredColor;
+}
 
 
 float4 main(PixelInput input) : SV_TARGET
@@ -160,8 +246,28 @@ float4 main(PixelInput input) : SV_TARGET
     //return float4(directLight, 1.0f);
 
     float3 r = normalize(reflect(-V, N));
-    float3 indirectLight = metallic * pow(cubemap.Sample(sampler7, r).rgb, 2.2f);
-    float3 light = indirectLight + directLight;
 
-    return float4((light) * albedo.rgb, 1.0f);
+    float3 indirectLight = float3(0.0f, 0.0f, 0.0f);
+    {
+        float3 kS2 = FresnelSchlickRoughness(NdotV, F0, roughness);
+        float3 kD2 = 1.0f - kS;
+        kD2 *= 1.0f - metallic;
+
+        float3 irradiance = hdrDiffuse.Sample(sampler10, SampleSphericalMap(N)).rgb;
+        float3 diffuseAmbient = kD2 * irradiance * albedo.rgb;
+
+        float3 prefilteredSpecular = FilterCubemap(V, H, N, roughness);
+        float2 envBRDF = brdfLUT.Sample(sampler11, NdotV, roughness).rg;
+        float3 specularAmbient = prefilteredSpecular * (F * envBRDF.x + envBRDF.y);
+
+        indirectLight = diffuseAmbient + specularAmbient;
+    
+    }
+    
+    return float4(NdotV, 0.0f, 0.0f, 1.0f);
+
+
+    float3 totalLighting = directLight + indirectLight;
+    //totalLighting = indirectLight;
+    return float4(totalLighting, 1.0f);
 }

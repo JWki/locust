@@ -950,6 +950,12 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
     }
 
+    size_t pBRDFLUTShaderCodeSize = 0;
+    char* pBRDFLUTShaderCode = static_cast<char*>(LoadFileContents("BRDFLUT.cso", &applicationArena, &pBRDFLUTShaderCodeSize));
+    if (!pBRDFLUTShaderCode) {
+        GT_LOG_ERROR("D3D11", "Failed to load brdflut shader\n");
+    }
+
     //
  
     gfx::Interface* gfxInterface = nullptr;
@@ -1118,6 +1124,71 @@ int win32_main(int argc, char* argv[])
         }
     }
 
+    gfx::Image hdrCubemap;
+    {   // hdr cubemap
+        int width, height, numComponents;
+        snprintf(fileNameBuf, 512, "../../hdrCubemap.hdr");
+        
+        stbi_set_flip_vertically_on_load(1);
+        auto image = stbi_loadf(fileNameBuf, &width, &height, &numComponents, 4);
+        stbi_set_flip_vertically_on_load(0);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::ImageDesc diffDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        diffDesc.width = width;
+        diffDesc.height = height;
+        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R32G32B32A32_FLOAT;
+        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+        diffDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(float) * width * height * 4;
+        diffDesc.initialData = data;
+        diffDesc.initialDataSizes = &size;
+        hdrCubemap = gfx::CreateImage(gfxDevice, &diffDesc);
+        if (!GFX_CHECK_RESOURCE(hdrCubemap)) {
+            GT_LOG_ERROR("Renderer", "Failed to create texture");
+        }
+        stbi_image_free(image);
+    }
+
+    gfx::Image hdrDiffuse;
+    {   // hdr cubemap
+        int width, height, numComponents;
+        snprintf(fileNameBuf, 512, "../../hdrConvolvedDiffuse.hdr");
+
+        stbi_set_flip_vertically_on_load(1);
+        auto image = stbi_loadf(fileNameBuf, &width, &height, &numComponents, 4);
+        stbi_set_flip_vertically_on_load(0);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::ImageDesc diffDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        diffDesc.width = width;
+        diffDesc.height = height;
+        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R32G32B32A32_FLOAT;
+        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+        diffDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(float) * width * height * 4;
+        diffDesc.initialData = data;
+        diffDesc.initialDataSizes = &size;
+        hdrDiffuse = gfx::CreateImage(gfxDevice, &diffDesc);
+        if (!GFX_CHECK_RESOURCE(hdrCubemap)) {
+            GT_LOG_ERROR("Renderer", "Failed to create texture");
+        }
+        stbi_image_free(image);
+    }
 
     struct Material
     {
@@ -1409,6 +1480,12 @@ int win32_main(int argc, char* argv[])
     pCubemapShaderDesc.code = pCubemapShaderCode;
     pCubemapShaderDesc.codeSize = pCubemapShaderCodeSize;
 
+    gfx::ShaderDesc pBRDFLUTShaderDesc;
+    pBRDFLUTShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+    pBRDFLUTShaderDesc.code = pBRDFLUTShaderCode;
+    pBRDFLUTShaderDesc.codeSize = pBRDFLUTShaderCodeSize;
+
+
     gfx::Shader vCubeShader = gfx::CreateShader(gfxDevice, &vCubeShaderDesc);
     if (!GFX_CHECK_RESOURCE(vCubeShader)) {
         GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
@@ -1459,11 +1536,17 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
     }
 
+    gfx::Shader pBRDFLUTShader = gfx::CreateShader(gfxDevice, &pBRDFLUTShaderDesc);
+    if (!GFX_CHECK_RESOURCE(pBRDFLUTShader)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+    }
+
     gfx::PipelineStateDesc meshPipelineState;
     meshPipelineState.blendState.enableBlend = true;
     meshPipelineState.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
     meshPipelineState.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
     meshPipelineState.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+    //meshPipelineState.rasterState.cullMode = gfx::CullMode::CULL_FRONT;
     if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
         meshPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     }
@@ -1548,6 +1631,15 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
     }
 
+    gfx::PipelineStateDesc brdfLUTPipelineStateDesc;
+    brdfLUTPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+    brdfLUTPipelineStateDesc.vertexShader = vBlitShader;
+    brdfLUTPipelineStateDesc.pixelShader = pBRDFLUTShader;
+    brdfLUTPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
+    gfx::PipelineState brdfLUTPipeline = gfx::CreatePipelineState(gfxDevice, &brdfLUTPipelineStateDesc);
+    if (!GFX_CHECK_RESOURCE(brdfLUTPipeline)) {
+        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
+    }
    
     gfx::ImageDesc uiRenderTargetDesc;
     uiRenderTargetDesc.isRenderTarget = true;
@@ -1607,6 +1699,20 @@ int win32_main(int argc, char* argv[])
     if (!GFX_CHECK_RESOURCE(paintNormalRT)) {
         GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
     }
+    
+
+    gfx::ImageDesc brdfLUTDesc;
+    brdfLUTDesc.isRenderTarget = true;
+    brdfLUTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+    brdfLUTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+    brdfLUTDesc.width = 512;
+    brdfLUTDesc.height = 512;
+    brdfLUTDesc.samplerDesc = &defaultSamplerStateDesc;
+    gfx::Image brdfLUT = gfx::CreateImage(gfxDevice, &brdfLUTDesc);
+    if (!GFX_CHECK_RESOURCE(brdfLUT)) {
+        GT_LOG_ERROR("Renderer", "Failed to create main render target");
+    }
+
 
     gfx::ImageDesc mainRTDesc;
     mainRTDesc.isRenderTarget = true;
@@ -1619,6 +1725,8 @@ int win32_main(int argc, char* argv[])
     if (!GFX_CHECK_RESOURCE(mainRT)) {
         GT_LOG_ERROR("Renderer", "Failed to create main render target");
     }
+
+
 
     gfx::ImageDesc mainDepthBufferDesc;
     //mainDepthBufferDesc.isRenderTarget = true;
@@ -1692,6 +1800,9 @@ int win32_main(int argc, char* argv[])
     meshDrawCall.psImageInputs[6] = paintMetallicRT;
     meshDrawCall.psImageInputs[7] = paintNormalRT;
     meshDrawCall.psImageInputs[8] = cubemapTexture;
+    meshDrawCall.psImageInputs[9] = hdrCubemap;
+    meshDrawCall.psImageInputs[10] = hdrDiffuse;
+    meshDrawCall.psImageInputs[11] = brdfLUT;
 
     gfx::DrawCall cubemapDrawCall;
     cubemapDrawCall.vertexBuffers[0] = cubeVertexBuffer;
@@ -1702,6 +1813,9 @@ int win32_main(int argc, char* argv[])
     cubemapDrawCall.pipelineState = cubemapPipeline;
     cubemapDrawCall.vsConstantInputs[0] = cBuffer;
     cubemapDrawCall.psImageInputs[0] = cubemapTexture;
+    cubemapDrawCall.psImageInputs[1] = hdrCubemap;
+
+
 
     gfx::DrawCall cubePaintDrawCall;
     cubePaintDrawCall.vertexBuffers[0] = meshVertexBuffer;
@@ -1734,6 +1848,13 @@ int win32_main(int argc, char* argv[])
     gfx::RenderPass uiPass = gfx::CreateRenderPass(gfxDevice, &uiPassDesc);
     if (!GFX_CHECK_RESOURCE(uiPass)) {
         GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
+    }
+
+    gfx::RenderPassDesc brdfLUTPassDesc;
+    brdfLUTPassDesc.colorAttachments[0].image = brdfLUT;
+    gfx::RenderPass brdfLUTPass = gfx::CreateRenderPass(gfxDevice, &brdfLUTPassDesc);
+    if (!GFX_CHECK_RESOURCE(brdfLUTPass)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render pass for brdfLUT");
     }
 
     gfx::RenderPassDesc paintPassDesc;
@@ -1826,6 +1947,17 @@ int win32_main(int argc, char* argv[])
     gfx::EndRenderPass(gfxDevice, cmdBuffer);
 
 
+
+    gfx::DrawCall brdfLUTDrawCall;
+    brdfLUTDrawCall.pipelineState = brdfLUTPipeline;
+    brdfLUTDrawCall.numElements = 4;
+    gfx::BeginRenderPass(gfxDevice, cmdBuffer, brdfLUTPass, &clearAllAction);
+    gfx::Viewport brdfLutViewport;
+    brdfLutViewport.width = 512;
+    brdfLutViewport.height = 512;
+    gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &brdfLUTDrawCall, &brdfLutViewport);
+    gfx::EndRenderPass(gfxDevice, cmdBuffer);
+
     entity_system::World* mainWorld;
     entity_system::WorldConfig worldConfig;
     if (!entity_system::CreateWorld(&mainWorld, &applicationArena, &worldConfig)) {
@@ -1834,7 +1966,7 @@ int win32_main(int argc, char* argv[])
 
     entity_system::Entity* entityList = GT_NEW_ARRAY(entity_system::Entity, worldConfig.maxNumEntities, &applicationArena);
 
-    math::float4 lightDir(1.0f, -1.0f, 0.0f, 15.0f);
+    math::float4 lightDir(1.0f, -1.0f, 0.0f, 2.0f);
     math::float4 color(1.0f, 1.0f, 1.0f, 1.0f);
 
 

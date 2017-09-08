@@ -489,17 +489,18 @@ namespace gfx
         DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
         DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UNORM,
         DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_FLOAT,
+        DXGI_FORMAT::DXGI_FORMAT_R32G32B32A32_FLOAT,
         DXGI_FORMAT::DXGI_FORMAT_R8G8B8A8_UINT,
         DXGI_FORMAT::DXGI_FORMAT_R16G16B16A16_UINT,
         DXGI_FORMAT::DXGI_FORMAT_D32_FLOAT_S8X24_UINT
     };
 
     UINT g_pixelFormatComponentCount[] = {
-        4, 4, 4, 4, 4, 4
+        4, 4, 4, 4, 4, 4, 4, 0
     };
 
     UINT g_pixelFormatComponentSize[] = {
-        1, 1, 1, 2, 1, 2
+        1, 1, 1, 2, 4, 1, 2, 0
     };
 
     D3D11_SRV_DIMENSION g_imageSRVDimensionTable[] = {
