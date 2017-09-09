@@ -1039,7 +1039,7 @@ int win32_main(int argc, char* argv[])
 
     MeshAsset meshAsset;
 
-#define MODEL_FILE_PATH "../../test.fbx"
+#define MODEL_FILE_PATH "../../materialball.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1124,10 +1124,12 @@ int win32_main(int argc, char* argv[])
         }
     }
 
-    gfx::Image hdrCubemap;
+    static const size_t NUM_CUBEMAPS = 7;
+    gfx::Image hdrCubemap[NUM_CUBEMAPS];
+    for(size_t i = 0; i < NUM_CUBEMAPS; ++i) 
     {   // hdr cubemap
         int width, height, numComponents;
-        snprintf(fileNameBuf, 512, "../../hdrCubemap.hdr");
+        snprintf(fileNameBuf, 512, "../../hdrCubemap%llu.hdr", i);
         
         stbi_set_flip_vertically_on_load(1);
         auto image = stbi_loadf(fileNameBuf, &width, &height, &numComponents, 4);
@@ -1150,17 +1152,18 @@ int win32_main(int argc, char* argv[])
         size_t size = sizeof(float) * width * height * 4;
         diffDesc.initialData = data;
         diffDesc.initialDataSizes = &size;
-        hdrCubemap = gfx::CreateImage(gfxDevice, &diffDesc);
-        if (!GFX_CHECK_RESOURCE(hdrCubemap)) {
+        hdrCubemap[i] = gfx::CreateImage(gfxDevice, &diffDesc);
+        if (!GFX_CHECK_RESOURCE(hdrCubemap[i])) {
             GT_LOG_ERROR("Renderer", "Failed to create texture");
         }
         stbi_image_free(image);
     }
 
-    gfx::Image hdrDiffuse;
+    gfx::Image hdrDiffuse[NUM_CUBEMAPS];
+    for(size_t i = 0; i < NUM_CUBEMAPS; ++i)
     {   // hdr cubemap
         int width, height, numComponents;
-        snprintf(fileNameBuf, 512, "../../hdrConvolvedDiffuse.hdr");
+        snprintf(fileNameBuf, 512, "../../hdrConvolvedDiffuse%llu.hdr", i);
 
         stbi_set_flip_vertically_on_load(1);
         auto image = stbi_loadf(fileNameBuf, &width, &height, &numComponents, 4);
@@ -1183,25 +1186,30 @@ int win32_main(int argc, char* argv[])
         size_t size = sizeof(float) * width * height * 4;
         diffDesc.initialData = data;
         diffDesc.initialDataSizes = &size;
-        hdrDiffuse = gfx::CreateImage(gfxDevice, &diffDesc);
-        if (!GFX_CHECK_RESOURCE(hdrCubemap)) {
+        hdrDiffuse[i] = gfx::CreateImage(gfxDevice, &diffDesc);
+        if (!GFX_CHECK_RESOURCE(hdrDiffuse[i])) {
             GT_LOG_ERROR("Renderer", "Failed to create texture");
         }
         stbi_image_free(image);
     }
 
+    const size_t MATERIAL_NAME_LEN = 512;
     struct Material
     {
+        char name[MATERIAL_NAME_LEN] = "";
         gfx::Image diffuse;
         gfx::Image roughness;
         gfx::Image metallic;
         gfx::Image normal;
     };
 
-    const size_t NUM_MATERIALS = 13;
+    const size_t NUM_MATERIALS = 15;
     Material materials[NUM_MATERIALS];
+    size_t materialIndex[entity_system::MAX_NUM_ENTITIES];
+    memset(materialIndex, 0x0, sizeof(materialIndex));
+    
     for(size_t i = 0; i < NUM_MATERIALS; ++i) {
-
+        snprintf(materials[i].name, MATERIAL_NAME_LEN, "Material%llu", i);
         {   // diffuse
             int width, height, numComponents;
             snprintf(fileNameBuf, 512, "../../diffuse%llu.png", i);
@@ -1800,8 +1808,8 @@ int win32_main(int argc, char* argv[])
     meshDrawCall.psImageInputs[6] = paintMetallicRT;
     meshDrawCall.psImageInputs[7] = paintNormalRT;
     meshDrawCall.psImageInputs[8] = cubemapTexture;
-    meshDrawCall.psImageInputs[9] = hdrCubemap;
-    meshDrawCall.psImageInputs[10] = hdrDiffuse;
+    meshDrawCall.psImageInputs[9] = hdrCubemap[0];
+    meshDrawCall.psImageInputs[10] = hdrDiffuse[0];
     meshDrawCall.psImageInputs[11] = brdfLUT;
 
     gfx::DrawCall cubemapDrawCall;
@@ -1813,8 +1821,7 @@ int win32_main(int argc, char* argv[])
     cubemapDrawCall.pipelineState = cubemapPipeline;
     cubemapDrawCall.vsConstantInputs[0] = cBuffer;
     cubemapDrawCall.psImageInputs[0] = cubemapTexture;
-    cubemapDrawCall.psImageInputs[1] = hdrCubemap;
-
+    cubemapDrawCall.psImageInputs[1] = hdrCubemap[0];
 
 
     gfx::DrawCall cubePaintDrawCall;
@@ -1983,7 +1990,7 @@ int win32_main(int argc, char* argv[])
     core::api_registry::Add(apiRegistry, ENTITY_SYSTEM_API_NAME, &entitySystem);
 
 
-    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*, float*, float*);
+    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*, float*, float*, fnd::memory::LinearAllocator*, entity_system::Entity**, size_t*);
     void*(*InitializeModule)(memory::MemoryArenaBase*, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiInterface);
 
     char tempPath[512] = "";
@@ -2013,6 +2020,9 @@ int win32_main(int argc, char* argv[])
     void* testModuleState = InitializeModule(&applicationArena, apiRegistry, &apiRegistryInterface);
 
     size_t numEntities = 0;
+
+    static const size_t frameAllocatorSize = MEGABYTES(5);
+    memory::LinearAllocator frameAllocator(applicationArena.Allocate(frameAllocatorSize, 16, GT_SOURCE_INFO), frameAllocatorSize);
 
     GT_LOG_INFO("Application", "Starting main loop");
     do {
@@ -2096,10 +2106,18 @@ int win32_main(int argc, char* argv[])
 
             ImGui_ImplDX11_NewFrame();
 
+            entity_system::Entity* entitySelection = nullptr;
+            size_t numEntitiesSelected = 0;
+
             if (UpdateModule) {
-                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld, camera, proj);
+                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld, camera, proj, &frameAllocator, &entitySelection, &numEntitiesSelected);
             }
 
+            math::float3 meanPosition;
+            for (size_t i = 0; i < numEntitiesSelected; ++i) {
+                meanPosition += util::Get4x4FloatMatrixColumnCM(entity_system::GetEntityTransform(mainWorld, entitySelection[i]), 3).xyz;
+            }
+            meanPosition /= (float)numEntitiesSelected;
           
             entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
 
@@ -2125,7 +2143,18 @@ int win32_main(int argc, char* argv[])
             } ImGui::End();
 #endif
             
+ 
             ImGui::Begin(ICON_FA_PICTURE_O "  Renderer"); {
+                static int currentCubemapIndex = 0;
+                static const char* names[NUM_CUBEMAPS] = {
+                    "Cubemap 0", "Cubemap 1", "Cubemap 2", "Cubemap 3", "Cubemap 4", "Cubemap 5", "Cubemap 6"
+                };
+                if (ImGui::Combo("Current cubemap", &currentCubemapIndex, names, NUM_CUBEMAPS)) {
+                    cubemapDrawCall.psImageInputs[1] = hdrCubemap[currentCubemapIndex];
+                    meshDrawCall.psImageInputs[9] = hdrCubemap[currentCubemapIndex];
+                    meshDrawCall.psImageInputs[10] = hdrDiffuse[currentCubemapIndex];
+                }
+
                 ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
                 ImGui::Checkbox("Enable UI Blur Effect", &g_enableUIBlur);
                 ImGui::ColorPicker4("Background Color", clearAllAction.colors[0].color, ImGuiColorEditFlags_PickerHueWheel);
@@ -2201,12 +2230,13 @@ int win32_main(int argc, char* argv[])
 
                 ImGui::Spacing();
 
-                static size_t selectionIndex = 0;
+
+                int selectionIndex = -1;
 
                 //paintTexture[3] = uiRenderTarget;   // hehe
-                for (size_t i = 0; i < NUM_MATERIALS; ++i) {
+                for (int i = 0; i < (int)NUM_MATERIALS; ++i) {
                     ImGui::PushID((int)i);
-                    if (ImGui::TreeNode("Material", "Material %llu", i)) {
+                    if (ImGui::TreeNode("Material", "%s", materials[i].name)) {
                         if (selectionIndex == i) {
                             ImGui::Text(ICON_FA_LOCK);
                         }
@@ -2249,10 +2279,12 @@ int win32_main(int argc, char* argv[])
                     } ImGui::PopID();
                 }
 
-                meshDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
-                meshDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
-                meshDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
-                meshDrawCall.psImageInputs[3] = materials[selectionIndex].normal;
+                if (selectionIndex >= 0) {
+                    for (size_t i = 0; i < numEntitiesSelected; ++i) {
+                        auto index = (uint16_t)entitySelection[i].id;
+                        materialIndex[index] = selectionIndex;
+                    }
+                }
 
                 cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
                 cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
@@ -2331,6 +2363,7 @@ int win32_main(int argc, char* argv[])
 
             ImGui::Begin(ICON_FA_CAMERA "  Camera"); {
                 static float camOffsetStore = 0.0f;
+                
                 if (ImGui::Combo("Mode", (int*)&mode, modeStrings, 2)) {
                     if (mode == CAMERA_MODE_ARCBALL) {
                         // we were in free cam mode before
@@ -2350,6 +2383,13 @@ int win32_main(int argc, char* argv[])
                         camPos = util::Get4x4FloatMatrixColumnCM(fullTransform, 3).xyz;
                         camOffsetStore = camOffset.z;
                         camOffset.z = 0.0f;
+                    }
+                }
+               
+                if (mode == CAMERA_MODE_ARCBALL) {
+                    ImGui::SameLine();
+                    if (ImGui::Button("Focus Selection")) {
+                        camPos = meanPosition;
                     }
                 }
 
@@ -2459,6 +2499,8 @@ int win32_main(int argc, char* argv[])
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
 
+
+            frameAllocator.Reset();
         }
 
         
@@ -2507,6 +2549,11 @@ int win32_main(int argc, char* argv[])
                 memcpy(cBufferMem, &object, sizeof(ConstantData));
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
+            auto matIndex = materialIndex[(uint16_t)entity.id];
+            meshDrawCall.psImageInputs[0] = materials[matIndex].diffuse;
+            meshDrawCall.psImageInputs[1] = materials[matIndex].roughness;
+            meshDrawCall.psImageInputs[2] = materials[matIndex].metallic;
+            meshDrawCall.psImageInputs[3] = materials[matIndex].normal;
             gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &meshDrawCall);
         }
         gfx::EndRenderPass(gfxDevice, cmdBuffer);

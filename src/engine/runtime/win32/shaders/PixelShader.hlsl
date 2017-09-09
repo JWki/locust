@@ -159,7 +159,7 @@ float3 ImportanceSampleGGX(float2 Xi, float3 N, float roughness)
     return normalize(sampleVec);
 }
 
-static const uint GLOBAL_SAMPLE_COUNT = 512u;
+static const uint GLOBAL_SAMPLE_COUNT = 128u;
 
 float3 FilterCubemap(float3 V, float3 H, float3 N, float roughness)
 {
@@ -264,7 +264,7 @@ float4 main(PixelInput input) : SV_TARGET
     
     }
     
-    return float4(NdotV, 0.0f, 0.0f, 1.0f);
+    //return float4(NdotV, 0.0f, 0.0f, 1.0f);
 
 
     float3 totalLighting = directLight + indirectLight;

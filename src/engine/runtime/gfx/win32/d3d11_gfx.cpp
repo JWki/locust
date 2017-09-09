@@ -35,7 +35,7 @@ namespace gfx
         ImageDesc       desc;
         
         ID3D11ShaderResourceView*   srv = nullptr;
-        ID3D11RenderTargetView*     rtv = nullptr;
+        ID3D11RenderTargetView*     rtv[6] = { nullptr };
         ID3D11DepthStencilView*     dsv = nullptr;
         ID3D11SamplerState*         sampler;    // @TODO split this out into own resource 
 
@@ -564,7 +564,7 @@ namespace gfx
         texDesc.Width = desc->width;
         texDesc.Height = desc->height;
         texDesc.MipLevels = desc->numMipmaps;
-        texDesc.ArraySize = 1;    // @TODO
+        texDesc.ArraySize = desc->numSlices;    // @TODO
         if (desc->type == ImageType::IMAGE_TYPE_CUBE) {
             texDesc.ArraySize = 6;
         }
@@ -694,11 +694,21 @@ namespace gfx
             case ImageType::IMAGE_TYPE_2D: {
                 render_target_view_desc.Texture2D.MipSlice = 0;
             } break;
+            case ImageType::IMAGE_TYPE_2DARRAY:
+            case ImageType::IMAGE_TYPE_CUBE: {
+                if (desc->numSlices > 1) {
+                    render_target_view_desc.Texture2DArray.ArraySize = (UINT)desc->numSlices;
+                }
+            } break;
             default:
                 assert(false);
                 break;
             }
-            res = device->d3dDevice->CreateRenderTargetView(image->as_2DTexture, &render_target_view_desc, &image->rtv);
+            for (size_t i = 0; i < desc->numSlices; ++i) {
+                // @NOTE @HACK
+                render_target_view_desc.Texture2DArray.FirstArraySlice = (UINT)i;
+                res = device->d3dDevice->CreateRenderTargetView(desc->type == ImageType::IMAGE_TYPE_2D ? image->as_2DTexture : image->as_cubeTexture, &render_target_view_desc, &image->rtv[i]);
+            }
             if (FAILED(res)) {
                 device->interf->imagePool.Free(result.id);
                 return { gfx::INVALID_ID };
@@ -1138,7 +1148,7 @@ namespace gfx
             }
             D3D11Image* colorAttachment = device->interf->imagePool.Get(pass->desc.colorAttachments[i].image.id);
             if (action->colors[0].action == Action::ACTION_CLEAR) {
-                cmdBuf->d3dDC->ClearRenderTargetView(colorAttachment->rtv, action->colors[0].color);
+                cmdBuf->d3dDC->ClearRenderTargetView(colorAttachment->rtv[pass->desc.colorAttachments[i].slice], action->colors[0].color);
             }
         }
         if (GFX_CHECK_RESOURCE(pass->desc.depthStencilAttachment.image)) {
@@ -1208,7 +1218,7 @@ namespace gfx
                     break;
                 }
                 D3D11Image* colorAttachment = device->interf->imagePool.Get(cmdBuf->renderPass->desc.colorAttachments[i].image.id);
-                renderTargets[numRenderTargets++] = colorAttachment->rtv;
+                renderTargets[numRenderTargets++] = colorAttachment->rtv[cmdBuf->renderPass->desc.colorAttachments[i].slice];
             }
             ID3D11DepthStencilView* dsv = nullptr;
             if (GFX_CHECK_RESOURCE(cmdBuf->renderPass->desc.depthStencilAttachment.image)) {

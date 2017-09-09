@@ -4,6 +4,7 @@
 
 #include <foundation/math/math.h>
 #include <foundation/memory/memory.h>
+#include <foundation/memory/allocators.h>
 #include <engine/runtime/entities/entities.h>
 #include "ImGui/imgui.h"
 
@@ -236,7 +237,7 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
 }
 
 extern "C" __declspec(dllexport)
-void Update(void* userData, ImGuiContext* guiContext, entity_system::World* world, float* camera, float* projection)
+void Update(void* userData, ImGuiContext* guiContext, entity_system::World* world, float* camera, float* projection, fnd::memory::LinearAllocator* frameAllocator, entity_system::Entity** entitySelection, size_t* numEntitiesSelected)
 {
     using namespace fnd;
     ConsoleLogger consoleLogger;
@@ -528,6 +529,23 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         }
 
     } ImGui::End();
+
+    *numEntitiesSelected = 0;
+    auto it = state->entitySelection.head;
+    while (it != nullptr) {
+        (*numEntitiesSelected)++;
+        it = it->next;
+    }
+
+    if (*numEntitiesSelected > 0) {
+        *entitySelection = (entity_system::Entity*)frameAllocator->Allocate(sizeof(entity_system::Entity) * (*numEntitiesSelected), alignof(entity_system::Entity));
+        it = state->entitySelection.head;
+        int i = 0;
+        while (it != nullptr) {
+            (*entitySelection)[i++].id = it->ent.id;
+            it = it->next;
+        }
+    }
 
     return;
 }
