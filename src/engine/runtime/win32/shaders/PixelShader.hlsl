@@ -11,6 +11,8 @@ cbuffer Object : register(cb0) {
 
     float       Metallic;
     float       Roughness;
+
+    bool        UseTextures;
 };
 
 
@@ -203,6 +205,10 @@ float4 main(PixelInput input) : SV_TARGET
     float3 L = normalize(-LightDir.xyz);
     float3 H = normalize(L + V);
  
+    if (dot(N, V) < 0.0f) {
+        discard;
+    } 
+
     //float4 paintColor = paintDiffuse.Sample(sampler1, input.uv.xy);
     float4 albedo = pow(diffuseMap.Sample(sampler0, input.uv.xy), 2.2f); // * paintColor.a + float4(paintColor.rgb, 1.0f);
 
@@ -212,8 +218,14 @@ float4 main(PixelInput input) : SV_TARGET
     //roughness = roughness + paintRoughness.Sample(sampler4, input.uv.xy).r;
     //metallic = metallic + paintMetallic.Sample(sampler5, input.uv.xy).r;
 
+    if (!UseTextures) {
+        roughness = Roughness;
+        metallic = Metallic;
+    }
+
     roughness = clamp(roughness, 0.01f, 1.0f);
     metallic = clamp(metallic, 0.04f, 0.99f);
+
 
     float3 F0 = float3(0.04f, 0.04f, 0.04f);
     F0 = lerp(F0, albedo.rgb, metallic);

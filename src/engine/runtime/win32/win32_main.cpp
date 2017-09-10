@@ -1007,7 +1007,8 @@ int win32_main(int argc, char* argv[])
         math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 0.0f };
         float metallic = 0.0f;
         float roughness = 1.0f;
-        float _padding0[2];
+        uint32_t  useTextures = 1;
+        float _padding0[1];
     };
 
     float proj[16];
@@ -1036,10 +1037,10 @@ int win32_main(int argc, char* argv[])
     if (!FBXImportAsset) {
         GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXImportAsset", "fbx_importer.dll");
     }
-
+    
     MeshAsset meshAsset;
 
-#define MODEL_FILE_PATH "../../materialball.fbx"
+#define MODEL_FILE_PATH "../../WPN_AKM.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1201,6 +1202,11 @@ int win32_main(int argc, char* argv[])
         gfx::Image roughness;
         gfx::Image metallic;
         gfx::Image normal;
+
+        float roughnessScalar = 1.0f;
+        float metallicScalar = 0.0f;
+
+        bool useTextures = true;
     };
 
     const size_t NUM_MATERIALS = 15;
@@ -1821,7 +1827,7 @@ int win32_main(int argc, char* argv[])
     cubemapDrawCall.pipelineState = cubemapPipeline;
     cubemapDrawCall.vsConstantInputs[0] = cBuffer;
     cubemapDrawCall.psImageInputs[0] = cubemapTexture;
-    cubemapDrawCall.psImageInputs[1] = hdrCubemap[0];
+    cubemapDrawCall.psImageInputs[1] = hdrDiffuse[0];
 
 
     gfx::DrawCall cubePaintDrawCall;
@@ -2150,7 +2156,7 @@ int win32_main(int argc, char* argv[])
                     "Cubemap 0", "Cubemap 1", "Cubemap 2", "Cubemap 3", "Cubemap 4", "Cubemap 5", "Cubemap 6"
                 };
                 if (ImGui::Combo("Current cubemap", &currentCubemapIndex, names, NUM_CUBEMAPS)) {
-                    cubemapDrawCall.psImageInputs[1] = hdrCubemap[currentCubemapIndex];
+                    cubemapDrawCall.psImageInputs[1] = hdrDiffuse[currentCubemapIndex];
                     meshDrawCall.psImageInputs[9] = hdrCubemap[currentCubemapIndex];
                     meshDrawCall.psImageInputs[10] = hdrDiffuse[currentCubemapIndex];
                 }
@@ -2247,6 +2253,12 @@ int win32_main(int argc, char* argv[])
                             selectionIndex = i;
                         }
                         
+                        ImGui::Spacing();
+                        ImGui::SliderFloat("Roughness", &materials[i].roughnessScalar, 0.0f, 1.0f);
+                        ImGui::SliderFloat("Metallic", &materials[i].metallicScalar, 0.0f, 1.0f);
+
+                        ImGui::Checkbox("Use Textures", &materials[i].useTextures);
+
                         ImVec2 contentRegion = ImGui::GetContentRegionAvail();
                         contentRegion.y = 300.0f;
                         ImGui::BeginChild((int)i, contentRegion);
@@ -2495,6 +2507,7 @@ int win32_main(int argc, char* argv[])
                 object.color = color;
                 object.lightDir = lightDir;
 
+           
                 memcpy(cBufferMem, &object, sizeof(ConstantData));
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
@@ -2519,6 +2532,7 @@ int win32_main(int argc, char* argv[])
 
         for (size_t i = 0; i < numEntities; ++i) {
             entity_system::Entity entity = entityList[i];
+            auto matIndex = materialIndex[(uint16_t)entity.id];
 
             void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
             if (cBufferMem != nullptr) {
@@ -2546,10 +2560,15 @@ int win32_main(int argc, char* argv[])
                 object.color = color;
                 object.lightDir = lightDir;
 
+                object.roughness = materials[matIndex].roughnessScalar;
+                object.metallic = materials[matIndex].metallicScalar;
+
+                object.useTextures = materials[matIndex].useTextures ? 1 : 0;
+
+
                 memcpy(cBufferMem, &object, sizeof(ConstantData));
                 gfx::UnmapBuffer(gfxDevice, cBuffer);
             }
-            auto matIndex = materialIndex[(uint16_t)entity.id];
             meshDrawCall.psImageInputs[0] = materials[matIndex].diffuse;
             meshDrawCall.psImageInputs[1] = materials[matIndex].roughness;
             meshDrawCall.psImageInputs[2] = materials[matIndex].metallic;

@@ -11,6 +11,8 @@ cbuffer Object : register(cb0) {
 
     float       Metallic;
     float       Roughness;
+
+    bool        UseTextures;
 };
 
 struct Vertex
