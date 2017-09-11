@@ -1040,7 +1040,7 @@ int win32_main(int argc, char* argv[])
     
     MeshAsset meshAsset;
 
-#define MODEL_FILE_PATH "../../WPN_AKM.fbx"
+#define MODEL_FILE_PATH "../../materialball.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1202,6 +1202,7 @@ int win32_main(int argc, char* argv[])
         gfx::Image roughness;
         gfx::Image metallic;
         gfx::Image normal;
+        gfx::Image ao;
 
         float roughnessScalar = 1.0f;
         float metallicScalar = 0.0f;
@@ -1327,6 +1328,35 @@ int win32_main(int argc, char* argv[])
             metalDesc.initialDataSizes = &size;
             materials[i].normal = gfx::CreateImage(gfxDevice, &metalDesc);
             if (!GFX_CHECK_RESOURCE(materials[i].normal)) {
+                GT_LOG_ERROR("Renderer", "Failed to create texture");
+            }
+            stbi_image_free(image);
+        }
+
+        {   // ao
+            int width, height, numComponents;
+            snprintf(fileNameBuf, 512, "../../ao%llu.png", i);
+            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
+            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+            if (image == NULL) {
+                GT_LOG_ERROR("Assets", "Failed to load image %s: %s", fileNameBuf, stbi_failure_reason());
+            }
+            //assert(numComponents == 4);
+
+            gfx::ImageDesc metalDesc;
+            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+            metalDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+            metalDesc.width = width;
+            metalDesc.height = height;
+            metalDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+            metalDesc.samplerDesc = &defaultSamplerStateDesc;
+            metalDesc.numDataItems = 1;
+            void* data[] = { image };
+            size_t size = sizeof(stbi_uc) * width * height * 4;
+            metalDesc.initialData = data;
+            metalDesc.initialDataSizes = &size;
+            materials[i].ao = gfx::CreateImage(gfxDevice, &metalDesc);
+            if (!GFX_CHECK_RESOURCE(materials[i].ao)) {
                 GT_LOG_ERROR("Renderer", "Failed to create texture");
             }
             stbi_image_free(image);
@@ -1556,11 +1586,6 @@ int win32_main(int argc, char* argv[])
     }
 
     gfx::PipelineStateDesc meshPipelineState;
-    meshPipelineState.blendState.enableBlend = true;
-    meshPipelineState.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
-    meshPipelineState.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
-    meshPipelineState.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
-    //meshPipelineState.rasterState.cullMode = gfx::CullMode::CULL_FRONT;
     if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
         meshPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
     }
@@ -1809,7 +1834,7 @@ int win32_main(int argc, char* argv[])
     meshDrawCall.psImageInputs[1] = materials[0].roughness;
     meshDrawCall.psImageInputs[2] = materials[0].metallic;
     meshDrawCall.psImageInputs[3] = materials[0].normal;
-    meshDrawCall.psImageInputs[4] = paintDiffuseRT;
+    meshDrawCall.psImageInputs[4] = materials[0].ao;
     meshDrawCall.psImageInputs[5] = paintRoughnessRT;
     meshDrawCall.psImageInputs[6] = paintMetallicRT;
     meshDrawCall.psImageInputs[7] = paintNormalRT;
@@ -1827,7 +1852,7 @@ int win32_main(int argc, char* argv[])
     cubemapDrawCall.pipelineState = cubemapPipeline;
     cubemapDrawCall.vsConstantInputs[0] = cBuffer;
     cubemapDrawCall.psImageInputs[0] = cubemapTexture;
-    cubemapDrawCall.psImageInputs[1] = hdrDiffuse[0];
+    cubemapDrawCall.psImageInputs[1] = hdrCubemap[0];
 
 
     gfx::DrawCall cubePaintDrawCall;
@@ -2156,7 +2181,7 @@ int win32_main(int argc, char* argv[])
                     "Cubemap 0", "Cubemap 1", "Cubemap 2", "Cubemap 3", "Cubemap 4", "Cubemap 5", "Cubemap 6"
                 };
                 if (ImGui::Combo("Current cubemap", &currentCubemapIndex, names, NUM_CUBEMAPS)) {
-                    cubemapDrawCall.psImageInputs[1] = hdrDiffuse[currentCubemapIndex];
+                    cubemapDrawCall.psImageInputs[1] = hdrCubemap[currentCubemapIndex];
                     meshDrawCall.psImageInputs[9] = hdrCubemap[currentCubemapIndex];
                     meshDrawCall.psImageInputs[10] = hdrDiffuse[currentCubemapIndex];
                 }
@@ -2285,6 +2310,11 @@ int win32_main(int argc, char* argv[])
                             ImGui::Text("Normal Map");
                             ImGui::Image((ImTextureID)(uintptr_t)materials[i].normal.id, ImVec2(256, 256));
                             
+                        }
+                        if (GFX_CHECK_RESOURCE(materials[i].ao)) {
+                            ImGui::Text("AO Map");
+                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].ao.id, ImVec2(256, 256));
+
                         }
                         ImGui::EndChild();
                         ImGui::TreePop();
@@ -2573,6 +2603,8 @@ int win32_main(int argc, char* argv[])
             meshDrawCall.psImageInputs[1] = materials[matIndex].roughness;
             meshDrawCall.psImageInputs[2] = materials[matIndex].metallic;
             meshDrawCall.psImageInputs[3] = materials[matIndex].normal;
+            meshDrawCall.psImageInputs[4] = materials[matIndex].ao;
+
             gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &meshDrawCall);
         }
         gfx::EndRenderPass(gfxDevice, cmdBuffer);

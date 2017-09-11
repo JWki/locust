@@ -37,8 +37,9 @@ sampler   sampler2 : register(s2);
 Texture2D normalMap : register(t3);
 sampler   sampler6 : register(s3);
 
-Texture2D paintDiffuse : register(t4);
+Texture2D aoMap : register(t4);
 sampler   sampler3 : register(s4);
+
 Texture2D paintRoughness : register(t5);
 sampler   sampler4 : register(s5);
 Texture2D paintMetallic : register(t6);
@@ -161,7 +162,7 @@ float3 ImportanceSampleGGX(float2 Xi, float3 N, float roughness)
     return normalize(sampleVec);
 }
 
-static const uint GLOBAL_SAMPLE_COUNT = 128u;
+static const uint GLOBAL_SAMPLE_COUNT = 512u;
 
 float3 FilterCubemap(Texture2D map, sampler smpl, float3 V, float3 H, float3 N, float roughness)
 {
@@ -194,10 +195,10 @@ float4 main(PixelInput input) : SV_TARGET
     float3 N = normalize(input.normal).xyz;
     //float3 paintN = paintNormal.Sample(sampler8, input.uv).rgb;
     
-    //N = normalMap.Sample(sampler6, input.uv).rgb;
-    //N = N * 2.0f - 1.0f;
+    N = normalMap.Sample(sampler6, input.uv).rgb;
+    N = N * 2.0f - 1.0f;
     //N = blend_rnm(N, paintN);
-    //N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
+    N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
 
     //return float4(N * 0.5f + 0.5f, 1.0f);
 
@@ -205,12 +206,11 @@ float4 main(PixelInput input) : SV_TARGET
     float3 L = normalize(-LightDir.xyz);
     float3 H = normalize(L + V);
  
-    if (dot(N, V) < 0.0f) {
-        discard;
-    } 
 
     //float4 paintColor = paintDiffuse.Sample(sampler1, input.uv.xy);
     float4 albedo = pow(diffuseMap.Sample(sampler0, input.uv.xy), 2.2f); // * paintColor.a + float4(paintColor.rgb, 1.0f);
+    float3 ao = aoMap.Sample(sampler3, input.uv.xy).rgb;
+    //return float4(ao, 1.0f);
 
     float roughness = roughnessMap.Sample(sampler1, input.uv.xy).r; // *paintColor.a + roughness;
     float metallic = metallicMap.Sample(sampler2, input.uv.xy).r; // *paintColor.a + metallic;
@@ -272,12 +272,9 @@ float4 main(PixelInput input) : SV_TARGET
         float2 envBRDF = brdfLUT.Sample(sampler11, NdotV, roughness).rg;
         float3 specularAmbient = prefilteredSpecular * (F * envBRDF.x + envBRDF.y);
 
-        indirectLight = diffuseAmbient + specularAmbient;
+        indirectLight = (diffuseAmbient + specularAmbient) * ao;
     
     }
-    
-    //return float4(NdotV, 0.0f, 0.0f, 1.0f);
-
 
     float3 totalLighting = directLight + indirectLight;
     //totalLighting = indirectLight;
