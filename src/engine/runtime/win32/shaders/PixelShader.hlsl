@@ -163,7 +163,7 @@ float3 ImportanceSampleGGX(float2 Xi, float3 N, float roughness)
 
 static const uint GLOBAL_SAMPLE_COUNT = 128u;
 
-float3 FilterCubemap(float3 V, float3 H, float3 N, float roughness)
+float3 FilterCubemap(Texture2D map, sampler smpl, float3 V, float3 H, float3 N, float roughness)
 {
     const uint SAMPLE_COUNT = GLOBAL_SAMPLE_COUNT;
     float totalWeight = 0.0f;
@@ -177,7 +177,7 @@ float3 FilterCubemap(float3 V, float3 H, float3 N, float roughness)
         float NdotL = max(dot(N, L), 0.0f);
         if (NdotL > 0.0f)
         {
-            prefilteredColor += hdrCubemap.Sample(sampler9, SampleSphericalMap(L)).rgb * NdotL;
+            prefilteredColor += map.Sample(smpl, SampleSphericalMap(L)).rgb * NdotL;
             totalWeight += NdotL;
         }
     }
@@ -194,10 +194,10 @@ float4 main(PixelInput input) : SV_TARGET
     float3 N = normalize(input.normal).xyz;
     //float3 paintN = paintNormal.Sample(sampler8, input.uv).rgb;
     
-    N = normalMap.Sample(sampler6, input.uv).rgb;
-    N = N * 2.0f - 1.0f;
+    //N = normalMap.Sample(sampler6, input.uv).rgb;
+    //N = N * 2.0f - 1.0f;
     //N = blend_rnm(N, paintN);
-    N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
+    //N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
 
     //return float4(N * 0.5f + 0.5f, 1.0f);
 
@@ -268,7 +268,7 @@ float4 main(PixelInput input) : SV_TARGET
         float3 irradiance = hdrDiffuse.Sample(sampler10, SampleSphericalMap(N)).rgb;
         float3 diffuseAmbient = kD2 * irradiance * albedo.rgb;
 
-        float3 prefilteredSpecular = FilterCubemap(V, H, N, roughness);
+        float3 prefilteredSpecular = FilterCubemap(hdrCubemap, sampler9, V, H, N, roughness);
         float2 envBRDF = brdfLUT.Sample(sampler11, NdotV, roughness).rg;
         float3 specularAmbient = prefilteredSpecular * (F * envBRDF.x + envBRDF.y);
 
