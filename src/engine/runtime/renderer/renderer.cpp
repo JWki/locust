@@ -361,6 +361,16 @@ namespace renderer
     {
         util::Copy4x4FloatMatrixCM(transform, world->cameraProjection);
     }
+
+    float* GetCameraTransform(RenderWorld* world)
+    {
+        return world->cameraTransform;
+    }
+
+    float* GetCameraProjection(RenderWorld* world)
+    {
+        return world->cameraProjection;
+    }
    
     // @TODO this is SLOW AS FUCK
     void UpdateWorldState(RenderWorld* world, WorldSnapshot* snapshot)
@@ -974,17 +984,24 @@ namespace renderer
         return true;
     }
 
-
-    StaticMesh CreateStaticMesh(RenderWorld* world, uint32_t entityID, core::Asset mesh, core::Asset* materials, size_t numMaterials)
+    StaticMeshRenderable* AllocateStaticMesh(RenderWorld* world, StaticMesh* outID)
     {
         RenderableIndex* index;
         StaticMesh meshID;
-        if (!world->staticMeshIndices.Allocate(&index, &meshID.id)) { return { INVALID_ID }; }
-        
-        index->index = (uint32_t)world->firstFreeStaticMesh++;
-        if (index->index >= (uint32_t)world->config.renderablePoolSize) { return { INVALID_ID }; }
+        if (!world->staticMeshIndices.Allocate(&index, &meshID.id)) { return { nullptr }; }
 
-        StaticMeshRenderable* renderable = &world->staticMeshes[index->index];
+        index->index = (uint32_t)world->firstFreeStaticMesh++;
+        if (index->index >= (uint32_t)world->config.renderablePoolSize) { return { nullptr }; }
+        *outID = meshID;
+        return &world->staticMeshes[index->index];
+    }
+
+    StaticMesh CreateStaticMesh(RenderWorld* world, uint32_t entityID, core::Asset mesh, core::Asset* materials, size_t numMaterials)
+    {
+        StaticMesh meshID;
+        StaticMeshRenderable* renderable = AllocateStaticMesh(world, &meshID);
+        if (renderable == nullptr) { return { INVALID_ID }; }
+
         memset(renderable, 0x0, sizeof(StaticMeshRenderable));
 
         renderable->entityID = entityID;
@@ -1011,6 +1028,7 @@ namespace renderer
 
         memcpy(target, swap, sizeof(StaticMeshRenderable));
         
+        world->firstFreeStaticMesh--;
         world->staticMeshIndices.Free(mesh.id);
     }
 
@@ -1022,6 +1040,23 @@ namespace renderer
             }
         }
         return { INVALID_ID };
+    }
+
+    StaticMesh CopyStaticMesh(RenderWorld* world, uint32_t entityID, StaticMesh mesh)
+    {
+        auto* index = world->staticMeshIndices.Get(mesh.id);
+        assert(HANDLE_GENERATION(mesh.id) == index->generation);
+        StaticMeshRenderable* source = &world->staticMeshes[index->index];
+
+        StaticMesh meshID;
+        StaticMeshRenderable* target = AllocateStaticMesh(world, &meshID);
+        if (target == nullptr) { return { INVALID_ID }; }
+
+        memcpy(target, source, sizeof(StaticMeshRenderable));
+        target->entityID = entityID;
+        target->handle = meshID;
+
+        return meshID;
     }
 
     void GetMaterials(RenderWorld* world, StaticMesh mesh, core::Asset* outMaterials, size_t* outNumMaterials)
@@ -1247,7 +1282,9 @@ bool renderer_get_interface(renderer::RendererInterface* outInterface)
     outInterface->UpdateMaterialLibrary = &renderer::UpdateMaterialLibrary;
     outInterface->CreateStaticMesh = &renderer::CreateStaticMesh;
     outInterface->DestroyStaticMesh = &renderer::DestroyStaticMesh;
+
     outInterface->GetStaticMesh = &renderer::GetStaticMesh;
+    outInterface->CopyStaticMesh = &renderer::CopyStaticMesh;
 
     outInterface->Render = &renderer::Render;
     outInterface->RenderUI = &renderer::RenderUI;
@@ -1259,6 +1296,8 @@ bool renderer_get_interface(renderer::RendererInterface* outInterface)
 
     outInterface->SetCameraTransform = &renderer::SetCameraTransform;
     outInterface->SetCameraProjection = &renderer::SetCameraProjection;
+    outInterface->GetCameraTransform = &renderer::GetCameraTransform;
+    outInterface->GetCameraProjection = &renderer::GetCameraProjection;
 
     outInterface->UpdateWorldState = &renderer::UpdateWorldState;
 

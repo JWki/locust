@@ -9,6 +9,7 @@
 #include "ImGui/imgui.h"
 
 #include <engine/runtime/core/api_registry.h>
+#include <engine/runtime/renderer/renderer.h>
 
 #include <fontawesome/IconsFontAwesome.h>
 
@@ -77,6 +78,9 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
 }
 
 
+#define MOUSE_LEFT 0
+#define MOUSE_RIGHT 1
+#define MOUSE_MIDDLE 2
 
 class SimpleFilterPolicy
 {
@@ -216,16 +220,28 @@ struct State {
 
     bool isEditing = false;
     
+    float camYaw = 0.0f;
+    float camPitch = 0.0f;
+    fnd::math::float3 camPos;
+    fnd::math::float3 camOffset = fnd::math::float3(0.0f, 0.0f, -5.0f);
 
-    char padding[1024 * 1024 - 
+    float cameraPos[16];
+    float cameraRotation[16];
+    float cameraOffset[16];
+    float camOffsetWithRotation[16];
+
+    /*char padding[1024 * 1024 - 
         ((  sizeof(core::api_registry::APIRegistry*) +
             sizeof(core::api_registry::APIRegistryInterface*) +
             sizeof(EntityNodeList) +
             sizeof(entity_system::Entity) * 2 +     // @NOTE because padding between member fields (members are padded to 64 bit in this struct)
             sizeof(bool) * 2 +
-            sizeof(EntityNode) * ENTITY_NODE_POOL_SIZE))];
+            sizeof(EntityNode) * ENTITY_NODE_POOL_SIZE + 
+            sizeof(float) * 2 + 
+            sizeof(fnd::math::float3) * 2 +
+            sizeof(float) * 16 * 3))];*/
 };
-static_assert(sizeof(State) == 1024 * 1024, "");
+//static_assert(sizeof(State) == 1024 * 1024, "");
 
 extern "C" __declspec(dllexport)
 void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiRegistryInterface)
@@ -233,11 +249,18 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     State* state = (State*)GT_NEW(State, memoryArena);
     state->apiRegistry = apiRegistry;
     state->apiRegistryInterface = apiRegistryInterface;
+
+
+    util::Make4x4FloatMatrixIdentity(state->cameraRotation);
+    util::Make4x4FloatMatrixIdentity(state->cameraOffset);
+    util::Make4x4FloatMatrixIdentity(state->camOffsetWithRotation);
+    util::Make4x4FloatTranslationMatrixCM(state->cameraPos, { 0.0f, -0.4f, 2.75f });
+
     return state;
 }
 
 extern "C" __declspec(dllexport)
-void Update(void* userData, ImGuiContext* guiContext, entity_system::World* world, float* camera, float* projection, fnd::memory::LinearAllocator* frameAllocator, entity_system::Entity** entitySelection, size_t* numEntitiesSelected)
+void Update(void* userData, ImGuiContext* guiContext, entity_system::World* world, renderer::RenderWorld* renderWorld, fnd::memory::LinearAllocator* frameAllocator, entity_system::Entity** entitySelection, size_t* numEntitiesSelected)
 {
     using namespace fnd;
     ConsoleLogger consoleLogger;
@@ -247,11 +270,159 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     auto entitySystem = (entity_system::EntitySystemInterface*) state->apiRegistryInterface->Get(state->apiRegistry, ENTITY_SYSTEM_API_NAME);
     assert(entitySystem);
 
+    auto renderer = (renderer::RendererInterface*) state->apiRegistryInterface->Get(state->apiRegistry, RENDERER_API_NAME);
+    assert(renderer);
+
+    float camera[16];
+    float projection[16];
+    util::Copy4x4FloatMatrixCM(renderer->GetCameraTransform(renderWorld), camera);
+    util::Copy4x4FloatMatrixCM(renderer->GetCameraProjection(renderWorld), projection);
+    
+    util::Make4x4FloatProjectionMatrixCMLH(projection, 1.0f, (float)1920, (float)1080, 0.1f, 1000.0f);
+    renderer->SetCameraProjection(renderWorld, projection);
+
     ImGui::SetCurrentContext(guiContext);
     
     ImGuizmo::BeginFrame();
 
 
+    enum CameraMode : int {
+        CAMERA_MODE_ARCBALL = 0,
+        CAMERA_MODE_FREE_FLY = 1
+    };
+
+    const char* modeStrings[] = { "Arcball", "Free Fly" };
+    static CameraMode mode = CAMERA_MODE_ARCBALL;
+
+    int WINDOW_WIDTH = 1920;
+    int WINDOW_HEIGHT = 1080;
+
+    if (mode == CAMERA_MODE_ARCBALL) {
+        if (ImGui::IsMouseDragging(MOUSE_RIGHT) || ImGui::IsMouseDragging(MOUSE_MIDDLE)) {
+            if (ImGui::IsMouseDown(MOUSE_RIGHT)) {
+                if (!ImGui::IsMouseDown(MOUSE_MIDDLE)) {
+                    math::float3 camPosDelta;
+                    camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                    camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+
+                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, state->cameraRotation);
+                    state->camPos += worldSpaceDelta;
+                }
+                else {
+                    math::float2 delta;
+                    delta.x = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                    delta.y = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+                    float sign = -1.0f;
+                    sign = delta.y > 0.0f ? 1.0f : -1.0f;
+                    state->camOffset.z -= math::Length(delta) * sign;
+                    state->camOffset.z = state->camOffset.z > -0.1f ? -0.1f : state->camOffset.z;
+                }
+            }
+            else {
+                state->camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
+                state->camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
+            }
+            ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
+            ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
+        }
+    }
+    else {
+        state->camOffset = math::float3(0.0f);
+        if (ImGui::IsMouseDragging(MOUSE_RIGHT) || ImGui::IsMouseDragging(MOUSE_MIDDLE)) {
+
+            if (ImGui::IsMouseDown(MOUSE_RIGHT)) {
+                if (!ImGui::IsMouseDown(MOUSE_MIDDLE)) {
+                    math::float3 camPosDelta;
+                    camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                    camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, state->cameraRotation);
+                    state->camPos += worldSpaceDelta;
+                }
+                else {
+                    math::float3 camPosDelta;
+                    camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
+                    camPosDelta.z = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
+                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, state->cameraRotation);
+                    state->camPos += worldSpaceDelta;
+                }
+            }
+            else {
+                state->camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
+                state->camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
+            }
+            ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
+            ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
+        }
+    }
+
+    ImGui::Begin(ICON_FA_CAMERA "  Camera"); {
+        static float camOffsetStore = 0.0f;
+
+        if (ImGui::Combo("Mode", (int*)&mode, modeStrings, 2)) {
+            if (mode == CAMERA_MODE_ARCBALL) {
+                // we were in free cam mode before
+                // -> get stored cam offset, calculate what state->camPos must be based off that
+                state->camOffset.z = camOffsetStore;
+                util::Make4x4FloatTranslationMatrixCM(state->cameraOffset, state->camOffset);
+                util::MultiplyMatricesCM(state->cameraRotation, state->cameraOffset, state->camOffsetWithRotation);
+                math::float3 transformedOrigin = util::TransformPositionCM(math::float3(), state->camOffsetWithRotation);
+                state->camPos = state->camPos - transformedOrigin;
+            }
+            else {
+                // we were in arcball mode before
+                // -> fold camera offset + rotation into cam pos, preserve offset 
+                float fullTransform[16];
+                util::Make4x4FloatTranslationMatrixCM(state->cameraPos, state->camPos);
+                util::MultiplyMatricesCM(state->cameraPos, state->camOffsetWithRotation, fullTransform);
+                state->camPos = util::Get4x4FloatMatrixColumnCM(fullTransform, 3).xyz;
+                camOffsetStore = state->camOffset.z;
+                state->camOffset.z = 0.0f;
+            }
+        }
+
+
+        ImGui::DragFloat("Camera Yaw", &state->camYaw);
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_UNDO "##yaw")) {
+            state->camYaw = 0.0f;
+        }
+
+        ImGui::DragFloat("Camera Pitch", &state->camPitch);
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_UNDO "##pitch")) {
+            state->camPitch = 0.0f;
+        }
+
+        ImGui::DragFloat3("Camera Offset", (float*)&state->camOffset, 0.01f);
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_UNDO "##offset")) {
+            state->camOffset = math::float3(0.0f);
+        }
+
+        ImGui::DragFloat3("Camera Pos", (float*)&state->camPos, 0.01f);
+        ImGui::SameLine();
+        if (ImGui::Button(ICON_FA_UNDO "##pos")) {
+            state->camPos = math::float3(0.0f);
+        }
+    } ImGui::End();
+
+    float cameraRotX[16], cameraRotY[16];
+    util::Make4x4FloatRotationMatrixCMLH(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), state->camPitch * (3.141f / 180.0f));
+    util::Make4x4FloatRotationMatrixCMLH(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), state->camYaw * (3.141f / 180.0f));
+
+
+    util::Make4x4FloatTranslationMatrixCM(state->cameraOffset, state->camOffset);
+    util::Make4x4FloatTranslationMatrixCM(state->cameraPos, state->camPos);
+    util::MultiplyMatricesCM(cameraRotY, cameraRotX, state->cameraRotation);
+
+    util::MultiplyMatricesCM(state->cameraRotation, state->cameraOffset, state->camOffsetWithRotation);
+    util::MultiplyMatricesCM(state->cameraPos, state->camOffsetWithRotation, camera);
+
+    float camInverse[16];
+    util::Inverse4x4FloatMatrixCM(camera, camInverse);
+    util::Copy4x4FloatMatrixCM(camInverse, camera);
+
+    renderer->SetCameraTransform(renderWorld, camera);
 
     ImGuiWindowFlags windowFlags = 0;
     if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer", nullptr, windowFlags)) {
@@ -279,6 +450,12 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 EntityNode* it = state->entitySelection.head;
                 while (it) {
                     entitySystem->DestroyEntity(world, it->ent);
+                    renderer::StaticMesh meshComponent = renderer->GetStaticMesh(renderWorld, it->ent.id);
+                    if (meshComponent.id != renderer::INVALID_ID) {
+                        renderer->DestroyStaticMesh(renderWorld, meshComponent);
+                    }
+
+
                     it = it->next;
                 }
                 ClearList(&state->entitySelection);
@@ -289,6 +466,12 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 EntityNodeList copies;
                 while (it) {
                     auto newEntity = entitySystem->CopyEntity(world, it->ent);
+
+                    renderer::StaticMesh meshComponent = renderer->GetStaticMesh(renderWorld, it->ent.id);
+                    if (meshComponent.id != renderer::INVALID_ID) {
+                        renderer->CopyStaticMesh(renderWorld, newEntity.id, meshComponent);
+                    }
+
                     EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
                     selectionNode->ent = newEntity;
                     AddToList(&copies, selectionNode);

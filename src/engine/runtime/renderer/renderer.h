@@ -110,6 +110,7 @@ namespace renderer
     void DestroyStaticMesh(RenderWorld* world, StaticMesh mesh);
 
     StaticMesh GetStaticMesh(RenderWorld* world, uint32_t entityID);
+    StaticMesh CopyStaticMesh(RenderWorld* world, uint32_t entityID, StaticMesh mesh);
 
     void GetMaterials(RenderWorld* world, StaticMesh mesh, core::Asset* outMaterials, size_t* outNumMaterials);
 
@@ -118,6 +119,9 @@ namespace renderer
 
     void SetCameraTransform(RenderWorld* world, float* transform);
     void SetCameraProjection(RenderWorld* world, float* transform);
+
+    float* GetCameraTransform(RenderWorld* world);
+    float* GetCameraProjection(RenderWorld* world);
 
     void UpdateWorldState(RenderWorld* world, WorldSnapshot* snapshot);
 
@@ -131,6 +135,9 @@ namespace renderer
         decltype(CreateStaticMesh)*         CreateStaticMesh = nullptr;
         decltype(DestroyStaticMesh)*        DestroyStaticMesh = nullptr;
         decltype(GetStaticMesh)*            GetStaticMesh = nullptr;
+
+        decltype(CopyStaticMesh)*           CopyStaticMesh = nullptr;
+
         decltype(Render)*                   Render = nullptr;
         decltype(RenderUI)*                 RenderUI = nullptr;
 
@@ -141,6 +148,9 @@ namespace renderer
 
         decltype(SetCameraTransform)*       SetCameraTransform = nullptr;
         decltype(SetCameraProjection)*      SetCameraProjection = nullptr;
+        
+        decltype(GetCameraTransform)*       GetCameraTransform = nullptr;
+        decltype(GetCameraProjection)*      GetCameraProjection = nullptr;
 
         decltype(UpdateWorldState)*         UpdateWorldState = nullptr;
     };

@@ -943,12 +943,6 @@ int win32_main(int argc, char* argv[])
     }
 
 
-    float proj[16];
-    float cameraPos[16];
-    float camera[16];
-    util::Make4x4FloatProjectionMatrixCMLH(proj, 1.0f, (float)WINDOW_WIDTH,  (float)WINDOW_HEIGHT, 0.1f, 1000.0f);
-    util::Make4x4FloatTranslationMatrixCM(cameraPos, { 0.0f, -0.4f, 2.75f });
-    
     HMODULE fbxImporter = LoadLibraryA("fbx_importer.dll");
     if (!fbxImporter) {
         GT_LOG_ERROR("Assets", "Failed to load %s", "fbx_importer.dll");
@@ -1112,23 +1106,10 @@ int win32_main(int argc, char* argv[])
     double accumulator = 0.0;
 
 
-    float camYaw = 0.0f;
-    float camPitch = 0.0f;
-    math::float3 camPos;
-    math::float3 camOffset(0.0f, 0.0f, -5.0f);
-
-    float cameraRotation[16];
-    util::Make4x4FloatMatrixIdentity(cameraRotation);
-    float cameraOffset[16];
-    util::Make4x4FloatMatrixIdentity(cameraOffset);
-    float camOffsetWithRotation[16];
-    util::Make4x4FloatMatrixIdentity(camOffsetWithRotation);
-
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
 
-    
 
     entity_system::World* mainWorld;
     entity_system::WorldConfig worldConfig;
@@ -1146,11 +1127,14 @@ int win32_main(int argc, char* argv[])
 
     entity_system::EntitySystemInterface entitySystem;
     entity_system_get_interface(&entitySystem);
+
+    renderer::RendererInterface rendererInterface;
+    renderer_get_interface(&rendererInterface);
     
     core::api_registry::Add(apiRegistry, ENTITY_SYSTEM_API_NAME, &entitySystem);
+    core::api_registry::Add(apiRegistry, RENDERER_API_NAME, &rendererInterface);
 
-
-    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*, float*, float*, fnd::memory::LinearAllocator*, entity_system::Entity**, size_t*);
+    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*, renderer::RenderWorld*, fnd::memory::LinearAllocator*, entity_system::Entity**, size_t*);
     void*(*InitializeModule)(memory::MemoryArenaBase*, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiInterface);
 
     char tempPath[512] = "";
@@ -1270,15 +1254,11 @@ int win32_main(int argc, char* argv[])
             size_t numEntitiesSelected = 0;
 
             if (UpdateModule) {
-                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld, camera, proj, &frameAllocator, &entitySelection, &numEntitiesSelected);
+                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld, renderWorld, &frameAllocator, &entitySelection, &numEntitiesSelected);
             }
 
-            math::float3 meanPosition;
-            for (size_t i = 0; i < numEntitiesSelected; ++i) {
-                meanPosition += util::Get4x4FloatMatrixColumnCM(entity_system::GetEntityTransform(mainWorld, entitySelection[i]), 3).xyz;
-            }
-            meanPosition /= (float)numEntitiesSelected;
-          
+
+
             entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
 
             for (size_t i = 0; i < numEntities; ++i) {
@@ -1350,144 +1330,6 @@ int win32_main(int argc, char* argv[])
             ImGui::End();
 
 
-            enum CameraMode : int {
-                CAMERA_MODE_ARCBALL = 0,
-                CAMERA_MODE_FREE_FLY = 1
-            };
-
-            const char* modeStrings[] = { "Arcball", "Free Fly" };
-            static CameraMode mode = CAMERA_MODE_ARCBALL;
-
-            if(mode == CAMERA_MODE_ARCBALL) {
-                if (ImGui::IsMouseDragging(MOUSE_RIGHT) || ImGui::IsMouseDragging(MOUSE_MIDDLE)) {
-                    if (ImGui::IsMouseDown(MOUSE_RIGHT)) {
-                        if (!ImGui::IsMouseDown(MOUSE_MIDDLE)) {
-                            math::float3 camPosDelta;
-                            camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
-                            camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
-
-                            math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, cameraRotation);
-                            camPos += worldSpaceDelta;
-                        }
-                        else {
-                            math::float2 delta;
-                            delta.x = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
-                            delta.y = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
-                            float sign = -1.0f;
-                            sign = delta.y > 0.0f ? 1.0f : -1.0f;
-                            camOffset.z -= math::Length(delta) * sign;
-                            camOffset.z = camOffset.z > -0.1f ? -0.1f : camOffset.z;
-                        }
-                    }
-                    else {
-                        camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
-                        camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
-                    }
-                    ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
-                    ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
-                }
-            }
-            else {
-                camOffset = math::float3(0.0f);
-                if (ImGui::IsMouseDragging(MOUSE_RIGHT) || ImGui::IsMouseDragging(MOUSE_MIDDLE)) {
-                   
-                    if (ImGui::IsMouseDown(MOUSE_RIGHT)) {
-                        if (!ImGui::IsMouseDown(MOUSE_MIDDLE)) {
-                            math::float3 camPosDelta;
-                            camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
-                            camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
-                            math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, cameraRotation);
-                            camPos += worldSpaceDelta;
-                        }
-                        else {
-                            math::float3 camPosDelta;
-                            camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
-                            camPosDelta.z = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
-                            math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, cameraRotation);
-                            camPos += worldSpaceDelta;
-                        }
-                    }
-                    else {
-                        camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
-                        camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
-                    }
-                    ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
-                    ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
-                }
-            }
-
-            ImGui::Begin(ICON_FA_CAMERA "  Camera"); {
-                static float camOffsetStore = 0.0f;
-                
-                if (ImGui::Combo("Mode", (int*)&mode, modeStrings, 2)) {
-                    if (mode == CAMERA_MODE_ARCBALL) {
-                        // we were in free cam mode before
-                        // -> get stored cam offset, calculate what camPos must be based off that
-                        camOffset.z = camOffsetStore;
-                        util::Make4x4FloatTranslationMatrixCM(cameraOffset, camOffset);
-                        util::MultiplyMatricesCM(cameraRotation, cameraOffset, camOffsetWithRotation);
-                        math::float3 transformedOrigin = util::TransformPositionCM(math::float3(), camOffsetWithRotation);
-                        camPos = camPos - transformedOrigin;
-                    }
-                    else {
-                        // we were in arcball mode before
-                        // -> fold camera offset + rotation into cam pos, preserve offset 
-                        float fullTransform[16];
-                        util::Make4x4FloatTranslationMatrixCM(cameraPos, camPos);
-                        util::MultiplyMatricesCM(cameraPos, camOffsetWithRotation, fullTransform);
-                        camPos = util::Get4x4FloatMatrixColumnCM(fullTransform, 3).xyz;
-                        camOffsetStore = camOffset.z;
-                        camOffset.z = 0.0f;
-                    }
-                }
-               
-                if (mode == CAMERA_MODE_ARCBALL) {
-                    ImGui::SameLine();
-                    if (ImGui::Button("Focus Selection")) {
-                        camPos = meanPosition;
-                    }
-                }
-
-                ImGui::DragFloat("Camera Yaw", &camYaw);    
-                ImGui::SameLine();
-                if (ImGui::Button(ICON_FA_UNDO "##yaw")) {
-                    camYaw = 0.0f;
-                }
-                
-                ImGui::DragFloat("Camera Pitch", &camPitch);
-                ImGui::SameLine();
-                if (ImGui::Button(ICON_FA_UNDO "##pitch")) {
-                    camPitch = 0.0f;
-                }
-
-                ImGui::DragFloat3("Camera Offset", (float*)&camOffset, 0.01f);
-                ImGui::SameLine();
-                if (ImGui::Button(ICON_FA_UNDO "##offset")) {
-                    camOffset = math::float3(0.0f);
-                }
-
-                ImGui::DragFloat3("Camera Pos", (float*)&camPos, 0.01f);
-                ImGui::SameLine();
-                if (ImGui::Button(ICON_FA_UNDO "##pos")) {
-                    camPos = math::float3(0.0f);
-                }
-            } ImGui::End();
-
-            float cameraRotX[16], cameraRotY[16];
-            util::Make4x4FloatRotationMatrixCMLH(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), camPitch * (3.141f / 180.0f));
-            util::Make4x4FloatRotationMatrixCMLH(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), camYaw * (3.141f / 180.0f));
-            
-           
-            util::Make4x4FloatTranslationMatrixCM(cameraOffset, camOffset);
-            util::Make4x4FloatTranslationMatrixCM(cameraPos, camPos);
-            util::MultiplyMatricesCM(cameraRotY, cameraRotX, cameraRotation);
-
-            util::MultiplyMatricesCM(cameraRotation, cameraOffset, camOffsetWithRotation);
-            util::MultiplyMatricesCM(cameraPos, camOffsetWithRotation, camera);
-
-            float camInverse[16];
-            util::Inverse4x4FloatMatrixCM(camera, camInverse);
-            util::Copy4x4FloatMatrixCM(camInverse, camera);
 
             /* End sim frame */
             ImGui::Render();
@@ -1496,9 +1338,6 @@ int win32_main(int argc, char* argv[])
         }
         if (didUpdate) {
                 
-            renderer::SetCameraTransform(renderWorld, camera);
-            renderer::SetCameraProjection(renderWorld, proj);
-
             renderer::WorldSnapshot worldSnapshot;
             
             entity_system::GetAllEntities(mainWorld, entityList, &numEntities);

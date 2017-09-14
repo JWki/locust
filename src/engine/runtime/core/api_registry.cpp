@@ -51,6 +51,7 @@ namespace core
                     memcpy(node->name, name, len);
                     node->interface = interface;
                     node->isFree = false;
+                    return true;
                 }
             }
             return false;
