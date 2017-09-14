@@ -1257,8 +1257,6 @@ int win32_main(int argc, char* argv[])
                 UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld, renderWorld, &frameAllocator, &entitySelection, &numEntitiesSelected);
             }
 
-
-
             entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
 
             for (size_t i = 0; i < numEntities; ++i) {
@@ -1303,24 +1301,6 @@ int win32_main(int argc, char* argv[])
             static math::float3 mousePosScreenCache(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
             math::float3 mousePosScreen(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
 
-            static float brushSizeSetting = 100.0f;
-            float brushSize = brushSizeSetting;
-            static bool modulateSizeWithRate = false;
-            static float maxRate = 50.0;
-            float rate = math::Length(mousePosScreen - mousePosScreenCache);
-            //rate = rate <= 1.0f ? rate : 1.0f;
-            if (modulateSizeWithRate) {
-                if (maxRate >= 0.0f) {
-                    brushSize = brushSizeSetting * ((maxRate - rate) / maxRate);
-                }
-                else {
-                    brushSize = brushSizeSetting * (1.0f + (rate / -maxRate));
-                }
-                brushSize = brushSize > brushSizeSetting * 0.1f ? brushSize : brushSizeSetting * 0.1f;
-            }
-            float stepSize = brushSize * 0.25f / rate;
-             
-
             /* Basic UI: frame statistics */
             ImGui::SetNextWindowPos(ImVec2(10.0f, ImGui::GetIO().DisplaySize.y - 50));
             ImGui::Begin("#framestatistics", (bool*)0, ImVec2(0, 0), 0.45f, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
@@ -1328,8 +1308,6 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Mouse Screen Pos: %f, %f", mousePosScreen.x, mousePosScreen.y);
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
-
-
 
             /* End sim frame */
             ImGui::Render();
