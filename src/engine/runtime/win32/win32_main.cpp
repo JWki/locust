@@ -958,6 +958,7 @@ int win32_main(int argc, char* argv[])
 
     core::Asset textureAsset1 = { 5 };
     core::Asset textureAsset2 = { 6 };
+    core::Asset textureAsset3 = { 9 };
 
     {
         int width, height, numComponents;
@@ -1020,6 +1021,36 @@ int win32_main(int argc, char* argv[])
     }
 
     {
+        int width, height, numComponents;
+        auto image = stbi_load("../../diffuse2.png", &width, &height, &numComponents, 4);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::SamplerDesc defaultSamplerStateDesc;
+        gfx::ImageDesc diffDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        diffDesc.width = width;
+        diffDesc.height = height;
+        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+        diffDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+        diffDesc.initialData = data;
+        diffDesc.initialDataSizes = &size;
+
+        renderer::TextureDesc texDesc;
+        texDesc.desc = diffDesc;
+        renderer::UpdateTextureLibrary(renderWorld, textureAsset3, &texDesc);
+
+        stbi_image_free(image);
+    }
+
+    {
         const char* MODEL_FILE_PATH = "../../Cube.fbx";
         {
             size_t modelFileSize = 0;
@@ -1048,7 +1079,6 @@ int win32_main(int argc, char* argv[])
         matDesc.occlusionMap = textureAsset1;
         renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
-
     
     {
         const char* MODEL_FILE_PATH = "../../materialball.fbx";
@@ -1080,6 +1110,37 @@ int win32_main(int argc, char* argv[])
         renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
     
+
+    {
+        const char* MODEL_FILE_PATH = "../../WPN_AKM.fbx";
+        {
+            size_t modelFileSize = 0;
+            void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
+            if (modelFileData && modelFileSize > 0) {
+                GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
+                bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
+                if (!res) {
+                    GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
+                }
+            }
+            else {
+                GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
+            }
+        }
+
+        core::Asset assetID = { 7 };    // reserve some asset ID
+        renderer::UpdateMeshLibrary(renderWorld, assetID, meshDescs, numSubmeshes);
+
+        core::Asset materialAsset = { 8 };
+        renderer::MaterialDesc matDesc;
+        matDesc.baseColorMap = textureAsset3;
+        matDesc.roughnessMap = textureAsset3;
+        matDesc.metalnessMap = textureAsset3;
+        matDesc.normalVecMap = textureAsset3;
+        matDesc.occlusionMap = textureAsset3;
+        renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
+    }
+
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
     ImGui_ImplDX11_Init(g_hwnd, gfxDevice);
@@ -1263,16 +1324,26 @@ int win32_main(int argc, char* argv[])
                 auto ent = entityList[i];
                 if (renderer::GetStaticMesh(renderWorld, ent.id).id == 0) {
                     core::Asset assetID;
-                    core::Asset materialAsset;
+                    core::Asset materialAsset[128];
+                    core::Asset matID;
                     if (i % 2 == 0) {
-                        assetID.id = 1;
-                        materialAsset.id = 2;
+                        if (i % 4 != 0) {
+                            assetID.id = 1;
+                            matID.id = 2;
+                        }
+                        else {
+                            assetID.id = 7;
+                            matID.id = 8;
+                        }
                     }
                     else {
                         assetID.id = 3;
-                        materialAsset.id = 4;
+                        matID.id = 4;
                     }
-                    renderer::CreateStaticMesh(renderWorld, ent.id, assetID, &materialAsset, 1);
+                    for (size_t i = 0; i < 128; ++i) {
+                        materialAsset[i] = matID;
+                    }
+                    renderer::CreateStaticMesh(renderWorld, ent.id, assetID, materialAsset, 128);
 
                 }
             }

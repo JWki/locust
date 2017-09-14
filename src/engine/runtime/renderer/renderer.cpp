@@ -904,6 +904,7 @@ namespace renderer
             MeshData* next; 
             if (!world->meshLibrary.pool.Allocate(&next, &id)) { return false; }    // @TODO error handling
             it->nextSubmesh = next;
+            it = next;
         }
 
         assetToData->data = first;

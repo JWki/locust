@@ -224,8 +224,8 @@ float4 main(PixelInput input) : SV_TARGET
     }
 
     // @HACK delete this code
-    roughness = 0.375f;
-    metallic = 1.0f;
+    roughness = 0.0f;
+    metallic = 0.0f;
 
     roughness = clamp(roughness, 0.01f, 1.0f);
     metallic = clamp(metallic, 0.04f, 0.99f);
