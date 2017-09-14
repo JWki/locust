@@ -136,7 +136,7 @@ void CalculateTangents(fnd::math::float3* vertexBuffer, fnd::math::float2* uvBuf
 
 
 
-bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, MeshAsset* outAsset)
+bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, renderer::MeshDesc* meshDescs, size_t* numSubmeshes)
 {
     using namespace fnd;
 
@@ -145,35 +145,30 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
     ofbx::IScene* scene = ofbx::load((const ofbx::u8*)fbxData, (int)fbxDataSize);
     if (!scene) { return false; }
 
-    uint32_t numVertices = 0;
     auto numMeshes = scene->getMeshCount();
+    *numSubmeshes = numMeshes;
+
     for (int i = 0; i < numMeshes; ++i) {
         const ofbx::Mesh* mesh = scene->getMesh(i);
         const ofbx::Geometry* geometry = mesh->getGeometry();
 
-        numVertices += geometry->getVertexCount();
-    }
+        auto meshDesc = &meshDescs[i];
 
-    outAsset->numVertices = outAsset->numIndices = numVertices;
+        size_t numVertices = geometry->getVertexCount();
+        meshDesc->indexFormat = numVertices > UINT16_MAX ? gfx::IndexFormat::INDEX_FORMAT_UINT32 : gfx::IndexFormat::INDEX_FORMAT_UINT16;
+        meshDesc->numElements += numVertices;
 
-    outAsset->vertexPositions = GT_NEW_ARRAY(math::float3, numVertices, arena);
-    outAsset->vertexNormals = GT_NEW_ARRAY(math::float3, numVertices, arena);
-    outAsset->vertexTangents = GT_NEW_ARRAY(math::float3, numVertices, arena);
-    outAsset->vertexUVs = GT_NEW_ARRAY(math::float2, numVertices, arena);
+        meshDesc->vertexData = GT_NEW_ARRAY(renderer::DefaultVertex, numVertices, arena);
+        meshDesc->vertexDataSize = sizeof(renderer::DefaultVertex) * numVertices;
 
-    outAsset->indexFormat = numVertices > UINT16_MAX ? MeshAsset::IndexFormat::UINT32 : MeshAsset::IndexFormat::UINT16;
-
-    if (outAsset->indexFormat == MeshAsset::IndexFormat::UINT16) {
-        outAsset->indices.as_uint16 = GT_NEW_ARRAY(uint16_t, numVertices, arena);
-    }
-    else {
-        outAsset->indices.as_uint32 = GT_NEW_ARRAY(uint32_t, numVertices, arena);
-    }
-
-    size_t vertexOffset = 0;
-    for (int i = 0; i < numMeshes; ++i) {
-        const ofbx::Mesh* mesh = scene->getMesh(i);
-        const ofbx::Geometry* geometry = mesh->getGeometry();
+        if (meshDesc->indexFormat == gfx::IndexFormat::INDEX_FORMAT_UINT16) {
+            meshDesc->indexData = GT_NEW_ARRAY(uint16_t, numVertices, arena);
+            meshDesc->indexDataSize = sizeof(uint16_t) * numVertices;
+        }
+        else {
+            meshDesc->indexData = GT_NEW_ARRAY(uint32_t, numVertices, arena);
+            meshDesc->indexDataSize = sizeof(uint32_t) * numVertices;
+        }
 
         ofbx::Matrix sourceGeometricTransform = mesh->getGeometricMatrix();
         ofbx::Matrix sourceGlobalTransform = mesh->getGlobalTransform();
@@ -186,12 +181,11 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
             globalTransform[i] = (float)sourceGlobalTransform.m[i];
         }
 
-        size_t numSubmeshVertices = geometry->getVertexCount();
+        math::float3* positionBuffer = GT_NEW_ARRAY(math::float3, numVertices, arena);
+        math::float3* normalBuffer = GT_NEW_ARRAY(math::float3, numVertices, arena);
+        math::float3* tangentBuffer = GT_NEW_ARRAY(math::float3, numVertices, arena);
+        math::float2* uvBuffer = GT_NEW_ARRAY(math::float2, numVertices, arena);
 
-        math::float3* positionBuffer = outAsset->vertexPositions + vertexOffset;
-        math::float3* normalBuffer = outAsset->vertexNormals + vertexOffset;
-        math::float3* tangentBuffer = outAsset->vertexTangents + vertexOffset;
-        math::float2* uvBuffer = outAsset->vertexUVs + vertexOffset;
 
         const ofbx::Vec3* sourcePositionBuffer = geometry->getVertices();
         const ofbx::Vec3* sourceNormalBuffer = geometry->getNormals();
@@ -206,78 +200,91 @@ bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t f
         util::Make4x4FloatMatrixTranspose(transform, transposeTransform);
         util::Inverse4x4FloatMatrixCM(transposeTransform, inverseTransposeTransform);
 
-        if (sourcePositionBuffer) {
-            for (size_t i = 0; i < numSubmeshVertices; ++i) {
-                positionBuffer[i] = math::float3((float)sourcePositionBuffer[i].x, (float)sourcePositionBuffer[i].y, (float)sourcePositionBuffer[i].z);
-                positionBuffer[i] = util::TransformPositionCM(positionBuffer[i], transform);
-                positionBuffer[i].z *= -1.0f;
-                positionBuffer[i] *= 0.01f;     // account for units
+
+        for (size_t i = 0; i < numVertices; ++i) {
+            {   // position
+                if (sourcePositionBuffer) {
+                    positionBuffer[i] = math::float3((float)sourcePositionBuffer[i].x, (float)sourcePositionBuffer[i].y, (float)sourcePositionBuffer[i].z);
+                    positionBuffer[i] = util::TransformPositionCM(positionBuffer[i], transform);
+                    positionBuffer[i].z *= -1.0f;
+                    positionBuffer[i] *= 0.01f;
+                }
             }
         }
-        else {
-            // @TODO: handle missing positions
-            GT_LOG_WARNING("FBX Importer", "Submesh #%i does not contain position data", i);
-        }
-        if (sourceNormalBuffer) {
-            for (size_t i = 0; i < numSubmeshVertices; ++i) {
-                normalBuffer[i] = math::float3((float)sourceNormalBuffer[i].x, (float)sourceNormalBuffer[i].y, (float)sourceNormalBuffer[i].z);
-                normalBuffer[i] = util::TransformDirectionCM(normalBuffer[i], inverseTransposeTransform);
-                normalBuffer[i].z *= -1.0f;
-                //normalBuffer[i] *= 0.01f;
-            }
-        } 
-        else {
-            // @TODO: handle missing normals
-            GT_LOG_WARNING("FBX Importer", "Submesh #%i does not contain surface normal data", i);
-        }
-        if (sourceUVBuffer) {
-            for (size_t i = 0; i < numSubmeshVertices; ++i) {
-                uvBuffer[i] = math::float2((float)sourceUVBuffer[i].x, 1.0f - (float)sourceUVBuffer[i].y);
+
+        for (size_t i = 0; i < numVertices; ++i) {
+            {   // normals
+                if (sourceNormalBuffer) {
+                    normalBuffer[i] = math::float3((float)sourceNormalBuffer[i].x, (float)sourceNormalBuffer[i].y, (float)sourceNormalBuffer[i].z);
+                    normalBuffer[i] = util::TransformDirectionCM(normalBuffer[i], inverseTransposeTransform);
+                    normalBuffer[i].z *= -1.0f;
+                }
             }
         }
-        else {
-            // @TODO: handle missing UVs
-            GT_LOG_WARNING("FBX Importer", "Submesh #%i does not contain a UV set", i);
+
+        for (size_t i = 0; i < numVertices; ++i) {
+            {   // UVs
+                if (sourceUVBuffer) {
+                    uvBuffer[i] = math::float2((float)sourceUVBuffer[i].x, 1.0f - (float)sourceUVBuffer[i].y);
+                }
+            }
         }
+
         if (sourceTangentBuffer) {
-            for (size_t i = 0; i < numSubmeshVertices; ++i) {
+            for (size_t i = 0; i < numVertices; ++i) {
                 tangentBuffer[i] = math::float3((float)sourceTangentBuffer[i].x, (float)sourceTangentBuffer[i].y, (float)sourceTangentBuffer[i].z);
                 tangentBuffer[i] = util::TransformDirectionCM(tangentBuffer[i], inverseTransposeTransform);
                 tangentBuffer[i].z *= -1.0f;
             }
-        } 
+        }
         else {
             if (sourceUVBuffer) {
                 GT_LOG_INFO("FBX Importer", "Calculating tangents for submesh #%i", i);
-                CalculateTangents(positionBuffer, uvBuffer, numSubmeshVertices, tangentBuffer);
+                CalculateTangents(positionBuffer, uvBuffer, numVertices, tangentBuffer);
             }
             else {
                 // @TODO: handle missing tangents and missing uvs
                 GT_LOG_WARNING("FBX Importer", "Submesh #%i does not have tangents", i);
             }
         }
-        vertexOffset += numSubmeshVertices;
-    }
 
-    for (uint32_t i = 0; i < numVertices; ++i) {
-        if (outAsset->indexFormat == MeshAsset::IndexFormat::UINT16) {
-            outAsset->indices.as_uint16[i] = (uint16_t)i;
-        }
-        else {
-            outAsset->indices.as_uint32[i] = (uint32_t)i;
-        }
-    }
+        // fill out desc
+        auto vertex = (renderer::DefaultVertex*)meshDesc->vertexData;
+        for(size_t i = 0; i < numVertices; ++i)
+        {
+            vertex->position = positionBuffer[i];
+            vertex->normal = normalBuffer[i];
+            vertex->tangent = tangentBuffer[i];
+            vertex->uv = uvBuffer[i];
+            vertex++;
 
-    for (uint32_t i = 0; i < numVertices; i += 3) {
-        if (outAsset->indexFormat == MeshAsset::IndexFormat::UINT16) {
-            uint16_t swap = outAsset->indices.as_uint16[i + 1];
-            outAsset->indices.as_uint16[i + 1] = outAsset->indices.as_uint16[i];
-            outAsset->indices.as_uint16[i] = swap;
+            if (meshDesc->indexFormat == gfx::IndexFormat::INDEX_FORMAT_UINT16) {
+                uint16_t* index = ((uint16_t*)meshDesc->indexData) + i;
+                *index = (uint16_t)i;
+            }
+            else {
+                uint32_t* index = ((uint32_t*)meshDesc->indexData) + i;
+                *index = (uint32_t)i;
+            }
         }
-        else {
-            uint32_t swap = outAsset->indices.as_uint32[i + 1];
-            outAsset->indices.as_uint32[i + 1] = outAsset->indices.as_uint32[i];
-            outAsset->indices.as_uint32[i] = swap;
+
+        // swap indices
+        for (size_t i = 0; i < numVertices; i += 3)
+        {
+            if (meshDesc->indexFormat == gfx::IndexFormat::INDEX_FORMAT_UINT16) {
+                uint16_t* indices = ((uint16_t*)meshDesc->indexData);
+
+                uint16_t swap = indices[i + 1];
+                indices[i + 1] = indices[i];
+                indices[i] = swap;
+            }
+            else {
+                uint32_t* indices = ((uint32_t*)meshDesc->indexData);
+
+                uint32_t swap = indices[i + 1];
+                indices[i + 1] = indices[i];
+                indices[i] = swap;
+            }
         }
     }
 

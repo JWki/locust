@@ -27,6 +27,7 @@
 #define IS_POW_OF_TWO(n) ((n & (n - 1)) == 0)
 
 #include <engine/runtime/core/api_registry.h>
+#include <engine/runtime/renderer/renderer.h>
 
 int WINDOW_WIDTH = 1920;
 int WINDOW_HEIGHT = 1080;
@@ -576,7 +577,7 @@ void PrintVector(const fnd::math::Vector<TElement, ELEMENT_COUNT>& vec)
 }
 
 
-void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
+static void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
 {
     HANDLE handle = CreateFileA(path, GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (!handle) {
@@ -745,21 +746,13 @@ public:
 };
 
 
-
-
-
-#pragma warning(push, 0)    // lots of warnings in here  
-#define PAR_SHAPES_IMPLEMENTATION
-#include <engine/runtime/par_shapes-h.h>
-#pragma warning(pop)
-
 #define STB_IMAGE_IMPLEMENTATION
 //#define STBI_NO_STDIO
 #include <stb/stb_image.h>
 
 
 #include <engine/tools/fbx_importer/fbx_importer.h>
-typedef bool(*FBXImportAssetFunc)(fnd::memory::MemoryArenaBase*, char*, size_t, MeshAsset*);
+typedef decltype(FBXImportAsset)* FBXImportAssetFunc;
 
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
@@ -880,7 +873,6 @@ int win32_main(int argc, char* argv[])
         return 1;
     }*/
 
-    GT_LOG_INFO("Application", "Initialized gfx device");
 
    
 
@@ -929,22 +921,27 @@ int win32_main(int argc, char* argv[])
     if (!GFX_CHECK_RESOURCE(swapChain)) {
         GT_LOG_ERROR("Renderer", "Failed to create swap chain");
     }
+    GT_LOG_INFO("Application", "Initialized gfx device");
 
-    struct ConstantData {
-        float MVP[16];
-        float MV[16];
-        float VP[16];
-        float view[16];
-        float inverseView[16];
-        float projection[16];
-        float model[16];
-        math::float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 0.0f };
-        float metallic = 0.0f;
-        float roughness = 1.0f;
-        uint32_t  useTextures = 1;
-        float _padding0[1];
-    };
+    //
+    renderer::Renderer* renderer = nullptr;
+    renderer::RenderWorld* renderWorld = nullptr;
+
+    renderer::RendererConfig rendererConfig;
+    rendererConfig.gfxDevice = gfxDevice;
+    rendererConfig.windowWidth = WINDOW_WIDTH;
+    rendererConfig.windowHeight = WINDOW_HEIGHT;
+
+    if (!renderer::CreateRenderer(&renderer, &applicationArena, &rendererConfig)) {
+        GT_LOG_ERROR("Renderer", "Failed to create a renderer");
+    }
+
+    renderer::RenderWorldConfig renderWorldConfig;
+    renderWorldConfig.renderer = renderer;
+    if (!renderer::CreateRenderWorld(&renderWorld, &applicationArena, &renderWorldConfig)) {
+        GT_LOG_ERROR("Renderer", "Failed to create render world");
+    }
+
 
     float proj[16];
     float cameraPos[16];
@@ -952,16 +949,6 @@ int win32_main(int argc, char* argv[])
     util::Make4x4FloatProjectionMatrixCMLH(proj, 1.0f, (float)WINDOW_WIDTH,  (float)WINDOW_HEIGHT, 0.1f, 1000.0f);
     util::Make4x4FloatTranslationMatrixCM(cameraPos, { 0.0f, -0.4f, 2.75f });
     
-
-    //
-    auto cubeMesh = par_shapes_create_cube();
-    par_shapes_translate(cubeMesh, -0.5f, -0.5f, -0.5f);
-    float* cubePositions = cubeMesh->points;
-    size_t numCubeVertices = cubeMesh->npoints;
-    uint16_t* cubeIndices = cubeMesh->triangles;
-    size_t numCubeIndices = 3 * cubeMesh->ntriangles;
-
-
     HMODULE fbxImporter = LoadLibraryA("fbx_importer.dll");
     if (!fbxImporter) {
         GT_LOG_ERROR("Assets", "Failed to load %s", "fbx_importer.dll");
@@ -971,887 +958,62 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXImportAsset", "fbx_importer.dll");
     }
     
-    MeshAsset meshAsset;
 
-#define MODEL_FILE_PATH "../../WPN_MK2Grenade.fbx"
+    renderer::MeshDesc* meshDescs = GT_NEW_ARRAY(renderer::MeshDesc, 128, &applicationArena);
+    size_t numSubmeshes = 0;
 
     {
-        size_t modelFileSize = 0;
-        void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
-        if (modelFileData && modelFileSize > 0) {
-            GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
-            bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, &meshAsset);
-            if (!res) {
+        const char* MODEL_FILE_PATH = "../../Cube.fbx";
+        {
+            size_t modelFileSize = 0;
+            void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
+            if (modelFileData && modelFileSize > 0) {
+                GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
+                bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
+                if (!res) {
+                    GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
+                }
+            }
+            else {
                 GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
             }
         }
-        else {
-            GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
-        }
+
+        core::Asset assetID = { 1 };    // reserve some asset ID
+        renderer::UpdateMeshLibrary(renderWorld, assetID, meshDescs, numSubmeshes);
+
+        core::Asset materialAsset = { 2 };
+        renderer::MaterialDesc matDesc;
+        renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
 
-
     
-    gfx::SamplerDesc defaultSamplerStateDesc;
-    defaultSamplerStateDesc.minFilter = gfx::FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
-
-    gfx::Image meshTexture;
     {
-        int width, height, numComponents;
-        auto image = stbi_load("../../texture.png", &width, &height, &numComponents, 4);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../texture.png", stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::ImageDesc cubeTextureDesc;
-        //cubeTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        cubeTextureDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        cubeTextureDesc.width = width;
-        cubeTextureDesc.height = height;
-        cubeTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        cubeTextureDesc.samplerDesc = &defaultSamplerStateDesc;
-        cubeTextureDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(stbi_uc) * width * height * 4;
-        cubeTextureDesc.initialData = data;
-        cubeTextureDesc.initialDataSizes = &size;
-        meshTexture = gfx::CreateImage(gfxDevice, &cubeTextureDesc);
-        if (!GFX_CHECK_RESOURCE(meshTexture)) {
-            GT_LOG_ERROR("Renderer", "Failed to create texture");
-        }
-        stbi_image_free(image);
-    }
-
-    char fileNameBuf[512] = "";
-    gfx::Image cubemapTexture;
-    {
-        int width, height, numComponents;
-        stbi_uc* images[6];
-        for (int i = 0; i < 6; ++i) {
-            snprintf(fileNameBuf, 512, "../../cubemap%i.png", i + 1);
-            images[i] = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
-            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-            if (images[i] == NULL) {
-                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
+        const char* MODEL_FILE_PATH = "../../materialball.fbx";
+        {
+            size_t modelFileSize = 0;
+            void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
+            if (modelFileData && modelFileSize > 0) {
+                GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
+                bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
+                if (!res) {
+                    GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
+                }
+            }
+            else {
+                GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
             }
         }
-        size_t size = sizeof(stbi_uc) * width * height * 4;
 
-        size_t sizes[6] = { size, size, size, size, size, size };
-        gfx::ImageDesc cubemapTextureDesc;
-        cubemapTextureDesc.type = gfx::ImageType::IMAGE_TYPE_CUBE;
-        cubemapTextureDesc.width = width;
-        cubemapTextureDesc.height = height;
-        cubemapTextureDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        cubemapTextureDesc.samplerDesc = &defaultSamplerStateDesc;
-        cubemapTextureDesc.numDataItems = 6;
-        cubemapTextureDesc.initialData = (void**)images;
-        cubemapTextureDesc.initialDataSizes = sizes;
-        cubemapTexture = gfx::CreateImage(gfxDevice, &cubemapTextureDesc);
-        if (!GFX_CHECK_RESOURCE(cubemapTexture)) {
-            GT_LOG_ERROR("Renderer", "Failed to create texture");
-        }
+        core::Asset assetID = { 3 };    // reserve some asset ID
+        renderer::UpdateMeshLibrary(renderWorld, assetID, meshDescs, numSubmeshes);
 
-        for (int i = 0; i < 6; ++i) {
-            stbi_image_free(images[i]);
-        }
-    }
-
-    static const size_t NUM_CUBEMAPS = 7;
-    gfx::Image hdrCubemap[NUM_CUBEMAPS];
-    for(size_t i = 0; i < NUM_CUBEMAPS; ++i) 
-    {   // hdr cubemap
-        int width, height, numComponents;
-        snprintf(fileNameBuf, 512, "../../hdrCubemap%llu.hdr", i);
-        
-        stbi_set_flip_vertically_on_load(1);
-        auto image = stbi_loadf(fileNameBuf, &width, &height, &numComponents, 4);
-        stbi_set_flip_vertically_on_load(0);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::ImageDesc diffDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        diffDesc.width = width;
-        diffDesc.height = height;
-        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R32G32B32A32_FLOAT;
-        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-        diffDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(float) * width * height * 4;
-        diffDesc.initialData = data;
-        diffDesc.initialDataSizes = &size;
-        hdrCubemap[i] = gfx::CreateImage(gfxDevice, &diffDesc);
-        if (!GFX_CHECK_RESOURCE(hdrCubemap[i])) {
-            GT_LOG_ERROR("Renderer", "Failed to create texture");
-        }
-        stbi_image_free(image);
-    }
-
-    gfx::Image hdrDiffuse[NUM_CUBEMAPS];
-    for(size_t i = 0; i < NUM_CUBEMAPS; ++i)
-    {   // hdr cubemap
-        int width, height, numComponents;
-        snprintf(fileNameBuf, 512, "../../hdrConvolvedDiffuse%llu.hdr", i);
-
-        stbi_set_flip_vertically_on_load(1);
-        auto image = stbi_loadf(fileNameBuf, &width, &height, &numComponents, 4);
-        stbi_set_flip_vertically_on_load(0);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::ImageDesc diffDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        diffDesc.width = width;
-        diffDesc.height = height;
-        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R32G32B32A32_FLOAT;
-        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-        diffDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(float) * width * height * 4;
-        diffDesc.initialData = data;
-        diffDesc.initialDataSizes = &size;
-        hdrDiffuse[i] = gfx::CreateImage(gfxDevice, &diffDesc);
-        if (!GFX_CHECK_RESOURCE(hdrDiffuse[i])) {
-            GT_LOG_ERROR("Renderer", "Failed to create texture");
-        }
-        stbi_image_free(image);
-    }
-
-    const size_t MATERIAL_NAME_LEN = 512;
-    struct Material
-    {
-        char name[MATERIAL_NAME_LEN] = "";
-        gfx::Image diffuse;
-        gfx::Image roughness;
-        gfx::Image metallic;
-        gfx::Image normal;
-        gfx::Image ao;
-
-        float roughnessScalar = 1.0f;
-        float metallicScalar = 0.0f;
-
-        bool useTextures = true;
-    };
-
-    const size_t NUM_MATERIALS = 16;
-    Material materials[NUM_MATERIALS];
-    size_t materialIndex[entity_system::MAX_NUM_ENTITIES];
-    memset(materialIndex, 0x0, sizeof(materialIndex));
-    
-    for(size_t i = 0; i < NUM_MATERIALS; ++i) {
-        snprintf(materials[i].name, MATERIAL_NAME_LEN, "Material%llu", i);
-        {   // diffuse
-            int width, height, numComponents;
-            snprintf(fileNameBuf, 512, "../../diffuse%llu.png", i);
-            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
-            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-            if (image == NULL) {
-                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
-            }
-            //assert(numComponents == 4);
-
-            gfx::ImageDesc diffDesc;
-            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-            diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-            diffDesc.width = width;
-            diffDesc.height = height;
-            diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-            diffDesc.samplerDesc = &defaultSamplerStateDesc;
-            diffDesc.numDataItems = 1;
-            void* data[] = { image };
-            size_t size = sizeof(stbi_uc) * width * height * 4;
-            diffDesc.initialData = data;
-            diffDesc.initialDataSizes = &size;
-            materials[i].diffuse = gfx::CreateImage(gfxDevice, &diffDesc);
-            if (!GFX_CHECK_RESOURCE(materials[i].diffuse)) {
-                GT_LOG_ERROR("Renderer", "Failed to create texture");
-            }
-            stbi_image_free(image);
-        }
-
-        {   // roughness
-            int width, height, numComponents;
-            snprintf(fileNameBuf, 512, "../../roughness%llu.png", i);
-            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
-            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-            if (image == NULL) {
-                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
-            }
-            //assert(numComponents == 4);
-
-            gfx::ImageDesc roughDesc;
-            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-            roughDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-            roughDesc.width = width;
-            roughDesc.height = height;
-            roughDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-            roughDesc.samplerDesc = &defaultSamplerStateDesc;
-            roughDesc.numDataItems = 1;
-            void* data[] = { image };
-            size_t size = sizeof(stbi_uc) * width * height * 4;
-            roughDesc.initialData = data;
-            roughDesc.initialDataSizes = &size;
-            materials[i].roughness = gfx::CreateImage(gfxDevice, &roughDesc);
-            if (!GFX_CHECK_RESOURCE(materials[i].roughness)) {
-                GT_LOG_ERROR("Renderer", "Failed to create texture");
-            }
-            stbi_image_free(image);
-        }
-
-        {   // metallic
-            int width, height, numComponents;
-            snprintf(fileNameBuf, 512, "../../metallic%llu.png", i);
-            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
-            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-            if (image == NULL) {
-                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", fileNameBuf, stbi_failure_reason());
-            }
-            //assert(numComponents == 4);
-
-            gfx::ImageDesc metalDesc;
-            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-            metalDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-            metalDesc.width = width;
-            metalDesc.height = height;
-            metalDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-            metalDesc.samplerDesc = &defaultSamplerStateDesc;
-            metalDesc.numDataItems = 1;
-            void* data[] = { image };
-            size_t size = sizeof(stbi_uc) * width * height * 4;
-            metalDesc.initialData = data;
-            metalDesc.initialDataSizes = &size;
-            materials[i].metallic = gfx::CreateImage(gfxDevice, &metalDesc);
-            if (!GFX_CHECK_RESOURCE(materials[i].metallic)) {
-                GT_LOG_ERROR("Renderer", "Failed to create texture");
-            }
-            stbi_image_free(image);
-        }
-
-        {   // normal
-            int width, height, numComponents;
-            snprintf(fileNameBuf, 512, "../../normal%llu.png", i);
-            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
-            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-            if (image == NULL) {
-                GT_LOG_ERROR("Assets", "Failed to load image %s: %s", fileNameBuf, stbi_failure_reason());
-            }
-            //assert(numComponents == 4);
-
-            gfx::ImageDesc metalDesc;
-            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-            metalDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-            metalDesc.width = width;
-            metalDesc.height = height;
-            metalDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-            metalDesc.samplerDesc = &defaultSamplerStateDesc;
-            metalDesc.numDataItems = 1;
-            void* data[] = { image };
-            size_t size = sizeof(stbi_uc) * width * height * 4;
-            metalDesc.initialData = data;
-            metalDesc.initialDataSizes = &size;
-            materials[i].normal = gfx::CreateImage(gfxDevice, &metalDesc);
-            if (!GFX_CHECK_RESOURCE(materials[i].normal)) {
-                GT_LOG_ERROR("Renderer", "Failed to create texture");
-            }
-            stbi_image_free(image);
-        }
-
-        {   // ao
-            int width, height, numComponents;
-            snprintf(fileNameBuf, 512, "../../ao%llu.png", i);
-            auto image = stbi_load(fileNameBuf, &width, &height, &numComponents, 4);
-            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-            if (image == NULL) {
-                GT_LOG_ERROR("Assets", "Failed to load image %s: %s", fileNameBuf, stbi_failure_reason());
-            }
-            //assert(numComponents == 4);
-
-            gfx::ImageDesc metalDesc;
-            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-            metalDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-            metalDesc.width = width;
-            metalDesc.height = height;
-            metalDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-            metalDesc.samplerDesc = &defaultSamplerStateDesc;
-            metalDesc.numDataItems = 1;
-            void* data[] = { image };
-            size_t size = sizeof(stbi_uc) * width * height * 4;
-            metalDesc.initialData = data;
-            metalDesc.initialDataSizes = &size;
-            materials[i].ao = gfx::CreateImage(gfxDevice, &metalDesc);
-            if (!GFX_CHECK_RESOURCE(materials[i].ao)) {
-                GT_LOG_ERROR("Renderer", "Failed to create texture");
-            }
-            stbi_image_free(image);
-        }
-    }
-
-    gfx::BufferDesc meshVertexBufferDesc;
-    meshVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    meshVertexBufferDesc.byteWidth = sizeof(math::float3) * meshAsset.numVertices;
-    meshVertexBufferDesc.initialData = meshAsset.vertexPositions;
-    meshVertexBufferDesc.initialDataSize = meshVertexBufferDesc.byteWidth;
-    gfx::Buffer meshVertexBuffer = gfx::CreateBuffer(gfxDevice, &meshVertexBufferDesc);
-    if (!GFX_CHECK_RESOURCE(meshVertexBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create cube vertex buffer");
-    }
-
-    gfx::BufferDesc meshNormalBufferDesc;
-    meshNormalBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    meshNormalBufferDesc.byteWidth = sizeof(math::float3) * meshAsset.numVertices;
-    meshNormalBufferDesc.initialData = meshAsset.vertexNormals;
-    meshNormalBufferDesc.initialDataSize = meshNormalBufferDesc.byteWidth;
-    gfx::Buffer meshNormalBuffer = gfx::CreateBuffer(gfxDevice, &meshNormalBufferDesc);
-    if (!GFX_CHECK_RESOURCE(meshNormalBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create cube normal buffer");
-    }
-
-    gfx::Buffer meshTangentBuffer;
-    if (meshAsset.vertexTangents != nullptr) {
-        gfx::BufferDesc meshTangentBufferDesc;
-        meshTangentBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-        meshTangentBufferDesc.byteWidth = sizeof(math::float3) * meshAsset.numVertices;
-        meshTangentBufferDesc.initialData = meshAsset.vertexTangents;
-        meshTangentBufferDesc.initialDataSize = meshTangentBufferDesc.byteWidth;
-        meshTangentBuffer = gfx::CreateBuffer(gfxDevice, &meshTangentBufferDesc);
-        if (!GFX_CHECK_RESOURCE(meshTangentBuffer)) {
-            GT_LOG_ERROR("Renderer", "Failed to create cube Tangent buffer");
-        }
-    }
-
-    gfx::BufferDesc meshUVBufferDesc;
-    meshUVBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    meshUVBufferDesc.byteWidth = sizeof(math::float2) * meshAsset.numVertices;
-    meshUVBufferDesc.initialData = meshAsset.vertexUVs;
-    meshUVBufferDesc.initialDataSize = meshUVBufferDesc.byteWidth;
-    gfx::Buffer meshUVBuffer = gfx::CreateBuffer(gfxDevice, &meshUVBufferDesc);
-    if (!GFX_CHECK_RESOURCE(meshUVBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create cube uv buffer");
-    }
-
-    gfx::BufferDesc meshIndexBufferDesc;
-    meshIndexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
-    size_t indexByteWidth = 0;
-    if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
-        meshIndexBufferDesc.initialData = meshAsset.indices.as_uint16;
-        indexByteWidth = sizeof(uint16_t);
-    }
-    else {
-        meshIndexBufferDesc.initialData = meshAsset.indices.as_uint32;
-        indexByteWidth = sizeof(uint32_t);
-    }
-    meshIndexBufferDesc.byteWidth = indexByteWidth * meshAsset.numIndices;
-    meshIndexBufferDesc.initialDataSize = meshIndexBufferDesc.byteWidth;
-    gfx::Buffer meshIndexBuffer = gfx::CreateBuffer(gfxDevice, &meshIndexBufferDesc);
-    if (!GFX_CHECK_RESOURCE(meshIndexBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create cube index buffer");
-    }
-
-    gfx::BufferDesc cubeVertexBufferDesc;
-    cubeVertexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_VERTEX;
-    cubeVertexBufferDesc.byteWidth = sizeof(float) * 3 * numCubeVertices;
-    cubeVertexBufferDesc.initialData = cubePositions;
-    cubeVertexBufferDesc.initialDataSize = cubeVertexBufferDesc.byteWidth;
-    gfx::Buffer cubeVertexBuffer = gfx::CreateBuffer(gfxDevice, &cubeVertexBufferDesc);
-    if (!GFX_CHECK_RESOURCE(cubeVertexBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create cubemap vertex buffer");
-    }
-
-    gfx::BufferDesc cubeIndexBufferDesc;
-    cubeIndexBufferDesc.type = gfx::BufferType::BUFFER_TYPE_INDEX;
-    cubeIndexBufferDesc.byteWidth = sizeof(uint16_t) * numCubeIndices;
-    cubeIndexBufferDesc.initialData = cubeIndices;
-    cubeIndexBufferDesc.initialDataSize = cubeIndexBufferDesc.byteWidth;
-    gfx::Buffer cubeIndexBuffer = gfx::CreateBuffer(gfxDevice, &cubeIndexBufferDesc);
-    if (!GFX_CHECK_RESOURCE(cubeIndexBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create cubemap Index buffer");
-    }
-
-    struct PaintConstantData
-    {
-        float modelToViewMatrix[16];
-        float modelToProjMatrix[16];
-        math::float2 cursorPos;
-        math::float2 _padding;
-        math::float4 color;
-        float brushSize;
-        float _padding2[3];
-    } paintConstantData;
-
-    gfx::BufferDesc cPaintBufferDesc;
-    cPaintBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
-    cPaintBufferDesc.byteWidth = sizeof(PaintConstantData);
-    cPaintBufferDesc.initialData = &paintConstantData;
-    cPaintBufferDesc.initialDataSize = sizeof(paintConstantData);
-    cPaintBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
-    gfx::Buffer cPaintBuffer = gfx::CreateBuffer(gfxDevice, &cPaintBufferDesc);
-    if (!GFX_CHECK_RESOURCE(cPaintBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
-    }
-
-    gfx::BufferDesc cBufferDesc;
-    cBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
-    cBufferDesc.byteWidth = sizeof(ConstantData);
-    cBufferDesc.initialData = nullptr;
-    cBufferDesc.initialDataSize = 0;
-    cBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
-    gfx::Buffer cBuffer = gfx::CreateBuffer(gfxDevice, &cBufferDesc);
-    if (!GFX_CHECK_RESOURCE(cBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
-    }
-
-    gfx::ShaderDesc vCubeShaderDesc;
-    vCubeShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
-    vCubeShaderDesc.code = vCubeShaderCode;
-    vCubeShaderDesc.codeSize = vCubeShaderCodeSize;
-    
-    gfx::ShaderDesc pShaderDesc;
-    pShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
-    pShaderDesc.code = pShaderCode;
-    pShaderDesc.codeSize = pShaderCodeSize;
-
-    gfx::ShaderDesc vBlitShaderDesc;
-    vBlitShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
-    vBlitShaderDesc.code = vBlitShaderCode;
-    vBlitShaderDesc.codeSize = vBlitShaderCodeSize;
-    gfx::ShaderDesc pBlitShaderDesc;
-    pBlitShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
-    pBlitShaderDesc.code = pBlitShaderCode;
-    pBlitShaderDesc.codeSize = pBlitShaderCodeSize;
-
-    gfx::ShaderDesc pTonemapShaderDesc;
-    pTonemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
-    pTonemapShaderDesc.code = pTonemapShaderCode;
-    pTonemapShaderDesc.codeSize = pTonemapShaderCodeSize;
-
-    gfx::ShaderDesc pBlurShaderDesc;
-    pBlurShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
-    pBlurShaderDesc.code = pBlurShaderCode;
-    pBlurShaderDesc.codeSize = pBlurShaderCodeSize;
-
-    gfx::ShaderDesc vPaintShaderDesc;
-    vPaintShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
-    vPaintShaderDesc.code = vPaintShaderCode;
-    vPaintShaderDesc.codeSize = vPaintShaderCodeSize;
-    gfx::ShaderDesc pPaintShaderDesc;
-    pPaintShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
-    pPaintShaderDesc.code = pPaintShaderCode;
-    pPaintShaderDesc.codeSize = pPaintShaderCodeSize;
-
-    gfx::ShaderDesc vCubemapShaderDesc;
-    vCubemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
-    vCubemapShaderDesc.code = vCubemapShaderCode;
-    vCubemapShaderDesc.codeSize = vCubemapShaderCodeSize;
-    gfx::ShaderDesc pCubemapShaderDesc;
-    pCubemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
-    pCubemapShaderDesc.code = pCubemapShaderCode;
-    pCubemapShaderDesc.codeSize = pCubemapShaderCodeSize;
-
-    gfx::ShaderDesc pBRDFLUTShaderDesc;
-    pBRDFLUTShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
-    pBRDFLUTShaderDesc.code = pBRDFLUTShaderCode;
-    pBRDFLUTShaderDesc.codeSize = pBRDFLUTShaderCodeSize;
-
-
-    gfx::Shader vCubeShader = gfx::CreateShader(gfxDevice, &vCubeShaderDesc);
-    if (!GFX_CHECK_RESOURCE(vCubeShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
-    }
-
-    gfx::Shader pShader = gfx::CreateShader(gfxDevice, &pShaderDesc);
-    if (!GFX_CHECK_RESOURCE(pShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
-    }
-
-    gfx::Shader vBlitShader = gfx::CreateShader(gfxDevice, &vBlitShaderDesc);
-    if (!GFX_CHECK_RESOURCE(vBlitShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
-    }
-
-    gfx::Shader pBlitShader = gfx::CreateShader(gfxDevice, &pBlitShaderDesc);
-    if (!GFX_CHECK_RESOURCE(pBlitShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
-    }
-
-    gfx::Shader pTonemapShader = gfx::CreateShader(gfxDevice, &pTonemapShaderDesc);
-    if (!GFX_CHECK_RESOURCE(pTonemapShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
-    }
-
-    gfx::Shader pBlurShader = gfx::CreateShader(gfxDevice, &pBlurShaderDesc);
-    if (!GFX_CHECK_RESOURCE(pBlurShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
-    }
-
-    gfx::Shader vPaintShader = gfx::CreateShader(gfxDevice, &vPaintShaderDesc);
-    if (!GFX_CHECK_RESOURCE(vPaintShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
-    }
-
-    gfx::Shader pPaintShader = gfx::CreateShader(gfxDevice, &pPaintShaderDesc);
-    if (!GFX_CHECK_RESOURCE(pPaintShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
-    }
-
-    gfx::Shader vCubemapShader = gfx::CreateShader(gfxDevice, &vCubemapShaderDesc);
-    if (!GFX_CHECK_RESOURCE(vCubemapShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
-    }
-
-    gfx::Shader pCubemapShader = gfx::CreateShader(gfxDevice, &pCubemapShaderDesc);
-    if (!GFX_CHECK_RESOURCE(pCubemapShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
-    }
-
-    gfx::Shader pBRDFLUTShader = gfx::CreateShader(gfxDevice, &pBRDFLUTShaderDesc);
-    if (!GFX_CHECK_RESOURCE(pBRDFLUTShader)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
-    }
-
-    gfx::PipelineStateDesc meshPipelineState;
-    if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
-        meshPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
-    }
-    else {
-        meshPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT32;
-    }
-    meshPipelineState.vertexShader = vCubeShader;
-    meshPipelineState.pixelShader = pShader;
-    meshPipelineState.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-    meshPipelineState.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-    meshPipelineState.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 2, gfx::VertexFormat::VERTEX_FORMAT_FLOAT2 };
-    meshPipelineState.vertexLayout.attribs[3] = { "TEXCOORD", 1, 0, 3, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-
-    gfx::PipelineState meshPipeline = gfx::CreatePipelineState(gfxDevice, &meshPipelineState);
-    if (!GFX_CHECK_RESOURCE(meshPipeline)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cube");
-    }
-
-    gfx::PipelineStateDesc cubemapPipelineState;
-    cubemapPipelineState.depthStencilState.enableDepth = false;
-    cubemapPipelineState.rasterState.cullMode = gfx::CullMode::CULL_FRONT;
-    cubemapPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
-   
-    cubemapPipelineState.vertexShader = vCubemapShader;
-    cubemapPipelineState.pixelShader = pCubemapShader;
-    cubemapPipelineState.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-
-    gfx::PipelineState cubemapPipeline = gfx::CreatePipelineState(gfxDevice, &cubemapPipelineState);
-    if (!GFX_CHECK_RESOURCE(cubemapPipeline)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cubemap");
-    }
-
-
-    gfx::PipelineStateDesc blitPipelineStateDesc;
-    blitPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
-    blitPipelineStateDesc.vertexShader = vBlitShader;
-    blitPipelineStateDesc.pixelShader = pBlitShader;
-    blitPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
-    
-    blitPipelineStateDesc.depthStencilState.enableDepth = false;
-    blitPipelineStateDesc.blendState.enableBlend = true;
-    blitPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_ONE;
-    blitPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
-    blitPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
-    blitPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
-    gfx::PipelineState blitPipeline = gfx::CreatePipelineState(gfxDevice, &blitPipelineStateDesc);
-    if (!GFX_CHECK_RESOURCE(blitPipeline)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
-    }
-
-    gfx::PipelineStateDesc tonemapPipelineStateDesc;
-    tonemapPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
-    tonemapPipelineStateDesc.vertexShader = vBlitShader;
-    tonemapPipelineStateDesc.pixelShader = pTonemapShader;
-    tonemapPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
-
-    tonemapPipelineStateDesc.depthStencilState.enableDepth = false;
-    tonemapPipelineStateDesc.blendState.enableBlend = true;
-    tonemapPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_ONE;
-    tonemapPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
-    tonemapPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
-    tonemapPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
-    gfx::PipelineState tonemapPipeline = gfx::CreatePipelineState(gfxDevice, &tonemapPipelineStateDesc);
-    if (!GFX_CHECK_RESOURCE(tonemapPipeline)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for tonemap");
-    }
-
-    gfx::PipelineStateDesc blurPipelineStateDesc;
-    blurPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
-    blurPipelineStateDesc.vertexShader = vBlitShader;
-    blurPipelineStateDesc.pixelShader = pBlurShader;
-    blurPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
-
-    blurPipelineStateDesc.depthStencilState.enableDepth = false;
-    blurPipelineStateDesc.blendState.enableBlend = false;
-    blurPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
-    blurPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
-    blurPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
-    blurPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
-    gfx::PipelineState blurPipeline = gfx::CreatePipelineState(gfxDevice, &blurPipelineStateDesc);
-    if (!GFX_CHECK_RESOURCE(blurPipeline)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
-    }
-
-    gfx::PipelineStateDesc brdfLUTPipelineStateDesc;
-    brdfLUTPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
-    brdfLUTPipelineStateDesc.vertexShader = vBlitShader;
-    brdfLUTPipelineStateDesc.pixelShader = pBRDFLUTShader;
-    brdfLUTPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
-    gfx::PipelineState brdfLUTPipeline = gfx::CreatePipelineState(gfxDevice, &brdfLUTPipelineStateDesc);
-    if (!GFX_CHECK_RESOURCE(brdfLUTPipeline)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
-    }
-   
-    gfx::ImageDesc uiRenderTargetDesc;
-    uiRenderTargetDesc.isRenderTarget = true;
-    uiRenderTargetDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    uiRenderTargetDesc.width = WINDOW_WIDTH;
-    uiRenderTargetDesc.height = WINDOW_HEIGHT;
-    uiRenderTargetDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image uiRenderTarget = gfx::CreateImage(gfxDevice, &uiRenderTargetDesc);
-    if (!GFX_CHECK_RESOURCE(uiRenderTarget)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render target for UI");
-    }
-
-    gfx::ImageDesc paintDiffuseRTDesc;
-    paintDiffuseRTDesc.isRenderTarget = true;
-    paintDiffuseRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    paintDiffuseRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
-    paintDiffuseRTDesc.width = WINDOW_WIDTH;
-    paintDiffuseRTDesc.height = WINDOW_HEIGHT;
-    paintDiffuseRTDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image paintDiffuseRT = gfx::CreateImage(gfxDevice, &paintDiffuseRTDesc);
-    if (!GFX_CHECK_RESOURCE(paintDiffuseRT)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
-    }
-
-    gfx::ImageDesc paintRoughnessRTDesc;
-    paintRoughnessRTDesc.isRenderTarget = true;
-    paintRoughnessRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    paintRoughnessRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
-    paintRoughnessRTDesc.width = WINDOW_WIDTH;
-    paintRoughnessRTDesc.height = WINDOW_HEIGHT;
-    paintRoughnessRTDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image paintRoughnessRT = gfx::CreateImage(gfxDevice, &paintRoughnessRTDesc);
-    if (!GFX_CHECK_RESOURCE(paintRoughnessRT)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
-    }
-
-    gfx::ImageDesc paintMetallicRTDesc;
-    paintMetallicRTDesc.isRenderTarget = true;
-    paintMetallicRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    paintMetallicRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
-    paintMetallicRTDesc.width = WINDOW_WIDTH;
-    paintMetallicRTDesc.height = WINDOW_HEIGHT;
-    paintMetallicRTDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image paintMetallicRT = gfx::CreateImage(gfxDevice, &paintMetallicRTDesc);
-    if (!GFX_CHECK_RESOURCE(paintMetallicRT)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
-    }
-
-    gfx::ImageDesc paintNormalRTDesc;
-    paintNormalRTDesc.isRenderTarget = true;
-    paintNormalRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    paintNormalRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
-    paintNormalRTDesc.width = WINDOW_WIDTH;
-    paintNormalRTDesc.height = WINDOW_HEIGHT;
-    paintNormalRTDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image paintNormalRT = gfx::CreateImage(gfxDevice, &paintNormalRTDesc);
-    if (!GFX_CHECK_RESOURCE(paintNormalRT)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
+        core::Asset materialAsset = { 4 };
+        renderer::MaterialDesc matDesc;
+        renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
     
-    gfx::SamplerDesc brdfLUTSamplerDesc;
-    brdfLUTSamplerDesc.wrapU = gfx::WrapMode::WRAP_CLAMP_TO_EDGE;
-    brdfLUTSamplerDesc.wrapV = gfx::WrapMode::WRAP_CLAMP_TO_EDGE;
-
-    gfx::ImageDesc brdfLUTDesc;
-    brdfLUTDesc.isRenderTarget = true;
-    brdfLUTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    brdfLUTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
-    brdfLUTDesc.width = 512;
-    brdfLUTDesc.height = 512;
-    brdfLUTDesc.samplerDesc = &brdfLUTSamplerDesc;
-    gfx::Image brdfLUT = gfx::CreateImage(gfxDevice, &brdfLUTDesc);
-    if (!GFX_CHECK_RESOURCE(brdfLUT)) {
-        GT_LOG_ERROR("Renderer", "Failed to create main render target");
-    }
-
-
-    gfx::ImageDesc mainRTDesc;
-    mainRTDesc.isRenderTarget = true;
-    mainRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    mainRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
-    mainRTDesc.width = WINDOW_WIDTH;
-    mainRTDesc.height = WINDOW_HEIGHT;
-    mainRTDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image mainRT = gfx::CreateImage(gfxDevice, &mainRTDesc);
-    if (!GFX_CHECK_RESOURCE(mainRT)) {
-        GT_LOG_ERROR("Renderer", "Failed to create main render target");
-    }
-
-
-
-    gfx::ImageDesc mainDepthBufferDesc;
-    //mainDepthBufferDesc.isRenderTarget = true;
-    mainDepthBufferDesc.isDepthStencilTarget = true;
-    mainDepthBufferDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-    mainDepthBufferDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_D32_FLOAT_S8X24_UINT;
-    mainDepthBufferDesc.width = WINDOW_WIDTH;
-    mainDepthBufferDesc.height = WINDOW_HEIGHT;
-    mainDepthBufferDesc.samplerDesc = &defaultSamplerStateDesc;
-    gfx::Image mainDepthBuffer = gfx::CreateImage(gfxDevice, &mainDepthBufferDesc);
-    if (!GFX_CHECK_RESOURCE(mainDepthBuffer)) {
-        GT_LOG_ERROR("Renderer", "Failed to create main depth buffer target");
-    }
-
-    gfx::PipelineStateDesc paintObjPipelineStateDesc;
-    paintObjPipelineStateDesc.blendState.enableBlend = true;
-    paintObjPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
-    paintObjPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
-    paintObjPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
-    paintObjPipelineStateDesc.blendState.srcBlendAlpha = gfx::BlendFactor::BLEND_ZERO;
-    paintObjPipelineStateDesc.blendState.dstBlendAlpha = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
-    paintObjPipelineStateDesc.blendState.blendOpAlpha = gfx::BlendOp::BLEND_OP_ADD;
-
-    paintObjPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_ALL;
-
-    paintObjPipelineStateDesc.depthStencilState.enableDepth = false;
-    paintObjPipelineStateDesc.rasterState.cullMode = gfx::CullMode::CULL_NONE;
-    if (meshAsset.indexFormat == MeshAsset::IndexFormat::UINT16) {
-        paintObjPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
-    }
-    else {
-        paintObjPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT32;
-    }
-    paintObjPipelineStateDesc.vertexShader = vPaintShader;
-    paintObjPipelineStateDesc.pixelShader = pPaintShader;
-    paintObjPipelineStateDesc.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-    paintObjPipelineStateDesc.vertexLayout.attribs[1] = { "NORMAL", 0, 0, 1, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-    paintObjPipelineStateDesc.vertexLayout.attribs[2] = { "TEXCOORD", 0, 0, 2, gfx::VertexFormat::VERTEX_FORMAT_FLOAT2 };
-
-    gfx::PipelineState paintObjPipelineState = gfx::CreatePipelineState(gfxDevice, &paintObjPipelineStateDesc);
-    if (!GFX_CHECK_RESOURCE(paintObjPipelineState)) {
-        GT_LOG_ERROR("Renderer", "Failed to create pipeline state for painting");
-    }
-
-    gfx::DrawCall meshDrawCall;
-    meshDrawCall.vertexBuffers[0] = meshVertexBuffer;
-    meshDrawCall.vertexOffsets[0] = 0;
-    meshDrawCall.vertexStrides[0] = sizeof(float) * 3;
-    meshDrawCall.vertexBuffers[1] = meshNormalBuffer;
-    meshDrawCall.vertexOffsets[1] = 0;
-    meshDrawCall.vertexStrides[1] = sizeof(float) * 3;
-    meshDrawCall.vertexBuffers[2] = meshUVBuffer;
-    meshDrawCall.vertexOffsets[2] = 0;
-    meshDrawCall.vertexStrides[2] = sizeof(float) * 2;
-    if (GFX_CHECK_RESOURCE(meshTangentBuffer)) {
-        meshDrawCall.vertexBuffers[3] = meshTangentBuffer;
-        meshDrawCall.vertexOffsets[3] = 0;
-        meshDrawCall.vertexStrides[3] = sizeof(float) * 3;
-    }
-    meshDrawCall.indexBuffer = meshIndexBuffer;
-    meshDrawCall.numElements = meshAsset.numIndices;
-    meshDrawCall.pipelineState = meshPipeline;
-    meshDrawCall.vsConstantInputs[0] = cBuffer;
-    meshDrawCall.psConstantInputs[0] = cBuffer;
-    meshDrawCall.psImageInputs[0] = materials[0].diffuse;
-    meshDrawCall.psImageInputs[1] = materials[0].roughness;
-    meshDrawCall.psImageInputs[2] = materials[0].metallic;
-    meshDrawCall.psImageInputs[3] = materials[0].normal;
-    meshDrawCall.psImageInputs[4] = materials[0].ao;
-    meshDrawCall.psImageInputs[5] = paintRoughnessRT;
-    meshDrawCall.psImageInputs[6] = paintMetallicRT;
-    meshDrawCall.psImageInputs[7] = paintNormalRT;
-    meshDrawCall.psImageInputs[8] = cubemapTexture;
-    meshDrawCall.psImageInputs[9] = hdrCubemap[0];
-    meshDrawCall.psImageInputs[10] = hdrDiffuse[0];
-    meshDrawCall.psImageInputs[11] = brdfLUT;
-
-    gfx::DrawCall cubemapDrawCall;
-    cubemapDrawCall.vertexBuffers[0] = cubeVertexBuffer;
-    cubemapDrawCall.vertexOffsets[0] = 0;
-    cubemapDrawCall.vertexStrides[0] = sizeof(float) * 3;
-    cubemapDrawCall.indexBuffer = cubeIndexBuffer;
-    cubemapDrawCall.numElements = (uint32_t)numCubeIndices;
-    cubemapDrawCall.pipelineState = cubemapPipeline;
-    cubemapDrawCall.vsConstantInputs[0] = cBuffer;
-    cubemapDrawCall.psImageInputs[0] = cubemapTexture;
-    cubemapDrawCall.psImageInputs[1] = hdrCubemap[0];
-
-
-    gfx::DrawCall cubePaintDrawCall;
-    cubePaintDrawCall.vertexBuffers[0] = meshVertexBuffer;
-    cubePaintDrawCall.vertexOffsets[0] = 0;
-    cubePaintDrawCall.vertexStrides[0] = sizeof(float) * 3;
-    cubePaintDrawCall.vertexBuffers[1] = meshNormalBuffer;
-    cubePaintDrawCall.vertexOffsets[1] = 0;
-    cubePaintDrawCall.vertexStrides[1] = sizeof(float) * 3;
-    cubePaintDrawCall.vertexBuffers[2] = meshUVBuffer;
-    cubePaintDrawCall.vertexOffsets[2] = 0;
-    cubePaintDrawCall.vertexStrides[2] = sizeof(float) * 2;
-    cubePaintDrawCall.indexBuffer = meshIndexBuffer;
-    cubePaintDrawCall.numElements = meshAsset.numIndices;
-    cubePaintDrawCall.pipelineState = paintObjPipelineState;
-    cubePaintDrawCall.vsConstantInputs[0] = cPaintBuffer;
-    cubePaintDrawCall.psConstantInputs[0] = cPaintBuffer;
-
-
-    // @TODO depth attachment
-    gfx::RenderPassDesc mainRenderPassDesc;
-    mainRenderPassDesc.colorAttachments[0].image = mainRT;
-    mainRenderPassDesc.depthStencilAttachment.image = mainDepthBuffer;
-    gfx::RenderPass mainPass = gfx::CreateRenderPass(gfxDevice, &mainRenderPassDesc);
-    if (!GFX_CHECK_RESOURCE(mainPass)) {
-        GT_LOG_ERROR("Renderer", "Failed to create main render pass");
-    }
-
-    gfx::RenderPassDesc uiPassDesc;
-    uiPassDesc.colorAttachments[0].image = uiRenderTarget;
-    gfx::RenderPass uiPass = gfx::CreateRenderPass(gfxDevice, &uiPassDesc);
-    if (!GFX_CHECK_RESOURCE(uiPass)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
-    }
-
-    gfx::RenderPassDesc brdfLUTPassDesc;
-    brdfLUTPassDesc.colorAttachments[0].image = brdfLUT;
-    gfx::RenderPass brdfLUTPass = gfx::CreateRenderPass(gfxDevice, &brdfLUTPassDesc);
-    if (!GFX_CHECK_RESOURCE(brdfLUTPass)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render pass for brdfLUT");
-    }
-
-    gfx::RenderPassDesc paintPassDesc;
-    paintPassDesc.colorAttachments[0].image = paintDiffuseRT;
-    paintPassDesc.colorAttachments[1].image = paintRoughnessRT;
-    paintPassDesc.colorAttachments[2].image = paintMetallicRT;
-    paintPassDesc.colorAttachments[3].image = paintNormalRT;
-    gfx::RenderPass paintPass = gfx::CreateRenderPass(gfxDevice, &paintPassDesc);
-    if (!GFX_CHECK_RESOURCE(paintPass)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render pass for painting");
-    }
-    gfx::RenderPassDesc paintNormalPassDesc;
-    paintNormalPassDesc.colorAttachments[0].image = paintNormalRT;
-    gfx::RenderPass paintNormalPass = gfx::CreateRenderPass(gfxDevice, &paintNormalPassDesc);
-    if (!GFX_CHECK_RESOURCE(paintNormalPass)) {
-        GT_LOG_ERROR("Renderer", "Failed to create render pass for clearing normal target");
-    }
-
     GT_LOG_INFO("Application", "Initialized graphics scene");
-
-    gfx::CommandBuffer cmdBuffer = gfx::GetImmediateCommandBuffer(gfxDevice);
-
 
     ImGui_ImplDX11_Init(g_hwnd, gfxDevice);
 
@@ -1862,8 +1024,6 @@ int win32_main(int argc, char* argv[])
         static const ImWchar icons_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
         io.Fonts->AddFontFromFileTTF("../../extra_fonts/fontawesome-webfont.ttf", 16.0f, &icons_config, icons_ranges);
     }
-
-
 
     ImGui_Style_SetDark(0.8f);
 
@@ -1894,44 +1054,8 @@ int win32_main(int argc, char* argv[])
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
-    gfx::RenderPassAction clearAllAction;
-    clearAllAction.colors[0].action = gfx::Action::ACTION_CLEAR;
-    clearAllAction.depth.action = gfx::Action::ACTION_CLEAR;
-    float blue[] = { bgColor[0], bgColor[1], bgColor[2], 1.0f };
-    memcpy(clearAllAction.colors[0].color, blue, sizeof(float) * 4);
 
-    gfx::RenderPassAction clearMaybeAction;
-    clearMaybeAction.colors[0].color[0] = 0.0f;
-    clearMaybeAction.colors[0].color[1] = 0.0f;
-    clearMaybeAction.colors[0].color[2] = 0.0f;
-    clearMaybeAction.colors[0].color[3] = 1.0f;
-    clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
-   
-    clearMaybeAction.colors[0].action = gfx::Action::ACTION_CLEAR;
-    gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
-    gfx::EndRenderPass(gfxDevice, cmdBuffer);
-    clearMaybeAction.colors[0].action = gfx::Action::ACTION_LOAD;
-   
-
-    gfx::RenderPassAction clearNormalsAction;
-    clearNormalsAction.colors[0].action = gfx::Action::ACTION_CLEAR;
-    clearNormalsAction.depth.action = gfx::Action::ACTION_CLEAR;
-    float normalIdentity[] = { 0.5f, 0.5f, 1.0f, 1.0f };
-    memcpy(clearNormalsAction.colors[0].color, normalIdentity, sizeof(float) * 4);
-    gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintNormalPass, &clearNormalsAction);
-    gfx::EndRenderPass(gfxDevice, cmdBuffer);
-
-
-
-    gfx::DrawCall brdfLUTDrawCall;
-    brdfLUTDrawCall.pipelineState = brdfLUTPipeline;
-    brdfLUTDrawCall.numElements = 4;
-    gfx::BeginRenderPass(gfxDevice, cmdBuffer, brdfLUTPass, &clearAllAction);
-    gfx::Viewport brdfLutViewport;
-    brdfLutViewport.width = 512;
-    brdfLutViewport.height = 512;
-    gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &brdfLUTDrawCall, &brdfLutViewport);
-    gfx::EndRenderPass(gfxDevice, cmdBuffer);
+    
 
     entity_system::World* mainWorld;
     entity_system::WorldConfig worldConfig;
@@ -1940,11 +1064,6 @@ int win32_main(int argc, char* argv[])
     }
 
     entity_system::Entity* entityList = GT_NEW_ARRAY(entity_system::Entity, worldConfig.maxNumEntities, &applicationArena);
-
-    math::float4 lightDir(1.0f, -1.0f, 0.0f, 2.0f);
-    math::float4 color(1.0f, 1.0f, 1.0f, 1.0f);
-
-
 
     core::api_registry::APIRegistry* apiRegistry = nullptr;
     core::api_registry::APIRegistryInterface apiRegistryInterface;
@@ -2089,6 +1208,23 @@ int win32_main(int argc, char* argv[])
           
             entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
 
+            for (size_t i = 0; i < numEntities; ++i) {
+                auto ent = entityList[i];
+                if (renderer::GetStaticMesh(renderWorld, ent.id).id == 0) {
+                    core::Asset assetID;
+                    core::Asset materialAsset;
+                    if (i % 2 == 0) {
+                        assetID.id = 1;
+                        materialAsset.id = 2;
+                    }
+                    else {
+                        assetID.id = 3;
+                        materialAsset.id = 4;
+                    }
+                    renderer::CreateStaticMesh(renderWorld, ent.id, assetID, &materialAsset, 1);
+
+                }
+            }
 
 #ifdef GT_DEVELOPMENT
             if (ImGui::Begin(ICON_FA_FLOPPY_O "  Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -2111,30 +1247,6 @@ int win32_main(int argc, char* argv[])
             } ImGui::End();
 #endif
             
- 
-            ImGui::Begin(ICON_FA_PICTURE_O "  Renderer"); {
-                static int currentCubemapIndex = 0;
-                static const char* names[NUM_CUBEMAPS] = {
-                    "Cubemap 0", "Cubemap 1", "Cubemap 2", "Cubemap 3", "Cubemap 4", "Cubemap 5", "Cubemap 6"
-                };
-                if (ImGui::Combo("Current cubemap", &currentCubemapIndex, names, NUM_CUBEMAPS)) {
-                    cubemapDrawCall.psImageInputs[1] = hdrCubemap[currentCubemapIndex];
-                    meshDrawCall.psImageInputs[9] = hdrCubemap[currentCubemapIndex];
-                    meshDrawCall.psImageInputs[10] = hdrDiffuse[currentCubemapIndex];
-                }
-
-                ImGui::Checkbox("Render UI to offscreen buffer", &g_renderUIOffscreen);
-                ImGui::Checkbox("Enable UI Blur Effect", &g_enableUIBlur);
-                ImGui::ColorPicker4("Background Color", clearAllAction.colors[0].color, ImGuiColorEditFlags_PickerHueWheel);
-                
-                ImGui::BeginChild("Render Targets");
-              
-                ImGui::Image((ImTextureID)(uintptr_t)mainRT.id, ImVec2(WINDOW_WIDTH * 0.25f, WINDOW_HEIGHT * 0.25f));
-
-                ImGui::EndChild();
-            } ImGui::End();
-
-
             static math::float3 mousePosScreenCache(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
             math::float3 mousePosScreen(ImGui::GetIO().MousePos.x, ImGui::GetIO().MousePos.y, 15.0f);
 
@@ -2164,115 +1276,6 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
-            ImGui::Begin(ICON_FA_SUN_O "  Global Lighting"); {
-                ImGui::SliderFloat3("Sun Direction", (float*)lightDir, -1.0f, 1.0f);
-                ImGui::SliderFloat("Sun Intensity", &lightDir.w, 0.0f, 500.0f);
-            } ImGui::End();
-
-            
-
-            paint = false;
-            if (ImGui::Begin(ICON_FA_PAINT_BRUSH "    Painting")) {
-
-                paint = false; // ImGui::IsMouseDown(MOUSE_LEFT) && selectedEntity.id != 0;
-                ImGui::Checkbox("Paint", &paint);
-
-                ImGui::SliderFloat("Brush Size", &brushSizeSetting, 10.0f, 300.0f);
-                ImGui::SameLine();
-
-                auto drawList = ImGui::GetWindowDrawList();
-                ImVec2 circleCenter = ImGui::GetCursorScreenPos();
-                circleCenter.x += 25.0f;
-                circleCenter.y += 25.0f * 0.5f;
-                drawList->AddCircle(circleCenter, 25.0f * (brushSize / 300.0f), ImColor(1.0f, 1.0f, 1.0f, 1.0f), 64, 2.5f);
-
-                ImGui::Dummy(ImVec2(100.0f, 50.0f));
-                static int pickerMode = 0;
-                const ImGuiColorEditFlags modes[] = { ImGuiColorEditFlags_PickerHueBar, ImGuiColorEditFlags_PickerHueWheel };
-                const char* labels[] = { "Hue Bar", "Hue Wheel" };
-                ImGui::Combo("Color Picker Mode", &pickerMode, labels, ARRAYSIZE(labels));
-                ImGuiColorEditFlags ceditFlags = 0;
-                ceditFlags |= modes[pickerMode];
-                ImGui::Spacing();
-                ImGui::ColorPicker4("Albedo", (float*)color, ceditFlags);
-
-                ImGui::Spacing();
-
-
-                int selectionIndex = -1;
-
-                //paintTexture[3] = uiRenderTarget;   // hehe
-                for (int i = 0; i < (int)NUM_MATERIALS; ++i) {
-                    ImGui::PushID((int)i);
-                    if (ImGui::TreeNode("Material", "%s", materials[i].name)) {
-                        if (selectionIndex == i) {
-                            ImGui::Text(ICON_FA_LOCK);
-                        }
-                        else {
-                            ImGui::Text(ICON_FA_UNLOCK);
-                        }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                            selectionIndex = i;
-                        }
-                        
-                        ImGui::Spacing();
-                        ImGui::SliderFloat("Roughness", &materials[i].roughnessScalar, 0.0f, 1.0f);
-                        ImGui::SliderFloat("Metallic", &materials[i].metallicScalar, 0.0f, 1.0f);
-
-                        ImGui::Checkbox("Use Textures", &materials[i].useTextures);
-
-                        ImVec2 contentRegion = ImGui::GetContentRegionAvail();
-                        contentRegion.y = 300.0f;
-                        ImGui::BeginChild((int)i, contentRegion);
-                        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                            selectionIndex = i;
-                        }
-
-                        if (GFX_CHECK_RESOURCE(materials[i].diffuse)) {
-                            ImGui::Text("Albedo");
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].diffuse.id, ImVec2(256, 256));
-                          
-                        }
-                        if (GFX_CHECK_RESOURCE(materials[i].roughness)) {
-                            ImGui::Text("Roughness");
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].roughness.id, ImVec2(256, 256));
-                            
-                        }
-                        if (GFX_CHECK_RESOURCE(materials[i].metallic)) {
-                            ImGui::Text("Metallic");
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].metallic.id, ImVec2(256, 256));
-                            
-                        }
-                        if (GFX_CHECK_RESOURCE(materials[i].normal)) {
-                            ImGui::Text("Normal Map");
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].normal.id, ImVec2(256, 256));
-                            
-                        }
-                        if (GFX_CHECK_RESOURCE(materials[i].ao)) {
-                            ImGui::Text("AO Map");
-                            ImGui::Image((ImTextureID)(uintptr_t)materials[i].ao.id, ImVec2(256, 256));
-
-                        }
-                        ImGui::EndChild();
-                        ImGui::TreePop();
-                    } ImGui::PopID();
-                }
-
-                if (selectionIndex >= 0) {
-                    for (size_t i = 0; i < numEntitiesSelected; ++i) {
-                        auto index = (uint16_t)entitySelection[i].id;
-                        materialIndex[index] = selectionIndex;
-                    }
-                }
-
-                cubePaintDrawCall.psImageInputs[0] = materials[selectionIndex].diffuse;
-                cubePaintDrawCall.psImageInputs[1] = materials[selectionIndex].roughness;
-                cubePaintDrawCall.psImageInputs[2] = materials[selectionIndex].metallic;
-                cubePaintDrawCall.psImageInputs[3] = materials[selectionIndex].normal;
-
-            } ImGui::End();
-
-           
 
             enum CameraMode : int {
                 CAMERA_MODE_ARCBALL = 0,
@@ -2412,37 +1415,6 @@ int win32_main(int argc, char* argv[])
             float camInverse[16];
             util::Inverse4x4FloatMatrixCM(camera, camInverse);
             util::Copy4x4FloatMatrixCM(camInverse, camera);
-            //util::Copy4x4FloatMatrixCM(camTemp, camera);
-
-            
-
-            //
-            
-            float steps = 0.0f;
-            while (steps < 1.0f) {
-                if (paint) {
-                   /* void* cBufferMem = gfx::MapBuffer(gfxDevice, cPaintBuffer, gfx::MapType::MAP_WRITE_DISCARD);
-                    if (cBufferMem != nullptr) {
-                        PaintConstantData* data = (PaintConstantData*)cBufferMem;
-                        data->cursorPos = mousePosScreen.xy * steps + mousePosScreenCache.xy * (1.0f - steps);
-                        float modelView[16];
-                        util::MultiplyMatricesCM(camera, entity_system::GetEntityTransform(mainWorld, selectedEntity), modelView);
-                        util::Copy4x4FloatMatrixCM(modelView, data->modelToViewMatrix);
-                        util::MultiplyMatricesCM(proj, modelView, data->modelToProjMatrix);
-                        data->color = color;
-                        data->brushSize = brushSize;
-                        gfx::UnmapBuffer(gfxDevice, cPaintBuffer);
-                    }
-                    */
-                    gfx::BeginRenderPass(gfxDevice, cmdBuffer, paintPass, &clearMaybeAction);
-                    gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubePaintDrawCall);
-                    gfx::EndRenderPass(gfxDevice, cmdBuffer);
-                }
-                steps += stepSize;
-            }
-            mousePosScreenCache = mousePosScreen;
-            //if(paint)
-            //GT_LOG_INFO("Paintshop", "Did %f steps", steps / stepSize);
 
             /* End sim frame */
             ImGui::Render();
@@ -2450,40 +1422,25 @@ int win32_main(int argc, char* argv[])
             accumulator -= dt;
         }
         if (didUpdate) {
-  
-            void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
-            if (cBufferMem != nullptr) {
-                ConstantData object;
-                util::Make4x4FloatMatrixIdentity(object.MVP);
-                util::Make4x4FloatMatrixIdentity(object.MV);
-                util::Make4x4FloatMatrixIdentity(object.VP);
-                util::Make4x4FloatMatrixIdentity(object.view);
-                util::Make4x4FloatMatrixIdentity(object.projection);
-                util::Make4x4FloatMatrixIdentity(object.model);
+                
+            renderer::SetCameraTransform(renderWorld, camera);
+            renderer::SetCameraProjection(renderWorld, proj);
 
-                float modelView[16];
-                util::MultiplyMatricesCM(camera, object.model, modelView);
-                util::MultiplyMatricesCM(proj, modelView, object.MVP);
-                util::Copy4x4FloatMatrixCM(camera, object.view);
-                util::Inverse4x4FloatMatrixCM(camera, object.inverseView);
-                util::Copy4x4FloatMatrixCM(object.model, object.model);
-                util::Copy4x4FloatMatrixCM(modelView, object.MV);
-                util::Copy4x4FloatMatrixCM(proj, object.projection);
-                util::MultiplyMatricesCM(proj, camera, object.VP);
-
-                object.color = color;
-                object.lightDir = lightDir;
-
-           
-                memcpy(cBufferMem, &object, sizeof(ConstantData));
-                gfx::UnmapBuffer(gfxDevice, cBuffer);
+            renderer::WorldSnapshot worldSnapshot;
+            
+            entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
+            worldSnapshot.numTransforms = (uint32_t)numEntities;
+            worldSnapshot.transforms = (renderer::Transform*)frameAllocator.Allocate(sizeof(renderer::Transform) * numEntities, alignof(renderer::Transform));
+            for (size_t i = 0; i < numEntities; ++i) {
+                worldSnapshot.transforms[i].entityID = entityList[i].id;
+                util::Copy4x4FloatMatrixCM(entity_system::GetEntityTransform(mainWorld, entityList[i]), worldSnapshot.transforms[i].transform);
             }
-
+            renderer::UpdateWorldState(renderWorld, &worldSnapshot);
 
             frameAllocator.Reset();
         }
 
-        
+    
         /* Begin render frame*/
 
         auto renderFrameTimerStart = GetCounter();
@@ -2493,121 +1450,14 @@ int win32_main(int argc, char* argv[])
         // draw geometry
         auto commandSubmissionTimerStart = GetCounter();
       
-        gfx::BeginRenderPass(gfxDevice, cmdBuffer, mainPass, &clearAllAction);
-
-        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &cubemapDrawCall);
-
-        for (size_t i = 0; i < numEntities; ++i) {
-            entity_system::Entity entity = entityList[i];
-            auto matIndex = materialIndex[(uint16_t)entity.id];
-
-            void* cBufferMem = gfx::MapBuffer(gfxDevice, cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
-            if (cBufferMem != nullptr) {
-                ConstantData object;
-                util::Make4x4FloatMatrixIdentity(object.MVP);
-                util::Make4x4FloatMatrixIdentity(object.MV);
-                util::Make4x4FloatMatrixIdentity(object.VP);
-                util::Make4x4FloatMatrixIdentity(object.view);
-                util::Make4x4FloatMatrixIdentity(object.projection);
-                util::Make4x4FloatMatrixIdentity(object.model);
-
-                util::Copy4x4FloatMatrixCM(entity_system::GetEntityTransform(mainWorld, entity), object.model);
-  
-               
-                float modelView[16];
-                util::MultiplyMatricesCM(camera, object.model, modelView);
-                util::MultiplyMatricesCM(proj, modelView, object.MVP);
-                util::Copy4x4FloatMatrixCM(camera, object.view);
-                util::Inverse4x4FloatMatrixCM(camera, object.inverseView);
-                util::Copy4x4FloatMatrixCM(object.model, object.model);
-                util::Copy4x4FloatMatrixCM(modelView, object.MV);
-                util::Copy4x4FloatMatrixCM(proj, object.projection);
-                util::MultiplyMatricesCM(proj, camera, object.VP);
-
-                object.color = color;
-                object.lightDir = lightDir;
-
-                object.roughness = materials[matIndex].roughnessScalar;
-                object.metallic = materials[matIndex].metallicScalar;
-
-                object.useTextures = materials[matIndex].useTextures ? 1 : 0;
-
-
-                memcpy(cBufferMem, &object, sizeof(ConstantData));
-                gfx::UnmapBuffer(gfxDevice, cBuffer);
-            }
-            meshDrawCall.psImageInputs[0] = materials[matIndex].diffuse;
-            meshDrawCall.psImageInputs[1] = materials[matIndex].roughness;
-            meshDrawCall.psImageInputs[2] = materials[matIndex].metallic;
-            meshDrawCall.psImageInputs[3] = materials[matIndex].normal;
-            meshDrawCall.psImageInputs[4] = materials[matIndex].ao;
-
-            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &meshDrawCall);
-        }
-        gfx::EndRenderPass(gfxDevice, cmdBuffer);
-
-        GT_LOG_INFO("RenderProfile", "Command submission took %f ms", 1000.0 * (GetCounter() - commandSubmissionTimerStart));
-       
         // draw UI
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {
-            gfx::RenderPassAction uiPassAction;
-            
-            
-            if (g_renderUIOffscreen) {
-                uiPassAction.colors[0].color[0] = 0.0f;
-                uiPassAction.colors[0].color[1] = 0.0f;
-                uiPassAction.colors[0].color[2] = 0.0f;
-                uiPassAction.colors[0].color[3] = 1.0f;
-                uiPassAction.colors[0].action = gfx::Action::ACTION_CLEAR;
-                gfx::BeginRenderPass(gfxDevice, cmdBuffer, uiPass, &uiPassAction);
-            }
-            else {
-                uiPassAction.colors[0].action = gfx::Action::ACTION_LOAD;
-                gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &uiPassAction);
-            }
-            ImGui_ImplDX11_RenderDrawLists(uiDrawData, &cmdBuffer);
-            gfx::EndRenderPass(gfxDevice, cmdBuffer);
+            renderer::RenderUI(renderer, uiDrawData);
         }
 
-        gfx::RenderPassAction blitAction;
-        blitAction.colors[0].action = gfx::Action::ACTION_CLEAR;
-        
-
-        gfx::DrawCall tonemapDrawCall;
-        tonemapDrawCall.pipelineState = tonemapPipeline;
-        tonemapDrawCall.numElements = 4;
-        tonemapDrawCall.psImageInputs[0] = mainRT;
-
-        gfx::DrawCall blitDrawCall;
-        blitDrawCall.pipelineState = blitPipeline;
-        blitDrawCall.numElements = 4;
-        blitDrawCall.psImageInputs[0] = mainRT;
-
-        gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
-        gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &tonemapDrawCall);
-        gfx::EndRenderPass(gfxDevice, cmdBuffer);
-
-
-        blitAction.colors[0].action = gfx::Action::ACTION_LOAD;
-
-        if (g_enableUIBlur) {
-            gfx::DrawCall blurDrawCall;
-            blurDrawCall.pipelineState = blurPipeline;
-            blurDrawCall.numElements = 4;
-            blurDrawCall.psImageInputs[0] = mainRT;
-            blurDrawCall.psImageInputs[1] = uiRenderTarget;
-
-            gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
-            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blurDrawCall);
-            gfx::EndRenderPass(gfxDevice, cmdBuffer);
-        }
-        if (g_renderUIOffscreen) {
-            blitDrawCall.psImageInputs[0] = uiRenderTarget;
-            gfx::BeginDefaultRenderPass(gfxDevice, cmdBuffer, swapChain, &blitAction);
-            gfx::SubmitDrawCall(gfxDevice, cmdBuffer, &blitDrawCall);
-            gfx::EndRenderPass(gfxDevice, cmdBuffer);
-        }
+        // draw world
+        renderer::Render(renderWorld, swapChain);
 
         /* Present render frame*/
         auto presentTimerStart = GetCounter();

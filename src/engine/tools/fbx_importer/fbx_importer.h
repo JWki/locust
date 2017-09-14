@@ -9,29 +9,7 @@
 #include <foundation/memory/memory.h>
 #include <foundation/math/math.h>
 #include <foundation/int_types.h>
-
-struct MeshAsset
-{
-    fnd::math::float3*   vertexPositions = nullptr;
-    fnd::math::float3*   vertexNormals = nullptr;
-    fnd::math::float3*   vertexTangents = nullptr;
-    fnd::math::float2*   vertexUVs = nullptr;
-
-    enum class IndexFormat : uint8_t {
-        UINT16,
-        UINT32
-    } indexFormat = IndexFormat::UINT16;
-    union {
-        uint16_t* as_uint16;
-        uint32_t* as_uint32;
-    } indices;
-
-    uint32_t        numVertices = 0;
-    uint32_t        numIndices = 0;
-
-    MeshAsset() { indices.as_uint16 = nullptr; }
-};
-
+#include <engine/runtime/renderer/renderer.h>
 
 struct FBXScene { void* _ptr = nullptr; };
 struct FBXMesh { void* _ptr = nullptr; };
@@ -44,4 +22,4 @@ struct FBXMeshInfo
 };
 
 FBX_IMPORT_API
-bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, MeshAsset* outAsset);
+bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, renderer::MeshDesc* outMeshDescs, size_t* outNumSubmeshes);

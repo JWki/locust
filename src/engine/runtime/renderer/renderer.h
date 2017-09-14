@@ -2,6 +2,7 @@
 
 #include <foundation/int_types.h>
 #include <engine/runtime/gfx/gfx.h>
+#include <foundation/math/math.h>
 
 namespace fnd { namespace memory { class MemoryArenaBase; } }
 namespace core {
@@ -10,8 +11,30 @@ namespace core {
 
 #define RENDERER_API_NAME "renderer"
 
+struct ImDrawData;
+
 namespace renderer
 {
+    struct Transform
+    {
+        uint32_t entityID = 0;
+        float transform[16];
+    };
+
+    struct WorldSnapshot
+    {
+        uint32_t    numTransforms = 0;
+        Transform*  transforms = nullptr;
+    };
+
+    struct DefaultVertex
+    {
+        fnd::math::float3   position;
+        fnd::math::float3   normal;
+        fnd::math::float2   uv;
+        fnd::math::float3   tangent;
+    };
+
     struct MeshLibrary;
     struct TextureLibrary;
     struct MaterialLibrary;
@@ -38,6 +61,9 @@ namespace renderer
     struct RendererConfig
     {
         gfx::Device* gfxDevice = nullptr;
+
+        uint32_t    windowWidth = 0;
+        uint32_t    windowHeight = 0;
     };
 
     bool CreateRenderer(Renderer** outRenderer, fnd::memory::MemoryArenaBase* memoryArena, RendererConfig* config);
@@ -52,6 +78,8 @@ namespace renderer
         size_t  vertexDataSize  = 0;
         void* indexData         = nullptr;
         size_t indexDataSize    = 0;
+
+        size_t numElements = 0;
     };
 
     struct TextureDesc
@@ -76,6 +104,8 @@ namespace renderer
     bool UpdateTextureLibrary(RenderWorld* world, core::Asset assetID, TextureDesc* textureDesc);
     bool UpdateMaterialLibrary(RenderWorld* world, core::Asset assetID, MaterialDesc* materialDesc);
 
+    gfx::Image GetTextureHandle(RenderWorld* world, core::Asset assetID);
+
     StaticMesh CreateStaticMesh(RenderWorld* world, uint32_t entityID, core::Asset mesh, core::Asset* materials, size_t numMaterials);
     void DestroyStaticMesh(RenderWorld* world, StaticMesh mesh);
 
@@ -83,10 +113,13 @@ namespace renderer
 
     void GetMaterials(RenderWorld* world, StaticMesh mesh, core::Asset* outMaterials, size_t* outNumMaterials);
 
-    void Render(RenderWorld* world);
+    void Render(RenderWorld* world, gfx::SwapChain swapChain);
+    void RenderUI(Renderer* renderer, ImDrawData* drawData);
 
     void SetCameraTransform(RenderWorld* world, float* transform);
     void SetCameraProjection(RenderWorld* world, float* transform);
+
+    void UpdateWorldState(RenderWorld* world, WorldSnapshot* snapshot);
 
     struct RendererInterface
     {
@@ -96,10 +129,20 @@ namespace renderer
         decltype(UpdateTextureLibrary)*     UpdateTextureLibrary = nullptr;
         decltype(UpdateMaterialLibrary)*    UpdateMaterialLibrary = nullptr;
         decltype(CreateStaticMesh)*         CreateStaticMesh = nullptr;
+        decltype(DestroyStaticMesh)*        DestroyStaticMesh = nullptr;
+        decltype(GetStaticMesh)*            GetStaticMesh = nullptr;
         decltype(Render)*                   Render = nullptr;
+        decltype(RenderUI)*                 RenderUI = nullptr;
+
+        decltype(GetTextureHandle)*         GetTextureHandle = nullptr;
 
         decltype(CreateRenderer)*           CreateRenderer = nullptr;
         decltype(DestroyRenderer)*          DestroyRenderer = nullptr;
+
+        decltype(SetCameraTransform)*       SetCameraTransform = nullptr;
+        decltype(SetCameraProjection)*      SetCameraProjection = nullptr;
+
+        decltype(UpdateWorldState)*         UpdateWorldState = nullptr;
     };
 }
 
