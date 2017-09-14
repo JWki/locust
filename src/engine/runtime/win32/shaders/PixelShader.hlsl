@@ -194,11 +194,11 @@ float4 main(PixelInput input) : SV_TARGET
 
     float3 N = normalize(input.normal).xyz;
     //float3 paintN = paintNormal.Sample(sampler8, input.uv).rgb;
-    
-    N = normalMap.Sample(sampler6, input.uv).rgb;
-    N = N * 2.0f - 1.0f;
-    //N = blend_rnm(N, paintN);
-    N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
+
+    // @HACK uncomment back in
+    //N = normalMap.Sample(sampler6, input.uv).rgb;
+    //N = N * 2.0f - 1.0f;
+    //N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
 
     //return float4(N * 0.5f + 0.5f, 1.0f);
 
@@ -222,6 +222,10 @@ float4 main(PixelInput input) : SV_TARGET
         roughness = Roughness;
         metallic = Metallic;
     }
+
+    // @HACK delete this code
+    roughness = 0.375f;
+    metallic = 1.0f;
 
     roughness = clamp(roughness, 0.01f, 1.0f);
     metallic = clamp(metallic, 0.04f, 0.99f);
