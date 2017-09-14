@@ -1178,12 +1178,12 @@ namespace renderer
 
                         meshDrawCall.numElements = it->numElements;
 
-                        /*meshDrawCall.psImageInputs[0] = material->baseColorMap->image;
+                        meshDrawCall.psImageInputs[0] = material->baseColorMap->image;
                         meshDrawCall.psImageInputs[1] = material->roughnessMap->image;
                         meshDrawCall.psImageInputs[2] = material->metalnessMap->image;
                         meshDrawCall.psImageInputs[3] = material->normalVecMap->image;;
                         meshDrawCall.psImageInputs[4] = material->occlusionMap->image;
-                        */
+                        
                         gfx::SubmitDrawCall(renderer->gfxDevice, renderer->commandBuffer, &meshDrawCall);
                     }
                     it = it->nextSubmesh;

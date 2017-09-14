@@ -962,6 +962,69 @@ int win32_main(int argc, char* argv[])
     renderer::MeshDesc* meshDescs = GT_NEW_ARRAY(renderer::MeshDesc, 128, &applicationArena);
     size_t numSubmeshes = 0;
 
+    core::Asset textureAsset1 = { 5 };
+    core::Asset textureAsset2 = { 6 };
+
+    {
+        int width, height, numComponents;
+        auto image = stbi_load("../../diffuse0.png", &width, &height, &numComponents, 4);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::SamplerDesc defaultSamplerStateDesc;
+        gfx::ImageDesc diffDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        diffDesc.width = width;
+        diffDesc.height = height;
+        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+        diffDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+        diffDesc.initialData = data;
+        diffDesc.initialDataSizes = &size;
+
+        renderer::TextureDesc texDesc;
+        texDesc.desc = diffDesc;
+        renderer::UpdateTextureLibrary(renderWorld, textureAsset1, &texDesc);
+
+        stbi_image_free(image);
+    }
+
+    {
+        int width, height, numComponents;
+        auto image = stbi_load("../../diffuse3.png", &width, &height, &numComponents, 4);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::SamplerDesc defaultSamplerStateDesc;
+        gfx::ImageDesc diffDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        diffDesc.width = width;
+        diffDesc.height = height;
+        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+        diffDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+        diffDesc.initialData = data;
+        diffDesc.initialDataSizes = &size;
+
+        renderer::TextureDesc texDesc;
+        texDesc.desc = diffDesc;
+        renderer::UpdateTextureLibrary(renderWorld, textureAsset2, &texDesc);
+
+        stbi_image_free(image);
+    }
+
     {
         const char* MODEL_FILE_PATH = "../../Cube.fbx";
         {
@@ -984,6 +1047,11 @@ int win32_main(int argc, char* argv[])
 
         core::Asset materialAsset = { 2 };
         renderer::MaterialDesc matDesc;
+        matDesc.baseColorMap = textureAsset1;
+        matDesc.roughnessMap = textureAsset1;
+        matDesc.metalnessMap = textureAsset1;
+        matDesc.normalVecMap = textureAsset1;
+        matDesc.occlusionMap = textureAsset1;
         renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
 
@@ -1010,6 +1078,11 @@ int win32_main(int argc, char* argv[])
 
         core::Asset materialAsset = { 4 };
         renderer::MaterialDesc matDesc;
+        matDesc.baseColorMap = textureAsset2;
+        matDesc.roughnessMap = textureAsset2;
+        matDesc.metalnessMap = textureAsset2;
+        matDesc.normalVecMap = textureAsset2;
+        matDesc.occlusionMap = textureAsset2;
         renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
     
