@@ -162,7 +162,7 @@ float3 ImportanceSampleGGX(float2 Xi, float3 N, float roughness)
     return normalize(sampleVec);
 }
 
-static const uint GLOBAL_SAMPLE_COUNT = 512u;
+static const uint GLOBAL_SAMPLE_COUNT = 1024u;
 
 float3 FilterCubemap(Texture2D map, sampler smpl, float3 V, float3 H, float3 N, float roughness)
 {
@@ -173,7 +173,7 @@ float3 FilterCubemap(Texture2D map, sampler smpl, float3 V, float3 H, float3 N, 
     {
         float2 Xi = Hammersley(i, SAMPLE_COUNT);
         float3 H = ImportanceSampleGGX(Xi, N, roughness);
-        float3 L = normalize(2.0f * dot(V, H) * H - V);
+        float3 L = normalize(2.0f * max(dot(V, H), 0.0f) * H - V);
 
         float NdotL = max(dot(N, L), 0.0f);
         if (NdotL > 0.0f)
@@ -269,13 +269,27 @@ float4 main(PixelInput input) : SV_TARGET
         float3 diffuseAmbient = kD2 * irradiance * albedo.rgb;
 
         float3 prefilteredSpecular = FilterCubemap(hdrCubemap, sampler9, V, H, N, roughness);
-        float2 envBRDF = brdfLUT.Sample(sampler11, NdotV, roughness).rg;
-        float3 specularAmbient = prefilteredSpecular * (F * envBRDF.x + envBRDF.y);
+
+        //float2 brdfLUTDimensions;
+        //brdfLUT.GetDimensions(brdfLUTDimensions.x, brdfLUTDimensions.y);
+        float2 envBRDFSampleLoc = float2(NdotV, roughness);
+        //envBRDFSampleLoc.x = clamp(envBRDFSampleLoc.x, 0.5f / brdfLUTDimensions.x, 1.0f - (0.5f / brdfLUTDimensions.x));
+        //envBRDFSampleLoc.y = clamp(envBRDFSampleLoc.y, 0.5f / brdfLUTDimensions.y, 1.0f - (0.5f / brdfLUTDimensions.y));
+
+        float2 envBRDF = brdfLUT.Sample(sampler11, envBRDFSampleLoc).rg;
+        float3 specularAmbient = prefilteredSpecular * (kS2 * envBRDF.x + envBRDF.y);
 
         indirectLight = (diffuseAmbient + specularAmbient) * ao;
-    
+
+        //return float4(float3(roughness, roughness, roughness), 1.0f);
+       // return float4(prefilteredSpecular, 1.0f);
+        //return float4(kS2, 1.0f);
+        //return float4(specularAmbient, 1.0f);
+        //return float4(envBRDF, 0.0f, 1.0f);
+        //return float4(kS2, 1.0f);
     }
 
+   
     float3 totalLighting = directLight + indirectLight;
     //totalLighting = indirectLight;
     return float4(totalLighting, 1.0f);

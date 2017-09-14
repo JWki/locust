@@ -889,72 +889,7 @@ int win32_main(int argc, char* argv[])
     UpdateWindow(g_hwnd);
     //
 
-    size_t vCubeShaderCodeSize = 0;
-    char* vCubeShaderCode = static_cast<char*>(LoadFileContents("VertexShaderCube.cso", &applicationArena, &vCubeShaderCodeSize));
-    if (!vCubeShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
-    }
-
-    size_t pShaderCodeSize = 0;
-    char* pShaderCode = static_cast<char*>(LoadFileContents("PixelShader.cso", &applicationArena, &pShaderCodeSize));
-    if (!pShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
-    }
-
-    size_t vBlitShaderCodeSize = 0;
-    char* vBlitShaderCode = static_cast<char*>(LoadFileContents("BlitVertexShader.cso", &applicationArena, &vBlitShaderCodeSize));
-    if (!vBlitShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
-    }
-
-    size_t pBlitShaderCodeSize = 0;
-    char* pBlitShaderCode = static_cast<char*>(LoadFileContents("BlitPixelShader.cso", &applicationArena, &pBlitShaderCodeSize));
-    if (!pBlitShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
-    }
-
-    size_t pTonemapShaderCodeSize = 0;
-    char* pTonemapShaderCode = static_cast<char*>(LoadFileContents("TonemapPixelShader.cso", &applicationArena, &pTonemapShaderCodeSize));
-    if (!pTonemapShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
-    }
-
-    size_t pBlurShaderCodeSize = 0;
-    char* pBlurShaderCode = static_cast<char*>(LoadFileContents("SelectiveBlurPixelShader.cso", &applicationArena, &pBlurShaderCodeSize));
-    if (!pBlurShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
-    }
-
-    size_t vPaintShaderCodeSize = 0;
-    char* vPaintShaderCode = static_cast<char*>(LoadFileContents("PaintVertexShader.cso", &applicationArena, &vPaintShaderCodeSize));
-    if (!vPaintShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
-    }
-
-    size_t pPaintShaderCodeSize = 0;
-    char* pPaintShaderCode = static_cast<char*>(LoadFileContents("PaintPixelShader.cso", &applicationArena, &pPaintShaderCodeSize));
-    if (!pPaintShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
-    }
-
-
-    size_t vCubemapShaderCodeSize = 0;
-    char* vCubemapShaderCode = static_cast<char*>(LoadFileContents("CubemapVertexShader.cso", &applicationArena, &vCubemapShaderCodeSize));
-    if (!vCubemapShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load vertex shader\n");
-    }
-
-    size_t pCubemapShaderCodeSize = 0;
-    char* pCubemapShaderCode = static_cast<char*>(LoadFileContents("CubemapPixelShader.cso", &applicationArena, &pCubemapShaderCodeSize));
-    if (!pCubemapShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
-    }
-
-    size_t pBRDFLUTShaderCodeSize = 0;
-    char* pBRDFLUTShaderCode = static_cast<char*>(LoadFileContents("BRDFLUT.cso", &applicationArena, &pBRDFLUTShaderCodeSize));
-    if (!pBRDFLUTShaderCode) {
-        GT_LOG_ERROR("D3D11", "Failed to load brdflut shader\n");
-    }
+    
 
     //
  
@@ -1018,8 +953,6 @@ int win32_main(int argc, char* argv[])
     util::Make4x4FloatTranslationMatrixCM(cameraPos, { 0.0f, -0.4f, 2.75f });
     
 
-    
-
     //
     auto cubeMesh = par_shapes_create_cube();
     par_shapes_translate(cubeMesh, -0.5f, -0.5f, -0.5f);
@@ -1040,7 +973,7 @@ int win32_main(int argc, char* argv[])
     
     MeshAsset meshAsset;
 
-#define MODEL_FILE_PATH "../../materialball.fbx"
+#define MODEL_FILE_PATH "../../WPN_MK2Grenade.fbx"
 
     {
         size_t modelFileSize = 0;
@@ -1060,6 +993,7 @@ int win32_main(int argc, char* argv[])
 
     
     gfx::SamplerDesc defaultSamplerStateDesc;
+    defaultSamplerStateDesc.minFilter = gfx::FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
 
     gfx::Image meshTexture;
     {
@@ -1210,7 +1144,7 @@ int win32_main(int argc, char* argv[])
         bool useTextures = true;
     };
 
-    const size_t NUM_MATERIALS = 15;
+    const size_t NUM_MATERIALS = 16;
     Material materials[NUM_MATERIALS];
     size_t materialIndex[entity_system::MAX_NUM_ENTITIES];
     memset(materialIndex, 0x0, sizeof(materialIndex));
@@ -1739,6 +1673,9 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create render target for paintshop");
     }
     
+    gfx::SamplerDesc brdfLUTSamplerDesc;
+    brdfLUTSamplerDesc.wrapU = gfx::WrapMode::WRAP_CLAMP_TO_EDGE;
+    brdfLUTSamplerDesc.wrapV = gfx::WrapMode::WRAP_CLAMP_TO_EDGE;
 
     gfx::ImageDesc brdfLUTDesc;
     brdfLUTDesc.isRenderTarget = true;
@@ -1746,7 +1683,7 @@ int win32_main(int argc, char* argv[])
     brdfLUTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
     brdfLUTDesc.width = 512;
     brdfLUTDesc.height = 512;
-    brdfLUTDesc.samplerDesc = &defaultSamplerStateDesc;
+    brdfLUTDesc.samplerDesc = &brdfLUTSamplerDesc;
     gfx::Image brdfLUT = gfx::CreateImage(gfxDevice, &brdfLUTDesc);
     if (!GFX_CHECK_RESOURCE(brdfLUT)) {
         GT_LOG_ERROR("Renderer", "Failed to create main render target");

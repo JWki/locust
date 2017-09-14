@@ -526,30 +526,32 @@ namespace gfx
         D3D11_TEXTURE_ADDRESS_MODE::D3D11_TEXTURE_ADDRESS_MIRROR
     };
 
-    D3D11_FILTER g_minLinearFilterModes[] = {
+    D3D11_FILTER g_magLinearFilterModes[] = {
         D3D11_FILTER::D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+
         D3D11_FILTER::D3D11_FILTER_MIN_MAG_MIP_LINEAR,
-        D3D11_FILTER::D3D11_FILTER_MIN_LINEAR_MAG_MIP_POINT,
-        D3D11_FILTER::D3D11_FILTER_MIN_LINEAR_MAG_MIP_POINT,
-        D3D11_FILTER::D3D11_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR,
+        D3D11_FILTER::D3D11_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT,
+        D3D11_FILTER::D3D11_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT,
+        D3D11_FILTER::D3D11_FILTER_MIN_POINT_MAG_MIP_LINEAR,
         D3D11_FILTER::D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT,
         D3D11_FILTER::D3D11_FILTER_MIN_MAG_MIP_LINEAR
     };
 
-    D3D11_FILTER g_minNearestFilterModes[] = {
-        D3D11_FILTER::D3D11_FILTER_MIN_POINT_MAG_MIP_LINEAR,
-        D3D11_FILTER::D3D11_FILTER_MIN_POINT_MAG_MIP_LINEAR,
+    D3D11_FILTER g_magNearestFilterModes[] = {
+        D3D11_FILTER::D3D11_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR,
+
+        D3D11_FILTER::D3D11_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR,
         D3D11_FILTER::D3D11_FILTER_MIN_MAG_MIP_POINT,
         D3D11_FILTER::D3D11_FILTER_MIN_MAG_MIP_POINT,
         D3D11_FILTER::D3D11_FILTER_MIN_MAG_POINT_MIP_LINEAR,
-        D3D11_FILTER::D3D11_FILTER_MIN_POINT_MAG_LINEAR_MIP_POINT,
-        D3D11_FILTER::D3D11_FILTER_MIN_POINT_MAG_MIP_LINEAR
+        D3D11_FILTER::D3D11_FILTER_MIN_LINEAR_MAG_MIP_POINT,
+        D3D11_FILTER::D3D11_FILTER_MIN_LINEAR_MAG_POINT_MIP_LINEAR
     };
 
     D3D11_FILTER* g_filterModeTableFront[] = {
-        g_minLinearFilterModes,
-        g_minLinearFilterModes,
-        g_minNearestFilterModes
+        g_magLinearFilterModes,
+        g_magLinearFilterModes,
+        g_magNearestFilterModes,
     };
 
     Image CreateImage(Device* device, ImageDesc* desc)
@@ -662,7 +664,7 @@ namespace gfx
                 device->interf->imagePool.Free(result.id);
                 return { gfx::INVALID_ID };
             }
-
+          
             image->sampler = nullptr;
             if (desc->samplerDesc != nullptr) {
                 // Create a sampler @HACK expose samplers to gfx API later
@@ -675,7 +677,7 @@ namespace gfx
                 samplerDesc.MaxLOD = 0.0f;
                 samplerDesc.MipLODBias = 0.0f;
                 samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
-                samplerDesc.Filter = g_filterModeTableFront[(uint8_t)desc->samplerDesc->minFilter][(uint8_t)desc->samplerDesc->magFilter];
+                samplerDesc.Filter = g_filterModeTableFront[(uint8_t)desc->samplerDesc->magFilter][(uint8_t)desc->samplerDesc->minFilter];
                 res = device->d3dDevice->CreateSamplerState(&samplerDesc, &image->sampler);
                 if (FAILED(res)) {
                     device->interf->imagePool.Free(result.id);

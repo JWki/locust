@@ -46,6 +46,8 @@ PixelInput main(Vertex vertex)
     output.normal = mul(Model, float4(normalize(vertex.normal.xyz), 0.0f));
     output.uv = vertex.uv;
     output.tangent = mul(Model, float4(normalize(vertex.tangent.xyz), 0.0f)).xyz;
+    // Gram-Schmidt re-orthongonalization
+    output.tangent = normalize(output.tangent) - dot(normalize(output.tangent), normalize(output.normal)) * normalize(output.normal);
     output.bitangent = mul(Model, float4(cross(normalize(vertex.tangent), normalize(vertex.normal.xyz)), 0.0f)).xyz;
     output.TBN = transpose(float3x3(normalize(output.tangent), normalize(output.bitangent), normalize(output.normal.xyz))); 
     //output.uv = (vertex.pos.xy + 0.5f);
