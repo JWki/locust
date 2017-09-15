@@ -9,6 +9,7 @@
 
 #include <engine/runtime/ImGui/imgui.h>
 #include <engine/runtime/win32/imgui_impl_dx11.h>
+#include <math.h>
 
 #ifdef _MSC_VER
 #define WIN32_LEAN_AND_MEAN
@@ -280,6 +281,8 @@ namespace renderer
         gfx::Shader pBRDFLUTShader;
         gfx::Shader vCubemapShader;
         gfx::Shader pCubemapShader;
+        gfx::Shader vPrefilterCubemapShader;
+        gfx::Shader pPrefilterCubemapShader;
 
         gfx::PipelineState meshPipeline_16bit;
         gfx::PipelineState meshPipeline_32bit; 
@@ -288,6 +291,7 @@ namespace renderer
         gfx::PipelineState tonemapPipeline;
         gfx::PipelineState blurPipeline;
         gfx::PipelineState brdfLUTPipeline;
+        gfx::PipelineState prefilterPipeline;
 
         gfx::Image uiRenderTarget;
         gfx::Image mainRT;
@@ -297,6 +301,9 @@ namespace renderer
         gfx::Image hdrCubemap[NUM_CUBEMAPS];
         gfx::Image hdrDiffuse[NUM_CUBEMAPS];
 
+        gfx::Image prefilteredCubemap[NUM_CUBEMAPS];
+        fnd::math::float2 prefilteredCubemapDimensions[NUM_CUBEMAPS];
+
         gfx::RenderPass mainPass;
         gfx::RenderPass uiPass;
         gfx::RenderPass brdfLUTPass;
@@ -304,6 +311,7 @@ namespace renderer
         gfx::Buffer cubeVertexBuffer;
         gfx::Buffer cubeIndexBuffer;
         gfx::Buffer cBuffer;
+        gfx::Buffer prefilterCBuffer;
     };
 
 
@@ -456,6 +464,12 @@ namespace renderer
                 GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
             }
 
+            size_t pPrefilterCubemapShaderCodeSize = 0;
+            char* pPrefilterCubemapShaderCode = static_cast<char*>(LoadFileContents("PrefilterCubemapPixelShader.cso", memoryArena, &pPrefilterCubemapShaderCodeSize));
+            if (!pPrefilterCubemapShaderCode) {
+                GT_LOG_ERROR("D3D11", "Failed to load p shader\n");
+            }
+
             size_t pBRDFLUTShaderCodeSize = 0;
             char* pBRDFLUTShaderCode = static_cast<char*>(LoadFileContents("BRDFLUT.cso", memoryArena, &pBRDFLUTShaderCodeSize));
             if (!pBRDFLUTShaderCode) {
@@ -510,6 +524,15 @@ namespace renderer
             pCubemapShaderDesc.code = pCubemapShaderCode;
             pCubemapShaderDesc.codeSize = pCubemapShaderCodeSize;
 
+            gfx::ShaderDesc vPrefilterCubemapShaderDesc;
+            vPrefilterCubemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
+            vPrefilterCubemapShaderDesc.code = vBlitShaderCode;
+            vPrefilterCubemapShaderDesc.codeSize = vBlitShaderCodeSize;
+            gfx::ShaderDesc pPrefilterCubemapShaderDesc;
+            pPrefilterCubemapShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+            pPrefilterCubemapShaderDesc.code = pPrefilterCubemapShaderCode;
+            pPrefilterCubemapShaderDesc.codeSize = pPrefilterCubemapShaderCodeSize;
+
             gfx::ShaderDesc pBRDFLUTShaderDesc;
             pBRDFLUTShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
             pBRDFLUTShaderDesc.code = pBRDFLUTShaderCode;
@@ -554,6 +577,16 @@ namespace renderer
 
             renderer->pCubemapShader = gfx::CreateShader(renderer->gfxDevice, &pCubemapShaderDesc);
             if (!GFX_CHECK_RESOURCE(renderer->pCubemapShader)) {
+                GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+            }
+
+            renderer->vPrefilterCubemapShader = gfx::CreateShader(renderer->gfxDevice, &vPrefilterCubemapShaderDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->vPrefilterCubemapShader)) {
+                GT_LOG_ERROR("Renderer", "Failed to create vertex shader");
+            }
+
+            renderer->pPrefilterCubemapShader = gfx::CreateShader(renderer->gfxDevice, &pPrefilterCubemapShaderDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->pPrefilterCubemapShader)) {
                 GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
             }
 
@@ -622,14 +655,22 @@ namespace renderer
             cubemapPipelineState.depthStencilState.enableDepth = false;
             cubemapPipelineState.rasterState.cullMode = gfx::CullMode::CULL_FRONT;
             cubemapPipelineState.indexFormat = gfx::IndexFormat::INDEX_FORMAT_UINT16;
-
             cubemapPipelineState.vertexShader = renderer->vCubemapShader;
             cubemapPipelineState.pixelShader = renderer->pCubemapShader;
             cubemapPipelineState.vertexLayout.attribs[0] = { "POSITION", 0, 0, 0, gfx::VertexFormat::VERTEX_FORMAT_FLOAT3 };
-
             renderer->cubemapPipeline = gfx::CreatePipelineState(renderer->gfxDevice, &cubemapPipelineState);
             if (!GFX_CHECK_RESOURCE(renderer->cubemapPipeline)) {
                 GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cubemap");
+            }
+
+            gfx::PipelineStateDesc prefilterCubemapStateDesc;
+            prefilterCubemapStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+            prefilterCubemapStateDesc.vertexShader = renderer->vPrefilterCubemapShader;
+            prefilterCubemapStateDesc.pixelShader = renderer->pPrefilterCubemapShader;
+            prefilterCubemapStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
+            renderer->prefilterPipeline = gfx::CreatePipelineState(renderer->gfxDevice, &prefilterCubemapStateDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->prefilterPipeline)) {
+                GT_LOG_ERROR("Renderer", "Failed to create pipeline state for cubemap prefiltering");
             }
 
 
@@ -788,6 +829,22 @@ namespace renderer
                     GT_LOG_ERROR("Renderer", "Failed to create texture");
                 }
                 stbi_image_free(image);
+
+                gfx::ImageDesc prefilteredDesc;
+                prefilteredDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+                prefilteredDesc.numMipmaps = 5;
+                prefilteredDesc.width = width;
+                prefilteredDesc.height = height;
+                prefilteredDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R32G32B32A32_FLOAT;
+                prefilteredDesc.samplerDesc = &defaultSamplerStateDesc;
+                prefilteredDesc.isRenderTarget = true;
+                renderer->prefilteredCubemap[i] = gfx::CreateImage(renderer->gfxDevice, &prefilteredDesc);
+                if (!GFX_CHECK_RESOURCE(renderer->prefilteredCubemap[i])) {
+                    GT_LOG_ERROR("Renderer", "Failed to create prefiltered cubemap RT");
+                }
+                renderer->prefilteredCubemapDimensions[i].x = (float)width;
+                renderer->prefilteredCubemapDimensions[i].y = (float)height;
+
             }
 
             for (size_t i = 0; i < Renderer::NUM_CUBEMAPS; ++i)
@@ -824,6 +881,33 @@ namespace renderer
             }
         }
 
+        {   // create constant buffers
+
+            gfx::BufferDesc cBufferDesc;
+            cBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
+            cBufferDesc.byteWidth = sizeof(ConstantData);
+            cBufferDesc.initialData = nullptr;
+            cBufferDesc.initialDataSize = 0;
+            cBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
+            renderer->cBuffer = gfx::CreateBuffer(renderer->gfxDevice, &cBufferDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->cBuffer)) {
+                GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
+            }
+
+
+            gfx::BufferDesc prefilterCBufferDesc;
+            prefilterCBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
+            prefilterCBufferDesc.byteWidth = sizeof(fnd::math::float4);
+            prefilterCBufferDesc.initialData = nullptr;
+            prefilterCBufferDesc.initialDataSize = 0;
+            prefilterCBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
+            renderer->prefilterCBuffer = gfx::CreateBuffer(renderer->gfxDevice, &prefilterCBufferDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->prefilterCBuffer)) {
+                GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
+            }
+        }
+
+
         {   // create render passes
             gfx::RenderPassDesc mainRenderPassDesc;
             mainRenderPassDesc.colorAttachments[0].image = renderer->mainRT;
@@ -853,6 +937,7 @@ namespace renderer
             clearAllAction.depth.action = gfx::Action::ACTION_CLEAR;
             float pink[] = { 1.0f, 192.0f / 255.0f, 203.0f / 255.0f, 1.0f };
             memcpy(clearAllAction.colors[0].color, pink, sizeof(float) * 4);
+            
 
             gfx::DrawCall brdfLUTDrawCall;
             brdfLUTDrawCall.pipelineState = renderer->brdfLUTPipeline;
@@ -863,19 +948,40 @@ namespace renderer
             brdfLutViewport.height = 512;
             gfx::SubmitDrawCall(renderer->gfxDevice, renderer->commandBuffer, &brdfLUTDrawCall, &brdfLutViewport);
             gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
-        }
+            
+            // prefilter all cubemaps
+            for (size_t i = 0; i < 1; ++i) {
 
-        {   // create constant buffers
+                for (uint16_t mipmapLevel = 0; mipmapLevel < 5; ++mipmapLevel) {
 
-            gfx::BufferDesc cBufferDesc;
-            cBufferDesc.type = gfx::BufferType::BUFFER_TYPE_CONSTANT;
-            cBufferDesc.byteWidth = sizeof(ConstantData);
-            cBufferDesc.initialData = nullptr;
-            cBufferDesc.initialDataSize = 0;
-            cBufferDesc.usage = gfx::ResourceUsage::USAGE_STREAM;
-            renderer->cBuffer = gfx::CreateBuffer(renderer->gfxDevice, &cBufferDesc);
-            if (!GFX_CHECK_RESOURCE(renderer->cBuffer)) {
-                GT_LOG_ERROR("Renderer", "Failed to create constant buffer");
+                    gfx::RenderPassDesc prefilterPassDesc;
+                    prefilterPassDesc.colorAttachments[0].image = renderer->prefilteredCubemap[i];
+                    prefilterPassDesc.colorAttachments[0].mipmapLevel = mipmapLevel;
+                    gfx::RenderPass prefilterPass = gfx::CreateRenderPass(renderer->gfxDevice, &prefilterPassDesc);
+                    if (!GFX_CHECK_RESOURCE(prefilterPass)) {
+                        GT_LOG_ERROR("Renderer", "Failed to create render pass for cubemap prefiltering");
+                    }
+
+                    gfx::DrawCall prefilterDrawCall;
+                    prefilterDrawCall.numElements = 4;
+                    prefilterDrawCall.pipelineState = renderer->prefilterPipeline;
+                    prefilterDrawCall.psImageInputs[0] = renderer->hdrCubemap[i];
+                    
+                    float roughness = (float)mipmapLevel / float(5 - 1);
+                    void* cBufferMem = gfx::MapBuffer(renderer->gfxDevice, renderer->prefilterCBuffer, gfx::MapType::MAP_WRITE_DISCARD);
+                    fnd::math::float4 params(roughness, 0.0f, 0.0f, 0.0f);
+                    memcpy(cBufferMem, &params, sizeof(float) * 4);
+                    gfx::UnmapBuffer(renderer->gfxDevice, renderer->prefilterCBuffer);
+
+                    prefilterDrawCall.psConstantInputs[0] = renderer->prefilterCBuffer;
+
+                    gfx::BeginRenderPass(renderer->gfxDevice, renderer->commandBuffer, prefilterPass, &clearAllAction);
+                    gfx::Viewport prefilterViewport;
+                    prefilterViewport.width = renderer->prefilteredCubemapDimensions[i].x * powf(0.5f, (float)mipmapLevel);
+                    prefilterViewport.height = renderer->prefilteredCubemapDimensions[i].y * powf(0.5f, (float)mipmapLevel);
+                    gfx::SubmitDrawCall(renderer->gfxDevice, renderer->commandBuffer, &prefilterDrawCall, &prefilterViewport);
+                    gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
+                }
             }
         }
 
@@ -1130,6 +1236,13 @@ namespace renderer
             }
         }
 
+        // if this is the first frame:
+        static size_t frameIndex = 0;
+        if (frameIndex == 0) {
+            // prefilter all cubemaps
+            
+        }
+
         // Draw calls
         gfx::DrawCall cubemapDrawCall;
         gfx::DrawCall meshDrawCall;
@@ -1143,9 +1256,9 @@ namespace renderer
             cubemapDrawCall.numElements = 36;
             cubemapDrawCall.pipelineState = renderer->cubemapPipeline;
             cubemapDrawCall.vsConstantInputs[0] = renderer->cBuffer;
-            cubemapDrawCall.psImageInputs[0] = renderer->hdrCubemap[0];
+            cubemapDrawCall.psImageInputs[0] = renderer->prefilteredCubemap[0];
 
-            meshDrawCall.psImageInputs[9] = renderer->hdrCubemap[0];
+            meshDrawCall.psImageInputs[9] = renderer->prefilteredCubemap[0];
             meshDrawCall.psImageInputs[10] = renderer->hdrDiffuse[0];
             meshDrawCall.psImageInputs[11] = renderer->brdfLUT;
         }
@@ -1270,6 +1383,8 @@ namespace renderer
             gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
         }
 
+
+        frameIndex++;
     }
 }
 

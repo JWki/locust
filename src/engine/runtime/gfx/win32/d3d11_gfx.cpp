@@ -674,7 +674,7 @@ namespace gfx
                 samplerDesc.AddressV = g_imageWrapModeTable[(uint8_t)desc->samplerDesc->wrapV];
                 samplerDesc.AddressW = g_imageWrapModeTable[(uint8_t)desc->samplerDesc->wrapW];
                 samplerDesc.MinLOD = 0.0f;
-                samplerDesc.MaxLOD = 0.0f;
+                samplerDesc.MaxLOD = 128.0f;  // @TODO @HACK
                 samplerDesc.MipLODBias = 0.0f;
                 samplerDesc.ComparisonFunc = D3D11_COMPARISON_ALWAYS;
                 samplerDesc.Filter = g_filterModeTableFront[(uint8_t)desc->samplerDesc->magFilter][(uint8_t)desc->samplerDesc->minFilter];
@@ -694,7 +694,7 @@ namespace gfx
             render_target_view_desc.ViewDimension = g_imageRTVDimensionTable[(uint8_t)desc->type];
             switch (desc->type) {
             case ImageType::IMAGE_TYPE_2D: {
-                render_target_view_desc.Texture2D.MipSlice = 0;
+                
             } break;
             case ImageType::IMAGE_TYPE_2DARRAY:
             case ImageType::IMAGE_TYPE_CUBE: {
@@ -706,9 +706,11 @@ namespace gfx
                 assert(false);
                 break;
             }
-            for (size_t i = 0; i < desc->numSlices; ++i) {
+            // @HACK @TODO slices/mipmaps
+            for (size_t i = 0; i < desc->numSlices || i < desc->numMipmaps; ++i) {
                 // @NOTE @HACK
-                render_target_view_desc.Texture2DArray.FirstArraySlice = (UINT)i;
+                //render_target_view_desc.Texture2DArray.FirstArraySlice = (UINT)i;
+                render_target_view_desc.Texture2D.MipSlice = (UINT)i;
                 res = device->d3dDevice->CreateRenderTargetView(desc->type == ImageType::IMAGE_TYPE_2D ? image->as_2DTexture : image->as_cubeTexture, &render_target_view_desc, &image->rtv[i]);
             }
             if (FAILED(res)) {
@@ -1150,7 +1152,8 @@ namespace gfx
             }
             D3D11Image* colorAttachment = device->interf->imagePool.Get(pass->desc.colorAttachments[i].image.id);
             if (action->colors[0].action == Action::ACTION_CLEAR) {
-                cmdBuf->d3dDC->ClearRenderTargetView(colorAttachment->rtv[pass->desc.colorAttachments[i].slice], action->colors[0].color);
+                // @HACK @TODO slices/mipmap levels
+                cmdBuf->d3dDC->ClearRenderTargetView(colorAttachment->rtv[pass->desc.colorAttachments[i].mipmapLevel], action->colors[0].color);
             }
         }
         if (GFX_CHECK_RESOURCE(pass->desc.depthStencilAttachment.image)) {
@@ -1220,7 +1223,7 @@ namespace gfx
                     break;
                 }
                 D3D11Image* colorAttachment = device->interf->imagePool.Get(cmdBuf->renderPass->desc.colorAttachments[i].image.id);
-                renderTargets[numRenderTargets++] = colorAttachment->rtv[cmdBuf->renderPass->desc.colorAttachments[i].slice];
+                renderTargets[numRenderTargets++] = colorAttachment->rtv[cmdBuf->renderPass->desc.colorAttachments[i].mipmapLevel]; // @HACK @TODO mipmaplevel/slice
             }
             ID3D11DepthStencilView* dsv = nullptr;
             if (GFX_CHECK_RESOURCE(cmdBuf->renderPass->desc.depthStencilAttachment.image)) {

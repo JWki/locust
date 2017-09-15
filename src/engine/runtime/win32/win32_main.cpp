@@ -956,13 +956,15 @@ int win32_main(int argc, char* argv[])
     renderer::MeshDesc* meshDescs = GT_NEW_ARRAY(renderer::MeshDesc, 128, &applicationArena);
     size_t numSubmeshes = 0;
 
-    core::Asset textureAsset1 = { 5 };
-    core::Asset textureAsset2 = { 6 };
-    core::Asset textureAsset3 = { 9 };
+    core::Asset diffMap = { 300 };
+    core::Asset roughMap = { 301 };
+    core::Asset metalMap = { 302 };
+    core::Asset normalMap = { 303 };
+    core::Asset aoMap = { 304 };
 
     {
         int width, height, numComponents;
-        auto image = stbi_load("../../diffuse0.png", &width, &height, &numComponents, 4);
+        auto image = stbi_load("../../diffuse10.png", &width, &height, &numComponents, 4);
         //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
         if (image == NULL) {
             GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
@@ -985,14 +987,14 @@ int win32_main(int argc, char* argv[])
 
         renderer::TextureDesc texDesc;
         texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, textureAsset1, &texDesc);
+        renderer::UpdateTextureLibrary(renderWorld, diffMap, &texDesc);
 
         stbi_image_free(image);
     }
 
     {
         int width, height, numComponents;
-        auto image = stbi_load("../../diffuse3.png", &width, &height, &numComponents, 4);
+        auto image = stbi_load("../../roughness10.png", &width, &height, &numComponents, 4);
         //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
         if (image == NULL) {
             GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
@@ -1015,14 +1017,14 @@ int win32_main(int argc, char* argv[])
 
         renderer::TextureDesc texDesc;
         texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, textureAsset2, &texDesc);
+        renderer::UpdateTextureLibrary(renderWorld, roughMap, &texDesc);
 
         stbi_image_free(image);
     }
 
     {
         int width, height, numComponents;
-        auto image = stbi_load("../../diffuse2.png", &width, &height, &numComponents, 4);
+        auto image = stbi_load("../../metallic10.png", &width, &height, &numComponents, 4);
         //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
         if (image == NULL) {
             GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
@@ -1045,7 +1047,69 @@ int win32_main(int argc, char* argv[])
 
         renderer::TextureDesc texDesc;
         texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, textureAsset3, &texDesc);
+        renderer::UpdateTextureLibrary(renderWorld, metalMap, &texDesc);
+
+        stbi_image_free(image);
+    }
+
+
+    {
+        int width, height, numComponents;
+        auto image = stbi_load("../../normal10.png", &width, &height, &numComponents, 4);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::SamplerDesc defaultSamplerStateDesc;
+        gfx::ImageDesc diffDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        diffDesc.width = width;
+        diffDesc.height = height;
+        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+        diffDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+        diffDesc.initialData = data;
+        diffDesc.initialDataSizes = &size;
+
+        renderer::TextureDesc texDesc;
+        texDesc.desc = diffDesc;
+        renderer::UpdateTextureLibrary(renderWorld, normalMap, &texDesc);
+
+        stbi_image_free(image);
+    }
+
+
+    {
+        int width, height, numComponents;
+        auto image = stbi_load("../../ao10.png", &width, &height, &numComponents, 4);
+        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+        if (image == NULL) {
+            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
+        }
+        //assert(numComponents == 4);
+
+        gfx::SamplerDesc defaultSamplerStateDesc;
+        gfx::ImageDesc diffDesc;
+        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+        diffDesc.width = width;
+        diffDesc.height = height;
+        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+        diffDesc.numDataItems = 1;
+        void* data[] = { image };
+        size_t size = sizeof(stbi_uc) * width * height * 4;
+        diffDesc.initialData = data;
+        diffDesc.initialDataSizes = &size;
+
+        renderer::TextureDesc texDesc;
+        texDesc.desc = diffDesc;
+        renderer::UpdateTextureLibrary(renderWorld, aoMap, &texDesc);
 
         stbi_image_free(image);
     }
@@ -1072,11 +1136,11 @@ int win32_main(int argc, char* argv[])
 
         core::Asset materialAsset = { 2 };
         renderer::MaterialDesc matDesc;
-        matDesc.baseColorMap = textureAsset1;
-        matDesc.roughnessMap = textureAsset1;
-        matDesc.metalnessMap = textureAsset1;
-        matDesc.normalVecMap = textureAsset1;
-        matDesc.occlusionMap = textureAsset1;
+        matDesc.baseColorMap = diffMap;
+        matDesc.roughnessMap = roughMap;
+        matDesc.metalnessMap = metalMap;
+        matDesc.normalVecMap = normalMap;
+        matDesc.occlusionMap = aoMap;
         renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
     
@@ -1102,11 +1166,11 @@ int win32_main(int argc, char* argv[])
 
         core::Asset materialAsset = { 4 };
         renderer::MaterialDesc matDesc;
-        matDesc.baseColorMap = textureAsset2;
-        matDesc.roughnessMap = textureAsset2;
-        matDesc.metalnessMap = textureAsset2;
-        matDesc.normalVecMap = textureAsset2;
-        matDesc.occlusionMap = textureAsset2;
+        matDesc.baseColorMap = diffMap;
+        matDesc.roughnessMap = roughMap;
+        matDesc.metalnessMap = metalMap;
+        matDesc.normalVecMap = normalMap;
+        matDesc.occlusionMap = aoMap;
         renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
     
@@ -1133,11 +1197,11 @@ int win32_main(int argc, char* argv[])
 
         core::Asset materialAsset = { 8 };
         renderer::MaterialDesc matDesc;
-        matDesc.baseColorMap = textureAsset3;
-        matDesc.roughnessMap = textureAsset3;
-        matDesc.metalnessMap = textureAsset3;
-        matDesc.normalVecMap = textureAsset3;
-        matDesc.occlusionMap = textureAsset3;
+        matDesc.baseColorMap = diffMap;
+        matDesc.roughnessMap = roughMap;
+        matDesc.metalnessMap = metalMap;
+        matDesc.normalVecMap = normalMap;
+        matDesc.occlusionMap = aoMap;
         renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
     }
 
