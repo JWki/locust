@@ -2,6 +2,7 @@
 #include <foundation/memory/memory.h>
 #include <foundation/memory/allocators.h>
 #include <cassert>  // @TODO: override
+#include <math.h>
 
 #include <d3d11.h>
 #pragma comment(lib, "d3d11.lib")
@@ -35,7 +36,7 @@ namespace gfx
         ImageDesc       desc;
         
         ID3D11ShaderResourceView*   srv = nullptr;
-        ID3D11RenderTargetView*     rtv[6] = { nullptr };
+        ID3D11RenderTargetView*     rtv[24] = { nullptr };
         ID3D11DepthStencilView*     dsv = nullptr;
         ID3D11SamplerState*         sampler;    // @TODO split this out into own resource 
 
@@ -566,6 +567,11 @@ namespace gfx
         texDesc.Width = desc->width;
         texDesc.Height = desc->height;
         texDesc.MipLevels = desc->numMipmaps;
+        // clamp to maximum number of possible mipmaps depending on dimension
+        // @TODO: communicate this to user somehow?
+        /*UINT mipLevelCap = 1 + (UINT)floorf(log2f((float)max(texDesc.Width, texDesc.Height)));
+        texDesc.MipLevels = texDesc.MipLevels > mipLevelCap ? mipLevelCap : texDesc.MipLevels;
+        */
         texDesc.ArraySize = desc->numSlices;    // @TODO
         if (desc->type == ImageType::IMAGE_TYPE_CUBE) {
             texDesc.ArraySize = 6;
@@ -599,7 +605,7 @@ namespace gfx
         }
 
         texDesc.MiscFlags = 0;
-        if (desc->numMipmaps > 1) {
+        if (texDesc.MipLevels > 1) {
             texDesc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
         }
         if (desc->type == ImageType::IMAGE_TYPE_CUBE) {
@@ -647,11 +653,11 @@ namespace gfx
             srvDesc.ViewDimension = g_imageSRVDimensionTable[(uint8_t)desc->type];
             switch (desc->type) {
             case ImageType::IMAGE_TYPE_2D: {
-                srvDesc.Texture2D.MipLevels = desc->numMipmaps;
+                srvDesc.Texture2D.MipLevels = texDesc.MipLevels;
                 srvDesc.Texture2D.MostDetailedMip = 0;
             } break;
             case(ImageType::IMAGE_TYPE_CUBE): {
-                srvDesc.Texture2D.MipLevels = desc->numMipmaps;
+                srvDesc.Texture2D.MipLevels = texDesc.MipLevels;
                 srvDesc.Texture2D.MostDetailedMip = 0;
             } break;
             default: {
@@ -707,7 +713,7 @@ namespace gfx
                 break;
             }
             // @HACK @TODO slices/mipmaps
-            for (size_t i = 0; i < desc->numSlices || i < desc->numMipmaps; ++i) {
+            for (size_t i = 0; i < desc->numSlices || i < texDesc.MipLevels; ++i) {
                 // @NOTE @HACK
                 //render_target_view_desc.Texture2DArray.FirstArraySlice = (UINT)i;
                 render_target_view_desc.Texture2D.MipSlice = (UINT)i;

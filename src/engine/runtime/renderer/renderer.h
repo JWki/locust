@@ -112,6 +112,7 @@ namespace renderer
     StaticMesh GetStaticMesh(RenderWorld* world, uint32_t entityID);
     StaticMesh CopyStaticMesh(RenderWorld* world, uint32_t entityID, StaticMesh mesh);
 
+    core::Asset GetMeshAsset(RenderWorld* world, StaticMesh mesh);
     void GetMaterials(RenderWorld* world, StaticMesh mesh, core::Asset* outMaterials, size_t* outNumMaterials);
 
     void Render(RenderWorld* world, gfx::SwapChain swapChain);
@@ -135,6 +136,9 @@ namespace renderer
         decltype(CreateStaticMesh)*         CreateStaticMesh = nullptr;
         decltype(DestroyStaticMesh)*        DestroyStaticMesh = nullptr;
         decltype(GetStaticMesh)*            GetStaticMesh = nullptr;
+
+        decltype(GetMeshAsset)*             GetMeshAsset = nullptr;
+        decltype(GetMaterials)*             GetMaterials = nullptr;
 
         decltype(CopyStaticMesh)*           CopyStaticMesh = nullptr;
 

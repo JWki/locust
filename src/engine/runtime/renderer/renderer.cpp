@@ -5,6 +5,7 @@
 #include <cassert>
 #include <string.h>
 
+#define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
 
 #include <engine/runtime/ImGui/imgui.h>
@@ -145,6 +146,8 @@ namespace renderer
 
         uint32_t    numElements = 0;
 
+        core::Asset asset;
+
         MeshData*   nextSubmesh = nullptr;
 
         uint16_t    generation = HANDLE_GENERATION_START;
@@ -154,6 +157,8 @@ namespace renderer
     {
         uint16_t        generation = HANDLE_GENERATION_START;
 
+        core::Asset     asset;
+
         gfx::ImageDesc  desc;
         gfx::Image      image;
     };
@@ -161,6 +166,8 @@ namespace renderer
     struct MaterialData
     {
         uint16_t        generation      = HANDLE_GENERATION_START;
+
+        core::Asset     asset;
 
         TextureData*    baseColorMap    = nullptr;
         TextureData*    roughnessMap    = nullptr;
@@ -297,7 +304,8 @@ namespace renderer
         gfx::Image mainRT;
         gfx::Image mainDepthBuffer;
         gfx::Image brdfLUT;
-        static const size_t NUM_CUBEMAPS = 7;
+        static const size_t NUM_CONVOLUTION_MIPS = 11;
+        static const size_t NUM_CUBEMAPS = 1;
         gfx::Image hdrCubemap[NUM_CUBEMAPS];
         gfx::Image hdrDiffuse[NUM_CUBEMAPS];
 
@@ -832,7 +840,7 @@ namespace renderer
 
                 gfx::ImageDesc prefilteredDesc;
                 prefilteredDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-                prefilteredDesc.numMipmaps = 5;
+                prefilteredDesc.numMipmaps = Renderer::NUM_CONVOLUTION_MIPS;
                 prefilteredDesc.width = width;
                 prefilteredDesc.height = height;
                 prefilteredDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R32G32B32A32_FLOAT;
@@ -950,9 +958,9 @@ namespace renderer
             gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
             
             // prefilter all cubemaps
-            for (size_t i = 0; i < 1; ++i) {
+            for (size_t i = 0; i < Renderer::NUM_CUBEMAPS; ++i) {
 
-                for (uint16_t mipmapLevel = 0; mipmapLevel < 5; ++mipmapLevel) {
+                for (uint16_t mipmapLevel = 0; mipmapLevel < Renderer::NUM_CONVOLUTION_MIPS; ++mipmapLevel) {
 
                     gfx::RenderPassDesc prefilterPassDesc;
                     prefilterPassDesc.colorAttachments[0].image = renderer->prefilteredCubemap[i];
@@ -967,7 +975,7 @@ namespace renderer
                     prefilterDrawCall.pipelineState = renderer->prefilterPipeline;
                     prefilterDrawCall.psImageInputs[0] = renderer->hdrCubemap[i];
                     
-                    float roughness = (float)mipmapLevel / float(5 - 1);
+                    float roughness = (float)mipmapLevel / float(Renderer::NUM_CONVOLUTION_MIPS - 1);
                     void* cBufferMem = gfx::MapBuffer(renderer->gfxDevice, renderer->prefilterCBuffer, gfx::MapType::MAP_WRITE_DISCARD);
                     fnd::math::float4 params(roughness, 0.0f, 0.0f, 0.0f);
                     memcpy(cBufferMem, &params, sizeof(float) * 4);
@@ -1006,9 +1014,11 @@ namespace renderer
         
         if (!world->meshLibrary.pool.Allocate(&first, &id)) { return false; }
         MeshData* it = first;
+        first->asset = assetID;
         for (size_t i = 1; i < numSubmeshes; ++i) {
             MeshData* next; 
             if (!world->meshLibrary.pool.Allocate(&next, &id)) { return false; }    // @TODO error handling
+            next->asset = assetID;
             it->nextSubmesh = next;
             it = next;
         }
@@ -1064,6 +1074,7 @@ namespace renderer
         if (!world->textureLibrary.pool.Allocate(&texture, &id)) { return false; }
         texture->desc = textureDesc->desc;
         texture->image = gfx::CreateImage(world->renderer->gfxDevice, &texture->desc);
+        texture->asset = assetID;
         if (!GFX_CHECK_RESOURCE(texture->image)) {
             return false;
         }
@@ -1080,6 +1091,7 @@ namespace renderer
         uint32_t id = 0;
         if(!world->materialLibrary.pool.Allocate(&material, &id)) { return false; }
 
+        material->asset = assetID;
         material->baseColorMap = LookupResource<TextureLibrary, TextureData>(&world->textureLibrary, materialDesc->baseColorMap);
         material->roughnessMap = LookupResource<TextureLibrary, TextureData>(&world->textureLibrary, materialDesc->roughnessMap);
         material->metalnessMap = LookupResource<TextureLibrary, TextureData>(&world->textureLibrary, materialDesc->metalnessMap);
@@ -1089,6 +1101,43 @@ namespace renderer
         assetToData->data = material;
 
         return true;
+    }
+
+    core::Asset GetMeshAsset(RenderWorld* world, StaticMesh mesh)
+    {
+        auto* index = world->staticMeshIndices.Get(mesh.id);
+        if (index == nullptr || HANDLE_GENERATION(mesh.id) != index->generation) {
+            return { 0 };
+        }
+        StaticMeshRenderable* source = &world->staticMeshes[index->index];
+        return source->firstSubmesh->asset;
+    }
+
+    void GetMaterials(RenderWorld* world, StaticMesh mesh, core::Asset* outMaterials, size_t* outNumMaterials)
+    {
+        auto* index = world->staticMeshIndices.Get(mesh.id);
+        if(index == nullptr || HANDLE_GENERATION(mesh.id) != index->generation) {
+            if (outNumMaterials != nullptr) {
+                *outNumMaterials = 0;
+            }
+            return;
+        }
+        StaticMeshRenderable* source = &world->staticMeshes[index->index];
+        auto it = source->firstSubmesh;
+        size_t numMaterials = 0;
+        while (it) {
+            if (outMaterials != nullptr) {
+                outMaterials[numMaterials].id = 0;
+                if (source->materials[numMaterials] != nullptr) {
+                    outMaterials[numMaterials] = source->materials[numMaterials]->asset;
+                }
+            }
+            numMaterials++;
+            it = it->nextSubmesh;
+        }
+        if (outNumMaterials != nullptr) {
+            *outNumMaterials = numMaterials;
+        }
     }
 
     StaticMeshRenderable* AllocateStaticMesh(RenderWorld* world, StaticMesh* outID)
@@ -1166,10 +1215,7 @@ namespace renderer
         return meshID;
     }
 
-    void GetMaterials(RenderWorld* world, StaticMesh mesh, core::Asset* outMaterials, size_t* outNumMaterials)
-    {
-        
-    }
+
 
     gfx::Image GetTextureHandle(RenderWorld* world, core::Asset assetID)
     {
@@ -1401,6 +1447,9 @@ bool renderer_get_interface(renderer::RendererInterface* outInterface)
 
     outInterface->GetStaticMesh = &renderer::GetStaticMesh;
     outInterface->CopyStaticMesh = &renderer::CopyStaticMesh;
+
+    outInterface->GetMaterials = &renderer::GetMaterials;
+    outInterface->GetMeshAsset = &renderer::GetMeshAsset;
 
     outInterface->Render = &renderer::Render;
     outInterface->RenderUI = &renderer::RenderUI;

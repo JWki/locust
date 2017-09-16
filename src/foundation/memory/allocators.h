@@ -20,6 +20,7 @@ namespace fnd
             TLSFAllocator(void* memory, size_t memsize);
 
             void*   Allocate(size_t size, size_t alignment) { return Allocate(size, alignment, 0); }
+            void*   Allocate(size_t size, size_t alignment, SourceInfo srcInfo) { return Allocate(size, alignment, 0); }
             void*   Allocate(size_t size, size_t alignment, size_t offset);
             void    Free(void* ptr);
 
@@ -41,6 +42,7 @@ namespace fnd
             LinearAllocator(void* memory, size_t memsize);
 
             void*   Allocate(size_t size, size_t alignment) { return Allocate(size, alignment, 0); }
+            void*   Allocate(size_t size, size_t alignment, SourceInfo srcInfo) { return Allocate(size, alignment, 0); }
             void*   Allocate(size_t size, size_t alignment, size_t offset);
             void    Free(void* ptr);
 

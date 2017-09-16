@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <malloc.h>
 
+#include <engine/tools/fbx_importer/fbx_importer.h>
+
 #include <fontawesome/IconsFontAwesome.h>
 #include <fontawesome/IconsMaterialDesign.h>
 
@@ -577,26 +579,6 @@ void PrintVector(const fnd::math::Vector<TElement, ELEMENT_COUNT>& vec)
 }
 
 
-static void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
-{
-    HANDLE handle = CreateFileA(path, GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (!handle) {
-        GT_LOG_ERROR("FileSystem", "Failed to load %s\n", path);
-        return nullptr;
-    }
-    DWORD size = GetFileSize(handle, NULL);
-    void* buffer = memoryArena->Allocate(size, 16, GT_SOURCE_INFO);
-    DWORD bytesRead = 0;
-    auto res = ReadFile(handle, buffer, size, &bytesRead, NULL);
-    if (res == FALSE || bytesRead != size) {
-        GT_LOG_ERROR("FileSystem", "Failed to read %s\n", path);
-        memoryArena->Free(buffer);
-        return nullptr;
-    }
-    if (fileSize) { *fileSize = bytesRead; }
-    CloseHandle(handle);
-    return buffer;
-}
 
 #ifdef _MSC_VER
 #ifdef GT_DEBUG
@@ -746,13 +728,7 @@ public:
 };
 
 
-#define STB_IMAGE_IMPLEMENTATION
-//#define STBI_NO_STDIO
-#include <stb/stb_image.h>
 
-
-#include <engine/tools/fbx_importer/fbx_importer.h>
-typedef decltype(FBXImportAsset)* FBXImportAssetFunc;
 
 GT_RUNTIME_API
 int win32_main(int argc, char* argv[])
@@ -942,268 +918,11 @@ int win32_main(int argc, char* argv[])
         GT_LOG_ERROR("Renderer", "Failed to create render world");
     }
 
-
     HMODULE fbxImporter = LoadLibraryA("fbx_importer.dll");
     if (!fbxImporter) {
         GT_LOG_ERROR("Assets", "Failed to load %s", "fbx_importer.dll");
     }
-    auto FBXImportAsset = (FBXImportAssetFunc)GetProcAddress(fbxImporter, "FBXImportAsset");
-    if (!FBXImportAsset) {
-        GT_LOG_ERROR("Assets", "failed to load entry point '%s' from %s", "FBXImportAsset", "fbx_importer.dll");
-    }
-    
-
-    renderer::MeshDesc* meshDescs = GT_NEW_ARRAY(renderer::MeshDesc, 128, &applicationArena);
-    size_t numSubmeshes = 0;
-
-    core::Asset diffMap = { 300 };
-    core::Asset roughMap = { 301 };
-    core::Asset metalMap = { 302 };
-    core::Asset normalMap = { 303 };
-    core::Asset aoMap = { 304 };
-
-    {
-        int width, height, numComponents;
-        auto image = stbi_load("../../diffuse10.png", &width, &height, &numComponents, 4);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::SamplerDesc defaultSamplerStateDesc;
-        gfx::ImageDesc diffDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        diffDesc.width = width;
-        diffDesc.height = height;
-        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-        diffDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(stbi_uc) * width * height * 4;
-        diffDesc.initialData = data;
-        diffDesc.initialDataSizes = &size;
-
-        renderer::TextureDesc texDesc;
-        texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, diffMap, &texDesc);
-
-        stbi_image_free(image);
-    }
-
-    {
-        int width, height, numComponents;
-        auto image = stbi_load("../../roughness10.png", &width, &height, &numComponents, 4);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::SamplerDesc defaultSamplerStateDesc;
-        gfx::ImageDesc diffDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        diffDesc.width = width;
-        diffDesc.height = height;
-        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-        diffDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(stbi_uc) * width * height * 4;
-        diffDesc.initialData = data;
-        diffDesc.initialDataSizes = &size;
-
-        renderer::TextureDesc texDesc;
-        texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, roughMap, &texDesc);
-
-        stbi_image_free(image);
-    }
-
-    {
-        int width, height, numComponents;
-        auto image = stbi_load("../../metallic10.png", &width, &height, &numComponents, 4);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::SamplerDesc defaultSamplerStateDesc;
-        gfx::ImageDesc diffDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        diffDesc.width = width;
-        diffDesc.height = height;
-        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-        diffDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(stbi_uc) * width * height * 4;
-        diffDesc.initialData = data;
-        diffDesc.initialDataSizes = &size;
-
-        renderer::TextureDesc texDesc;
-        texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, metalMap, &texDesc);
-
-        stbi_image_free(image);
-    }
-
-
-    {
-        int width, height, numComponents;
-        auto image = stbi_load("../../normal10.png", &width, &height, &numComponents, 4);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::SamplerDesc defaultSamplerStateDesc;
-        gfx::ImageDesc diffDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        diffDesc.width = width;
-        diffDesc.height = height;
-        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-        diffDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(stbi_uc) * width * height * 4;
-        diffDesc.initialData = data;
-        diffDesc.initialDataSizes = &size;
-
-        renderer::TextureDesc texDesc;
-        texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, normalMap, &texDesc);
-
-        stbi_image_free(image);
-    }
-
-
-    {
-        int width, height, numComponents;
-        auto image = stbi_load("../../ao10.png", &width, &height, &numComponents, 4);
-        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-        if (image == NULL) {
-            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", "../../diffuse0.png", stbi_failure_reason());
-        }
-        //assert(numComponents == 4);
-
-        gfx::SamplerDesc defaultSamplerStateDesc;
-        gfx::ImageDesc diffDesc;
-        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-        diffDesc.width = width;
-        diffDesc.height = height;
-        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-        diffDesc.numDataItems = 1;
-        void* data[] = { image };
-        size_t size = sizeof(stbi_uc) * width * height * 4;
-        diffDesc.initialData = data;
-        diffDesc.initialDataSizes = &size;
-
-        renderer::TextureDesc texDesc;
-        texDesc.desc = diffDesc;
-        renderer::UpdateTextureLibrary(renderWorld, aoMap, &texDesc);
-
-        stbi_image_free(image);
-    }
-
-    {
-        const char* MODEL_FILE_PATH = "../../Cube.fbx";
-        {
-            size_t modelFileSize = 0;
-            void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
-            if (modelFileData && modelFileSize > 0) {
-                GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
-                bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
-                if (!res) {
-                    GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
-                }
-            }
-            else {
-                GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
-            }
-        }
-
-        core::Asset assetID = { 1 };    // reserve some asset ID
-        renderer::UpdateMeshLibrary(renderWorld, assetID, meshDescs, numSubmeshes);
-
-        core::Asset materialAsset = { 2 };
-        renderer::MaterialDesc matDesc;
-        matDesc.baseColorMap = diffMap;
-        matDesc.roughnessMap = roughMap;
-        matDesc.metalnessMap = metalMap;
-        matDesc.normalVecMap = normalMap;
-        matDesc.occlusionMap = aoMap;
-        renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
-    }
-    
-    {
-        const char* MODEL_FILE_PATH = "../../materialball.fbx";
-        {
-            size_t modelFileSize = 0;
-            void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
-            if (modelFileData && modelFileSize > 0) {
-                GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
-                bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
-                if (!res) {
-                    GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
-                }
-            }
-            else {
-                GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
-            }
-        }
-
-        core::Asset assetID = { 3 };    // reserve some asset ID
-        renderer::UpdateMeshLibrary(renderWorld, assetID, meshDescs, numSubmeshes);
-
-        core::Asset materialAsset = { 4 };
-        renderer::MaterialDesc matDesc;
-        matDesc.baseColorMap = diffMap;
-        matDesc.roughnessMap = roughMap;
-        matDesc.metalnessMap = metalMap;
-        matDesc.normalVecMap = normalMap;
-        matDesc.occlusionMap = aoMap;
-        renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
-    }
-    
-
-    {
-        const char* MODEL_FILE_PATH = "../../WPN_AKM.fbx";
-        {
-            size_t modelFileSize = 0;
-            void* modelFileData = LoadFileContents(MODEL_FILE_PATH, &applicationArena, &modelFileSize);
-            if (modelFileData && modelFileSize > 0) {
-                GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", MODEL_FILE_PATH, modelFileSize / 1024);
-                bool res = FBXImportAsset(&applicationArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
-                if (!res) {
-                    GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
-                }
-            }
-            else {
-                GT_LOG_ERROR("Assets", "Failed to import %s", MODEL_FILE_PATH);
-            }
-        }
-
-        core::Asset assetID = { 7 };    // reserve some asset ID
-        renderer::UpdateMeshLibrary(renderWorld, assetID, meshDescs, numSubmeshes);
-
-        core::Asset materialAsset = { 8 };
-        renderer::MaterialDesc matDesc;
-        matDesc.baseColorMap = diffMap;
-        matDesc.roughnessMap = roughMap;
-        matDesc.metalnessMap = metalMap;
-        matDesc.normalVecMap = normalMap;
-        matDesc.occlusionMap = aoMap;
-        renderer::UpdateMaterialLibrary(renderWorld, materialAsset, &matDesc);
-    }
+    auto fbx_importer_get_interface = (bool(*)(fbx_importer::FBXImportInterface*))(GetProcAddress(fbxImporter, "fbx_importer_get_interface"));
 
     GT_LOG_INFO("Application", "Initialized graphics scene");
 
@@ -1255,9 +974,13 @@ int win32_main(int argc, char* argv[])
 
     renderer::RendererInterface rendererInterface;
     renderer_get_interface(&rendererInterface);
+
+    fbx_importer::FBXImportInterface fbxImporterInterface;
+    fbx_importer_get_interface(&fbxImporterInterface);
     
     core::api_registry::Add(apiRegistry, ENTITY_SYSTEM_API_NAME, &entitySystem);
     core::api_registry::Add(apiRegistry, RENDERER_API_NAME, &rendererInterface);
+    core::api_registry::Add(apiRegistry, FBX_IMPORTER_API_NAME, &fbxImporterInterface);
 
     void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*, renderer::RenderWorld*, fnd::memory::LinearAllocator*, entity_system::Entity**, size_t*);
     void*(*InitializeModule)(memory::MemoryArenaBase*, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiInterface);
@@ -1290,7 +1013,7 @@ int win32_main(int argc, char* argv[])
 
     size_t numEntities = 0;
 
-    static const size_t frameAllocatorSize = MEGABYTES(5);
+    static const size_t frameAllocatorSize = MEGABYTES(512);
     memory::LinearAllocator frameAllocator(applicationArena.Allocate(frameAllocatorSize, 16, GT_SOURCE_INFO), frameAllocatorSize);
 
     GT_LOG_INFO("Application", "Starting main loop");
@@ -1324,10 +1047,17 @@ int win32_main(int argc, char* argv[])
 
             FILETIME currentTestModuleTimestamp;
 
+            GetLastError();
             testModuleWatchHandle = CreateFileA("test_module.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
-            assert(testModuleWatchHandle);
+            if (testModuleWatchHandle == INVALID_HANDLE_VALUE) {
+                GT_LOG_ERROR("Runtime", "Failed to access test_module.dll with error %i", GetLastError());
+            }
+            GetLastError();
             BOOL res = GetFileTime(testModuleWatchHandle, nullptr, nullptr, &currentTestModuleTimestamp);
-            assert(res);
+            if (res == false) {
+                GT_LOG_ERROR("Runtime", "Failed to reload module with error %i", GetLastError());
+            }
+            //assert(res);
             CloseHandle(testModuleWatchHandle);
 
             auto comp = CompareFileTime(&testModuleTimestamp, &currentTestModuleTimestamp);
@@ -1384,34 +1114,7 @@ int win32_main(int argc, char* argv[])
 
             entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
 
-            for (size_t i = 0; i < numEntities; ++i) {
-                auto ent = entityList[i];
-                if (renderer::GetStaticMesh(renderWorld, ent.id).id == 0) {
-                    core::Asset assetID;
-                    core::Asset materialAsset[128];
-                    core::Asset matID;
-                    if (i % 2 == 0) {
-                        if (i % 4 != 0) {
-                            assetID.id = 1;
-                            matID.id = 2;
-                        }
-                        else {
-                            assetID.id = 7;
-                            matID.id = 8;
-                        }
-                    }
-                    else {
-                        assetID.id = 3;
-                        matID.id = 4;
-                    }
-                    for (size_t i = 0; i < 128; ++i) {
-                        materialAsset[i] = matID;
-                    }
-                    renderer::CreateStaticMesh(renderWorld, ent.id, assetID, materialAsset, 128);
-
-                }
-            }
-
+            
 #ifdef GT_DEVELOPMENT
             if (ImGui::Begin(ICON_FA_FLOPPY_O "  Memory usage", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
 

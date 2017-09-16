@@ -148,6 +148,7 @@ float4 main(PixelInput input) : SV_TARGET
 
     //float4 paintColor = paintDiffuse.Sample(sampler1, input.uv.xy);
     float4 albedo = pow(diffuseMap.Sample(sampler0, input.uv.xy), 2.2f); // * paintColor.a + float4(paintColor.rgb, 1.0f);
+    //albedo = float4(1.0f, 0.0f, 0.0f, 1.0f);
     float3 ao = aoMap.Sample(sampler3, input.uv.xy).rgb;
     //return float4(ao, 1.0f);
 
@@ -165,6 +166,9 @@ float4 main(PixelInput input) : SV_TARGET
     // @HACK delete this code
     //roughness = 0.127f;
     //metallic = 0.0f;
+
+    //roughness = input.worldPos.x / 15.0f;
+    //metallic = input.worldPos.z / 15.0f;
 
     roughness = clamp(roughness, 0.01f, 1.0f);
     metallic = clamp(metallic, 0.04f, 0.99f);

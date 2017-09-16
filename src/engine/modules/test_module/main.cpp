@@ -8,6 +8,20 @@
 #include <engine/runtime/entities/entities.h>
 #include "ImGui/imgui.h"
 
+#include <engine/tools/fbx_importer/fbx_importer.h>
+
+
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <Windows.h>
+#include <Commdlg.h>
+#undef near
+#undef far
+
+#define STB_IMAGE_IMPLEMENTATION
+//#define STBI_NO_STDIO
+#include <stb/stb_image.h>
+
 #include <engine/runtime/core/api_registry.h>
 #include <engine/runtime/renderer/renderer.h>
 
@@ -75,6 +89,48 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
     ImGuiIO& io = ImGui::GetIO();
     ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
     ImGuizmo::Manipulate(camera, projection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap.x : NULL);
+}
+
+
+
+static bool OpenFileDialog(char* outNameBuf, size_t outNameBufSize, const char* filter)
+{
+    OPENFILENAMEA ofn;
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = NULL;
+    ofn.lpstrFile = outNameBuf;
+    ofn.lpstrFile[0] = '\0';
+    ofn.nMaxFile = (DWORD)outNameBufSize;
+    ofn.lpstrFilter = filter;
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;  // @NOTE re OFN_NOCHANGEDIR: fuck you win32 api
+    return GetOpenFileNameA(&ofn) == TRUE;
+}
+
+
+static void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
+{
+    HANDLE handle = CreateFileA(path, GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (!handle) {
+        GT_LOG_ERROR("FileSystem", "Failed to load %s\n", path);
+        return nullptr;
+    }
+    DWORD size = GetFileSize(handle, NULL);
+    void* buffer = memoryArena->Allocate(size, 16, GT_SOURCE_INFO);
+    DWORD bytesRead = 0;
+    auto res = ReadFile(handle, buffer, size, &bytesRead, NULL);
+    if (res == FALSE || bytesRead != size) {
+        GT_LOG_ERROR("FileSystem", "Failed to read %s\n", path);
+        memoryArena->Free(buffer);
+        return nullptr;
+    }
+    if (fileSize) { *fileSize = bytesRead; }
+    CloseHandle(handle);
+    return buffer;
 }
 
 
@@ -229,6 +285,37 @@ struct State {
     float cameraRotation[16];
     float cameraOffset[16];
     float camOffsetWithRotation[16];
+    
+    fnd::memory::MemoryArenaBase* applicationArena = nullptr;
+
+
+    static const size_t MAX_NUM_TEXTURE_ASSETS = 512;
+    static const size_t FILENAME_BUF_SIZE = 512;
+
+    struct TextureAsset {
+        char name[FILENAME_BUF_SIZE] = "";
+        core::Asset asset;
+    };
+    size_t textureAssetIndex = 0;
+    TextureAsset* textureAssets = nullptr;
+
+    struct MaterialAsset {
+        char name[FILENAME_BUF_SIZE] = "";
+        core::Asset asset;
+
+        renderer::MaterialDesc desc;
+    };
+    size_t materialAssetIndex = 0;
+    MaterialAsset* materialAssets = nullptr;
+
+    struct MeshAsset {
+        char name[FILENAME_BUF_SIZE] = "";
+        core::Asset asset;
+
+        size_t numSubmeshes = 0;
+    };
+    size_t meshAssetIndex = 0;
+    MeshAsset* meshAssets = nullptr;
 
     /*char padding[1024 * 1024 - 
         ((  sizeof(core::api_registry::APIRegistry*) +
@@ -249,6 +336,12 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     State* state = (State*)GT_NEW(State, memoryArena);
     state->apiRegistry = apiRegistry;
     state->apiRegistryInterface = apiRegistryInterface;
+
+    state->applicationArena = memoryArena;
+
+    state->textureAssets = GT_NEW_ARRAY(State::TextureAsset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
+    state->materialAssets = GT_NEW_ARRAY(State::MaterialAsset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
+    state->meshAssets = GT_NEW_ARRAY(State::MeshAsset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
 
 
     util::Make4x4FloatMatrixIdentity(state->cameraRotation);
@@ -272,6 +365,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
     auto renderer = (renderer::RendererInterface*) state->apiRegistryInterface->Get(state->apiRegistry, RENDERER_API_NAME);
     assert(renderer);
+
+    auto fbxImporter = (fbx_importer::FBXImportInterface*) state->apiRegistryInterface->Get(state->apiRegistry, FBX_IMPORTER_API_NAME);
 
     float camera[16];
     float projection[16];
@@ -425,9 +520,12 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     renderer->SetCameraTransform(renderWorld, camera);
 
     ImGuiWindowFlags windowFlags = 0;
+
+    entity_system::Entity* entityList = GT_NEW_ARRAY(entity_system::Entity, 512, frameAllocator);
+    size_t numEntities = 0;
+
     if (ImGui::Begin(ICON_FA_DATABASE "  Entity Explorer", nullptr, windowFlags)) {
-        entity_system::Entity entityList[512];
-        size_t numEntities = 0;
+        
 
         /* Add / delete of entities */
         
@@ -517,7 +615,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
             int lastSelectedIndex = GetIndex(state->lastSelected, entityList, numEntities);
             ImGui::PushStyleColor(ImGuiCol_Header, lastSelectedIndex == (int)i ? ImVec4(0.2f, 0.4f, 1.0f, 1.0f) : ImGui::GetStyle().Colors[ImGuiCol_Header]);
-            if (ImGui::Selectable(name, IsEntityInList(&state->entitySelection, entity))) {
+            bool select = ImGui::Selectable(name, IsEntityInList(&state->entitySelection, entity));
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(MOUSE_LEFT)) {
+                state->camPos = util::Get4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, entity), 3).xyz;
+            }
+            if (select) {
                 ImGui::PopStyleColor();
 
                 if (ImGui::GetIO().KeyShift || ImGui::GetIO().KeyCtrl) {  // multiselection
@@ -601,6 +703,329 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
     } ImGui::End();
 
+    entitySystem->GetAllEntities(world, entityList, &numEntities);
+    for (size_t i = 0; i < numEntities; ++i) {
+        //ImGuizmo::DrawCube(camera, projection, entitySystem->GetEntityTransform(world, entityList[i]));
+    }
+
+    if (ImGui::Begin(ICON_FA_FILE_O "  Assets")) {
+        ImGui::Spacing();
+        {   // Textures
+            ImGui::Text("Textures");
+            ImGui::Spacing();
+            ImGui::PushID("##importtex");
+            bool pushed = ImGui::Button("Import");
+            ImGui::PopID();
+            if (pushed) {
+                char* filenameBuf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE, frameAllocator);
+                if (OpenFileDialog(filenameBuf, State::FILENAME_BUF_SIZE, "PNG Image Files\0*.png\0")) {
+                    GT_LOG_DEBUG("Editor", "Trying to import %s", filenameBuf);
+
+                    State::TextureAsset* textureAsset = &state->textureAssets[state->textureAssetIndex++];
+                    textureAsset->asset.id = (uint32_t)state->textureAssetIndex;   // @NOTE STARTING WITH 1 IS INTENTIONAL
+                    strncpy_s(textureAsset->name, State::FILENAME_BUF_SIZE, filenameBuf, State::FILENAME_BUF_SIZE);
+                    {
+                        int width, height, numComponents;
+                        auto image = stbi_load(filenameBuf, &width, &height, &numComponents, 4);
+                        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+                        if (image == NULL) {
+                            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", filenameBuf, stbi_failure_reason());
+                        }
+                        //assert(numComponents == 4);
+
+                        gfx::SamplerDesc defaultSamplerStateDesc;
+                        gfx::ImageDesc diffDesc;
+                        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+                        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+                        diffDesc.width = width;
+                        diffDesc.height = height;
+                        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+                        diffDesc.samplerDesc = &defaultSamplerStateDesc;
+                        diffDesc.numDataItems = 1;
+                        void* data[] = { image };
+                        size_t size = sizeof(stbi_uc) * width * height * 4;
+                        diffDesc.initialData = data;
+                        diffDesc.initialDataSizes = &size;
+
+                        renderer::TextureDesc texDesc;
+                        texDesc.desc = diffDesc;
+                        renderer->UpdateTextureLibrary(renderWorld, textureAsset->asset, &texDesc);
+
+                        stbi_image_free(image);
+                    }
+                }
+            }
+            ImGui::BeginChild("##textures", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
+            
+            ImGui::Spacing();
+            static float displayScale = 1.0f;
+            ImGui::SliderFloat("##displayScale", &displayScale, 0.5f, 4.0f);
+            size_t numDisplayColumns = (size_t)(ImGui::GetContentRegionAvailWidth() / (displayScale * 128.0f));
+            numDisplayColumns = numDisplayColumns > 1 ? numDisplayColumns : 1;
+            for (size_t i = 0; i < state->textureAssetIndex; ++i) {
+
+                auto texHandle = renderer->GetTextureHandle(renderWorld, state->textureAssets[i].asset);
+                if ((i % numDisplayColumns) != 0) {
+                    ImGui::SameLine();
+                }
+                else {
+                    ImGui::Spacing();
+                }
+                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128 * displayScale, 128 * displayScale));
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("%s", state->textureAssets[i].name);
+                    ImGui::EndTooltip();
+                }
+            }
+            ImGui::EndChild();
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        {   // materials
+            ImGui::Text("Materials");
+            
+            bool pushed = ImGui::Button("Create New");
+
+            static char nameEditBuf[State::FILENAME_BUF_SIZE];
+            State::MaterialAsset* editAsset = nullptr;
+            if (pushed) {
+                ImGui::OpenPopup("Material Editor");
+                snprintf(nameEditBuf, State::FILENAME_BUF_SIZE, "Material%llu", state->materialAssetIndex);
+            }
+
+            if (ImGui::BeginPopup("Material Editor")) {
+                
+                static renderer::MaterialDesc desc;
+                static core::Asset* texSlot = nullptr;
+
+                ImGui::InputText("##name", nameEditBuf, State::FILENAME_BUF_SIZE);
+
+                {   // base color
+                    ImGui::Text("Base Color");
+                    if (desc.baseColorMap.id == 0) {
+                        ImGui::PushID("##basecolor");
+                        ImGui::Dummy(ImVec2(128, 128));
+                        ImGui::PopID();
+                    }
+                    else {
+                        auto texHandle = renderer->GetTextureHandle(renderWorld, desc.baseColorMap);
+                        ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                        ImGui::OpenPopup("##texturePicker");
+                        texSlot = &desc.baseColorMap;
+                    }
+                }
+                {   // roughness
+                    ImGui::Text("Roughness");
+                    if (desc.baseColorMap.id == 0) {
+                        ImGui::PushID("##roughness");
+                        ImGui::Dummy(ImVec2(128, 128));
+                        ImGui::PopID();
+                    }
+                    else {
+                        auto texHandle = renderer->GetTextureHandle(renderWorld, desc.roughnessMap);
+                        ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                        ImGui::OpenPopup("##texturePicker");
+                        texSlot = &desc.roughnessMap;
+                    }
+                }
+                {   // metalness
+                    ImGui::Text("Metallic");
+                    if (desc.baseColorMap.id == 0) {
+                        ImGui::PushID("##metallic");
+                        ImGui::Dummy(ImVec2(128, 128));
+                        ImGui::PopID();
+
+                    }
+                    else {
+                        auto texHandle = renderer->GetTextureHandle(renderWorld, desc.metalnessMap);
+                        ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                        ImGui::OpenPopup("##texturePicker");
+                        texSlot = &desc.metalnessMap;
+                    }
+                }
+                {   // normal map
+                    ImGui::Text("Normal Map");
+                    if (desc.baseColorMap.id == 0) {
+                        ImGui::PushID("##normalmap");
+                        ImGui::Dummy(ImVec2(128, 128));
+                        ImGui::PopID();
+
+                    }
+                    else {
+                        auto texHandle = renderer->GetTextureHandle(renderWorld, desc.normalVecMap);
+                        ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                        ImGui::OpenPopup("##texturePicker");
+                        texSlot = &desc.normalVecMap;
+                    }
+                }
+                {   // ao map
+                    ImGui::Text("Occlusion Map");
+                    if (desc.baseColorMap.id == 0) {
+                        ImGui::PushID("##occlusion");
+                        ImGui::Dummy(ImVec2(128, 128));
+                        ImGui::PopID();
+                    }
+                    else {
+                        auto texHandle = renderer->GetTextureHandle(renderWorld, desc.occlusionMap);
+                        ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                    }
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                        ImGui::OpenPopup("##texturePicker");
+                        texSlot = &desc.occlusionMap;
+                    }
+                }
+
+                if (ImGui::BeginPopup("##texturePicker")) {
+                    if (ImGui::Button("Cancel")) {
+                        ImGui::CloseCurrentPopup();
+                    }
+                    //ImGui::BeginChild("##list", ImGui::GetContentRegionAvail());
+                    for (size_t i = 0; i < state->textureAssetIndex; ++i) {
+
+                        auto texHandle = renderer->GetTextureHandle(renderWorld, state->textureAssets[i].asset);
+                        ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::BeginTooltip();
+                            ImGui::Text("%s", state->textureAssets[i].name);
+                            ImGui::EndTooltip();
+
+                            if (ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                                *texSlot = state->textureAssets[i].asset;
+                                //ImGui::CloseCurrentPopup();
+                            }
+                        }
+                    }
+                    //ImGui::EndChild();
+                    ImGui::EndPopup();
+                }
+
+                bool isValid = desc.baseColorMap.id != 0 && desc.roughnessMap.id != 0 && desc.metalnessMap.id != 0 && desc.normalVecMap.id != 0 && desc.occlusionMap.id != 0;
+                bool done = ImGui::Button("Done", ImVec2(100, 25)) && isValid;
+                ImGui::SameLine();
+                bool cancel = ImGui::Button("Cancel", ImVec2(100, 25));
+                if (done) {
+                    State::MaterialAsset* materialAsset = &state->materialAssets[state->materialAssetIndex++];
+                    materialAsset->asset.id = (uint32_t)state->materialAssetIndex;   // @NOTE STARTING WITH 1 IS INTENTIONAL
+                    strncpy_s(materialAsset->name, State::FILENAME_BUF_SIZE, nameEditBuf, State::FILENAME_BUF_SIZE);
+
+                    renderer->UpdateMaterialLibrary(renderWorld, materialAsset->asset, &desc);
+                    GT_LOG_INFO("Editor", "Created material %s", materialAsset->name);
+
+                    materialAsset->desc = desc;
+                    desc = renderer::MaterialDesc();
+                }
+
+                if (done || cancel) {
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::EndPopup();
+            }
+            
+            for (size_t i = 0; i < state->materialAssetIndex; ++i) {
+                State::MaterialAsset* asset = &state->materialAssets[i];
+                ImGui::Text("%s", asset->name);
+
+                auto baseColorHandle = renderer->GetTextureHandle(renderWorld, asset->desc.baseColorMap);
+                auto roughnessHandle = renderer->GetTextureHandle(renderWorld, asset->desc.roughnessMap);
+                auto metalnessHandle = renderer->GetTextureHandle(renderWorld, asset->desc.metalnessMap);
+                auto normalVecHandle = renderer->GetTextureHandle(renderWorld, asset->desc.normalVecMap);
+                auto occlusionHandle = renderer->GetTextureHandle(renderWorld, asset->desc.occlusionMap);
+                
+                ImGui::BeginGroup();
+                ImGui::Image((ImTextureID)(uintptr_t)(baseColorHandle.id), ImVec2(64, 64));
+                ImGui::Text("Base Color");
+                ImGui::EndGroup();
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::Image((ImTextureID)(uintptr_t)(roughnessHandle.id), ImVec2(64, 64));
+                ImGui::Text("Roughness");
+                ImGui::EndGroup();
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::Image((ImTextureID)(uintptr_t)(metalnessHandle.id), ImVec2(64, 64));
+                ImGui::Text("Metallic");
+                ImGui::EndGroup();
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::Image((ImTextureID)(uintptr_t)(normalVecHandle.id), ImVec2(64, 64));
+                ImGui::Text("Normal Map");
+                ImGui::EndGroup();
+                ImGui::SameLine();
+                ImGui::BeginGroup();
+                ImGui::Image((ImTextureID)(uintptr_t)(occlusionHandle.id), ImVec2(64, 64));
+                ImGui::Text("Occlusion");
+                ImGui::EndGroup();
+                ImGui::SameLine();
+           
+            }
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        {   // Meshes
+            ImGui::Text("Meshes");
+            ImGui::Spacing();
+            ImGui::PushID("##importmesh");
+            bool pushed = ImGui::Button("Import");
+            ImGui::PopID();
+            if (pushed) {
+                char* filenameBuf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE, frameAllocator);
+                if (OpenFileDialog(filenameBuf, State::FILENAME_BUF_SIZE, "FBX Files\0*.fbx\0")) {
+                    GT_LOG_DEBUG("Editor", "Trying to import %s", filenameBuf);
+
+                    State::MeshAsset* meshAsset = &state->meshAssets[state->meshAssetIndex++];
+                    meshAsset->asset.id = (uint32_t)state->meshAssetIndex;   // @NOTE STARTING WITH 1 IS INTENTIONAL
+                    strncpy_s(meshAsset->name, State::FILENAME_BUF_SIZE, filenameBuf, State::FILENAME_BUF_SIZE);
+                    {
+                        size_t modelFileSize = 0;
+                        fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator> tempArena(frameAllocator);
+                        void* modelFileData = LoadFileContents(filenameBuf, &tempArena, &modelFileSize);
+                        if (modelFileData && modelFileSize > 0) {
+                            GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", filenameBuf, modelFileSize / 1024);
+
+                            renderer::MeshDesc* meshDescs = GT_NEW_ARRAY(renderer::MeshDesc, 512, &tempArena);
+                            size_t numSubmeshes = 0;
+
+                            bool res = fbxImporter->FBXImportAsset(&tempArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
+                            if (!res) {
+                                GT_LOG_ERROR("Assets", "Failed to import %s", filenameBuf);
+                            }
+                            else {
+                                GT_LOG_INFO("Assets", "Imported %s", filenameBuf);
+
+                                meshAsset->numSubmeshes = numSubmeshes;
+                                renderer->UpdateMeshLibrary(renderWorld, meshAsset->asset, meshDescs, numSubmeshes);
+                            }
+                        }
+                        else {
+                            GT_LOG_ERROR("Assets", "Failed to import %s", filenameBuf);
+                        }
+                    }
+                }
+            }
+
+            ImGui::BeginChild("##meshes", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::Spacing();
+            for (size_t i = 0; i < state->meshAssetIndex; ++i) {
+                ImGui::Text("%s", state->meshAssets[i]);
+            }
+            ImGui::EndChild();
+        }
+
+    } ImGui::End();
+
+    //ImGui::ShowTestWindow();
+
     ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
         static entity_system::Entity selectedEntity = { entity_system::INVALID_ID };
         if (!IsEntityInList(&state->entitySelection, selectedEntity)) {
@@ -671,9 +1096,101 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 EditTransform(camera, projection, groupTransform);
                 ImGui::TreePop();
             }
-            if (ImGui::TreeNode(ICON_FA_CUBES "    Material")) {
-                //ImGui::SliderFloat("Metallic", &object.metallic, 0.0f, 1.0f);
-                //ImGui::SliderFloat("Roughness", &object.roughness, 0.0f, 1.0f);
+
+            if (ImGui::TreeNode(ICON_FA_CUBES "    Rendering")) {
+               
+                bool anyChange = false;
+
+                auto LookupMeshAsset = [](core::Asset ID, State::MeshAsset* assets, size_t numAssets) -> State::MeshAsset* {
+                    for (size_t i = 0; i < numAssets; ++i) {
+                        if (assets[i].asset == ID) {
+                            return &assets[i];
+                        }
+                    }
+                    return nullptr;
+                };
+                auto LookupMaterialAsset = [](core::Asset ID, State::MaterialAsset* assets, size_t numAssets) -> State::MaterialAsset* {
+                    for (size_t i = 0; i < numAssets; ++i) {
+                        if (assets[i].asset == ID) {
+                            return &assets[i];
+                        }
+                    }
+                    return nullptr;
+                };
+
+                renderer::StaticMesh mesh = renderer->GetStaticMesh(renderWorld, selectedEntity.id);
+                
+                core::Asset meshAsset = renderer->GetMeshAsset(renderWorld, mesh);
+                core::Asset* materials = nullptr;
+                
+                size_t numSubmeshes = 0;
+                renderer->GetMaterials(renderWorld, mesh, nullptr, &numSubmeshes);
+                if (numSubmeshes > 0) {
+                    materials = GT_NEW_ARRAY(core::Asset, numSubmeshes, frameAllocator);
+                }
+                renderer->GetMaterials(renderWorld, mesh, materials, &numSubmeshes);
+
+                ImGui::Text("Mesh: ");
+                ImGui::SameLine();
+                if (meshAsset.id != 0) {
+                    auto asset = LookupMeshAsset(meshAsset, state->meshAssets, state->meshAssetIndex);
+                    ImGui::Text(asset->name);
+                }
+                else {
+                    ImGui::Text("None");
+                }
+                if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                    ImGui::OpenPopup("##meshPicker");
+                }
+                if (ImGui::BeginPopup("##meshPicker")) {
+                    for (size_t i = 0; i < state->meshAssetIndex; ++i) {
+                        ImGui::Text("%s", state->meshAssets[i].name);
+                        if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
+                            meshAsset = state->meshAssets[i].asset;
+                            anyChange = true;
+                            ImGui::CloseCurrentPopup();
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
+
+                ImGui::Spacing();
+                ImGui::Text("Materials");
+                ImGui::BeginChild("##materials", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
+                
+                static size_t editMaterialIndex = 0;
+                for (size_t i = 0; i < numSubmeshes; ++i) {
+                    auto asset = LookupMaterialAsset(materials[i], state->materialAssets, state->materialAssetIndex);
+                    ImGui::PushID((int)i);
+                    ImGui::Text("mat_%llu: %s", i, asset->name);
+                    ImGui::PopID();
+                    if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
+                        editMaterialIndex = i;
+                        ImGui::OpenPopup("##materialPicker");
+                        break;
+                    }
+                }
+                if (ImGui::BeginPopup("##materialPicker")) {
+                    for (size_t i = 0; i < state->materialAssetIndex; ++i) {
+                        ImGui::Text("%s", state->materialAssets[i].name);
+                        if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
+                            materials[editMaterialIndex] = state->materialAssets[i].asset;
+                            anyChange = true;
+                            ImGui::CloseCurrentPopup();
+                            break;
+                        }
+                    }
+                    ImGui::EndPopup();
+                }
+
+                ImGui::EndChild();
+
+                if (anyChange) {
+                    if (mesh.id != renderer::INVALID_ID) {
+                        renderer->DestroyStaticMesh(renderWorld, mesh);
+                    }
+                    renderer->CreateStaticMesh(renderWorld, selectedEntity.id, meshAsset, materials, numSubmeshes);
+                }
 
                 ImGui::TreePop();
             }

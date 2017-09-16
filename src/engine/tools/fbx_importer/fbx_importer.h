@@ -6,20 +6,22 @@
 #define FBX_IMPORT_API extern "C"
 #endif
 
+#define FBX_IMPORTER_API_NAME "fbx_importer"
+
 #include <foundation/memory/memory.h>
 #include <foundation/math/math.h>
 #include <foundation/int_types.h>
 #include <engine/runtime/renderer/renderer.h>
 
-struct FBXScene { void* _ptr = nullptr; };
-struct FBXMesh { void* _ptr = nullptr; };
-struct FBXMeshInfo
+namespace fbx_importer
 {
-    size_t  numVertices     = 0;
-    bool    hasNormals      = false;
-    bool    hasTexcoords    = false;
-    bool    hasTangents     = false;
-};
+    bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, renderer::MeshDesc* outMeshDescs, size_t* outNumSubmeshes);
 
-FBX_IMPORT_API
-bool FBXImportAsset(fnd::memory::MemoryArenaBase* arena, char* fbxData, size_t fbxDataSize, renderer::MeshDesc* outMeshDescs, size_t* outNumSubmeshes);
+    struct FBXImportInterface
+    {
+        decltype(FBXImportAsset)*   FBXImportAsset = nullptr;
+    };
+}
+
+FBX_IMPORT_API bool fbx_importer_get_interface(fbx_importer::FBXImportInterface* outInterface);
+
