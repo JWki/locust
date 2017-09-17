@@ -235,7 +235,7 @@ namespace renderer
         return nullptr;
     }
 
-    static const size_t MAX_NUM_SUBMESHES = 128;  // @TODO @HACK
+    static const size_t MAX_NUM_SUBMESHES = 1024;  // @TODO @HACK
     struct StaticMeshRenderable
     {
         float           transform[16];

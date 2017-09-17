@@ -91,9 +91,13 @@ void EditTransform(float camera[16], float projection[16], float matrix[16])
     ImGuizmo::Manipulate(camera, projection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap.x : NULL);
 }
 
+struct FileInfo
+{
+    static const size_t MAX_PATH_LEN = 512;
+    char path[MAX_PATH_LEN];
+};
 
-
-static bool OpenFileDialog(char* outNameBuf, size_t outNameBufSize, const char* filter)
+static bool OpenFileDialog(char* outNameBuf, size_t outNameBufSize, const char* filter, FileInfo* outFiles, size_t maxNumFiles, size_t* numFiles)
 {
     OPENFILENAMEA ofn;
     ZeroMemory(&ofn, sizeof(ofn));
@@ -107,8 +111,35 @@ static bool OpenFileDialog(char* outNameBuf, size_t outNameBufSize, const char* 
     ofn.lpstrFileTitle = NULL;
     ofn.nMaxFileTitle = 0;
     ofn.lpstrInitialDir = NULL;
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;  // @NOTE re OFN_NOCHANGEDIR: fuck you win32 api
-    return GetOpenFileNameA(&ofn) == TRUE;
+    ofn.Flags = OFN_EXPLORER | OFN_ALLOWMULTISELECT | OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;  // @NOTE re OFN_NOCHANGEDIR: fuck you win32 api
+    auto res = (GetOpenFileNameA(&ofn) == TRUE);
+    if (!res) { *numFiles = 0; return false; }
+
+    size_t dirLen = strlen(outNameBuf);
+    if (dirLen > ofn.nFileOffset) {
+        // file name is contained within the first substring -> only one file has been selected
+        *numFiles = 1;
+        memset(outFiles[0].path, 0x0, FileInfo::MAX_PATH_LEN);
+        memcpy(outFiles[0].path, outNameBuf, dirLen);
+        return true;
+    }
+    // handle multiple files:
+    char* filename = outNameBuf + dirLen + 1;
+    size_t fileLen = strlen(filename);
+    while (fileLen > 0) {
+        
+        memset(outFiles[*numFiles].path, 0x0, FileInfo::MAX_PATH_LEN);
+        memcpy(outFiles[*numFiles].path, outNameBuf, dirLen);
+        outFiles[*numFiles].path[dirLen] = '\\';
+        memcpy(outFiles[*numFiles].path + dirLen + 1, filename, fileLen);
+        
+        *numFiles += 1;
+
+        filename += fileLen + 1;
+        fileLen = strlen(filename);
+    }
+
+    return true;
 }
 
 
@@ -293,29 +324,58 @@ struct State {
     static const size_t FILENAME_BUF_SIZE = 512;
 
     struct TextureAsset {
-        char name[FILENAME_BUF_SIZE] = "";
-        core::Asset asset;
+
     };
-    size_t textureAssetIndex = 0;
-    TextureAsset* textureAssets = nullptr;
 
     struct MaterialAsset {
-        char name[FILENAME_BUF_SIZE] = "";
-        core::Asset asset;
-
         renderer::MaterialDesc desc;
     };
-    size_t materialAssetIndex = 0;
-    MaterialAsset* materialAssets = nullptr;
 
     struct MeshAsset {
+        size_t numSubmeshes = 0;
+    };
+
+    struct Asset {
+        enum Type : uint16_t {
+            NONE = 0,
+            ASSET_TYPE_TEXTURE, 
+            ASSET_TYPE_MATERIAL,
+            ASSET_TYPE_MESH
+        } type = NONE;
+
         char name[FILENAME_BUF_SIZE] = "";
         core::Asset asset;
 
-        size_t numSubmeshes = 0;
+        // @NOTE this should really be a union but alas unions can't have non trivially constructed members in MSVC for some reason
+        TextureAsset as_texture;
+        MaterialAsset as_material;
+        MeshAsset as_mesh;
+
     };
+
+  
+    size_t textureAssetIndex = 0;
+    Asset* textureAssets = nullptr;
+    size_t materialAssetIndex = 0;
+    Asset* materialAssets = nullptr;
     size_t meshAssetIndex = 0;
-    MeshAsset* meshAssets = nullptr;
+    Asset* meshAssets = nullptr;
+
+
+    struct DragContent
+    {
+        enum Type : uint16_t {
+            NONE = 0,
+            DRAG_TYPE_ASSET_REF
+        } type = NONE;
+
+        union {
+            void*   as_void;
+            Asset*  as_asset;
+        } data;
+        bool wasReleased = false;
+        DragContent() { data.as_void = nullptr; }
+    } drag;
 
     /*char padding[1024 * 1024 - 
         ((  sizeof(core::api_registry::APIRegistry*) +
@@ -330,6 +390,30 @@ struct State {
 };
 //static_assert(sizeof(State) == 1024 * 1024, "");
 
+State::Asset* PushAsset(State* state, State::Asset::Type type, const char* path)
+{
+    State::Asset* asset = nullptr;
+    core::Asset assetID;
+    switch (type) {
+    case State::Asset::ASSET_TYPE_MESH:
+        assetID.id = (uint32_t)state->meshAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
+        asset = &state->meshAssets[state->meshAssetIndex++];
+        break;
+    case State::Asset::ASSET_TYPE_MATERIAL:
+        assetID.id = (uint32_t)state->materialAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
+        asset = &state->materialAssets[state->materialAssetIndex++];
+        break;
+    case State::Asset::ASSET_TYPE_TEXTURE:
+        assetID.id = (uint32_t)state->textureAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
+        asset = &state->textureAssets[state->textureAssetIndex++];
+        break;
+    }
+    strncpy_s(asset->name, State::FILENAME_BUF_SIZE, path, State::FILENAME_BUF_SIZE);
+    asset->type = type;
+    asset->asset = assetID;
+    return asset;
+}
+
 extern "C" __declspec(dllexport)
 void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiRegistryInterface)
 {
@@ -339,10 +423,13 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
 
     state->applicationArena = memoryArena;
 
-    state->textureAssets = GT_NEW_ARRAY(State::TextureAsset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
-    state->materialAssets = GT_NEW_ARRAY(State::MaterialAsset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
-    state->meshAssets = GT_NEW_ARRAY(State::MeshAsset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
+    state->textureAssets = GT_NEW_ARRAY(State::Asset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
+    state->materialAssets = GT_NEW_ARRAY(State::Asset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
+    state->meshAssets = GT_NEW_ARRAY(State::Asset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
 
+    PushAsset(state, State::Asset::ASSET_TYPE_MESH, "None");
+    PushAsset(state, State::Asset::ASSET_TYPE_MATERIAL, "None");
+    PushAsset(state, State::Asset::ASSET_TYPE_TEXTURE, "None");
 
     util::Make4x4FloatMatrixIdentity(state->cameraRotation);
     util::Make4x4FloatMatrixIdentity(state->cameraOffset);
@@ -350,6 +437,50 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     util::Make4x4FloatTranslationMatrixCM(state->cameraPos, { 0.0f, -0.4f, 2.75f });
 
     return state;
+}
+
+State::Asset* AssetRefLabel(State* state, State::Asset* asset, bool acceptDrop)
+{
+    if (asset == nullptr) { 
+        ImGui::Text("null");
+        return nullptr; 
+    }
+    auto AcceptDrop = [](State* state, State::Asset* asset) -> State::Asset* {
+        bool isHovered = ImGui::IsItemHoveredRect();
+        if (isHovered) {
+            ("drag type is %s", state->drag.type != State::DragContent::NONE ? "something" : "none");
+            if (!state->drag.wasReleased && state->drag.type != State::DragContent::NONE) {
+                ImGui::SetTooltip("Release mouse to drop %s", state->drag.data.as_asset->name);
+            }
+            if (state->drag.wasReleased) {
+                if (state->drag.type == State::DragContent::DRAG_TYPE_ASSET_REF) {
+                    GT_LOG_DEBUG("Editor", "Trying to drag %s onto %s", state->drag.data.as_asset->name, asset->name);
+
+                    if (asset->type == state->drag.data.as_asset->type) {
+                        return state->drag.data.as_asset;
+                    }
+                    else {
+                        GT_LOG_DEBUG("Editor", "Trying to match assets of different type");
+                    }
+                }
+            }
+        }
+        return nullptr;
+    };
+    State::Asset* res = nullptr;
+
+    ImGui::Selectable(asset->name);
+    
+    if (acceptDrop) {
+        res = AcceptDrop(state, asset);
+        if (res != nullptr) { return res; }
+    }
+    if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
+        //GT_LOG_DEBUG("Editor", "Trying to drag %s with delta %f, %f", asset->name, ImGui::GetMouseDragDelta(MOUSE_LEFT).x, ImGui::GetMouseDragDelta(MOUSE_LEFT).y);
+        state->drag.type = State::DragContent::DRAG_TYPE_ASSET_REF;
+        state->drag.data.as_asset = asset;
+    }
+    return res;
 }
 
 extern "C" __declspec(dllexport)
@@ -380,6 +511,23 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     
     ImGuizmo::BeginFrame();
 
+    if (state->drag.wasReleased) {
+        state->drag = State::DragContent();
+    }
+    if (!ImGui::IsMouseDown(MOUSE_LEFT)) {
+        state->drag.wasReleased = true;
+    }
+
+    ImGui::Begin("Drag Debug"); {
+        const char* fmt = state->drag.type != State::DragContent::NONE ? "Dragging %s with delta %f, %f" : "Not dragging";
+        if (state->drag.type != State::DragContent::NONE) {
+            ImGui::Text(fmt, state->drag.data.as_asset->name, ImGui::GetMouseDragDelta().x, ImGui::GetMouseDragDelta().y);
+        }
+        else {
+            ImGui::Text(fmt);
+        }
+
+    } ImGui::End();
 
     enum CameraMode : int {
         CAMERA_MODE_ARCBALL = 0,
@@ -717,41 +865,44 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             bool pushed = ImGui::Button("Import");
             ImGui::PopID();
             if (pushed) {
-                char* filenameBuf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE, frameAllocator);
-                if (OpenFileDialog(filenameBuf, State::FILENAME_BUF_SIZE, "PNG Image Files\0*.png\0")) {
-                    GT_LOG_DEBUG("Editor", "Trying to import %s", filenameBuf);
+                const size_t maxNumItems = 64;
+                char* buf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
+                FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
+                size_t numItems = 0;
+                if (OpenFileDialog(buf, State::FILENAME_BUF_SIZE * maxNumItems, "PNG Image Files\0*.png\0", files, maxNumItems, &numItems)) {
+                   
+                    for (size_t i = 0; i < numItems; ++i) {
+                        GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
+                        State::Asset* textureAsset = PushAsset(state, State::Asset::ASSET_TYPE_TEXTURE, files[i].path);
+                        {
+                            int width, height, numComponents;
+                            auto image = stbi_load(files[i].path, &width, &height, &numComponents, 4);
+                            //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
+                            if (image == NULL) {
+                                GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", files[i].path, stbi_failure_reason());
+                            }
+                            //assert(numComponents == 4);
 
-                    State::TextureAsset* textureAsset = &state->textureAssets[state->textureAssetIndex++];
-                    textureAsset->asset.id = (uint32_t)state->textureAssetIndex;   // @NOTE STARTING WITH 1 IS INTENTIONAL
-                    strncpy_s(textureAsset->name, State::FILENAME_BUF_SIZE, filenameBuf, State::FILENAME_BUF_SIZE);
-                    {
-                        int width, height, numComponents;
-                        auto image = stbi_load(filenameBuf, &width, &height, &numComponents, 4);
-                        //image = stbi_load_from_memory(buf, buf_len, &width, &height, &numComponents, 4);
-                        if (image == NULL) {
-                            GT_LOG_ERROR("Assets", "Failed to load image %s:\n%s\n", filenameBuf, stbi_failure_reason());
+                            gfx::SamplerDesc defaultSamplerStateDesc;
+                            gfx::ImageDesc diffDesc;
+                            //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
+                            diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+                            diffDesc.width = width;
+                            diffDesc.height = height;
+                            diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
+                            diffDesc.samplerDesc = &defaultSamplerStateDesc;
+                            diffDesc.numDataItems = 1;
+                            void* data[] = { image };
+                            size_t size = sizeof(stbi_uc) * width * height * 4;
+                            diffDesc.initialData = data;
+                            diffDesc.initialDataSizes = &size;
+
+                            renderer::TextureDesc texDesc;
+                            texDesc.desc = diffDesc;
+                            renderer->UpdateTextureLibrary(renderWorld, textureAsset->asset, &texDesc);
+
+                            stbi_image_free(image);
                         }
-                        //assert(numComponents == 4);
-
-                        gfx::SamplerDesc defaultSamplerStateDesc;
-                        gfx::ImageDesc diffDesc;
-                        //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
-                        diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
-                        diffDesc.width = width;
-                        diffDesc.height = height;
-                        diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
-                        diffDesc.samplerDesc = &defaultSamplerStateDesc;
-                        diffDesc.numDataItems = 1;
-                        void* data[] = { image };
-                        size_t size = sizeof(stbi_uc) * width * height * 4;
-                        diffDesc.initialData = data;
-                        diffDesc.initialDataSizes = &size;
-
-                        renderer::TextureDesc texDesc;
-                        texDesc.desc = diffDesc;
-                        renderer->UpdateTextureLibrary(renderWorld, textureAsset->asset, &texDesc);
-
-                        stbi_image_free(image);
                     }
                 }
             }
@@ -762,21 +913,27 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             ImGui::SliderFloat("##displayScale", &displayScale, 0.5f, 4.0f);
             size_t numDisplayColumns = (size_t)(ImGui::GetContentRegionAvailWidth() / (displayScale * 128.0f));
             numDisplayColumns = numDisplayColumns > 1 ? numDisplayColumns : 1;
-            for (size_t i = 0; i < state->textureAssetIndex; ++i) {
-
+            for (size_t i = 1; i < state->textureAssetIndex; ++i) {
+                if (state->textureAssets[i].asset.id == 0) { continue; }
                 auto texHandle = renderer->GetTextureHandle(renderWorld, state->textureAssets[i].asset);
-                if ((i % numDisplayColumns) != 0) {
+                if (((i-1) % numDisplayColumns) != 0) {
                     ImGui::SameLine();
                 }
                 else {
                     ImGui::Spacing();
                 }
+                ImGui::BeginGroup();
                 ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128 * displayScale, 128 * displayScale));
                 if (ImGui::IsItemHovered()) {
                     ImGui::BeginTooltip();
                     ImGui::Text("%s", state->textureAssets[i].name);
                     ImGui::EndTooltip();
                 }
+                State::Asset* asset = &state->textureAssets[i];
+                ImGui::PushID((int)i);
+                AssetRefLabel(state, asset, false);
+                ImGui::PopID();
+                ImGui::EndGroup();
             }
             ImGui::EndChild();
         }
@@ -891,7 +1048,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     }
                     //ImGui::BeginChild("##list", ImGui::GetContentRegionAvail());
                     for (size_t i = 0; i < state->textureAssetIndex; ++i) {
-
+                        if (state->textureAssets[i].asset.id == 0) { continue; }
                         auto texHandle = renderer->GetTextureHandle(renderWorld, state->textureAssets[i].asset);
                         ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
                         if (ImGui::IsItemHovered()) {
@@ -914,14 +1071,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::SameLine();
                 bool cancel = ImGui::Button("Cancel", ImVec2(100, 25));
                 if (done) {
-                    State::MaterialAsset* materialAsset = &state->materialAssets[state->materialAssetIndex++];
-                    materialAsset->asset.id = (uint32_t)state->materialAssetIndex;   // @NOTE STARTING WITH 1 IS INTENTIONAL
-                    strncpy_s(materialAsset->name, State::FILENAME_BUF_SIZE, nameEditBuf, State::FILENAME_BUF_SIZE);
-
+                    State::Asset* materialAsset = PushAsset(state, State::Asset::ASSET_TYPE_MATERIAL, nameEditBuf);
                     renderer->UpdateMaterialLibrary(renderWorld, materialAsset->asset, &desc);
                     GT_LOG_INFO("Editor", "Created material %s", materialAsset->name);
 
-                    materialAsset->desc = desc;
+                    materialAsset->as_material.desc = desc;
                     desc = renderer::MaterialDesc();
                 }
 
@@ -932,14 +1086,18 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             }
             
             for (size_t i = 0; i < state->materialAssetIndex; ++i) {
-                State::MaterialAsset* asset = &state->materialAssets[i];
-                ImGui::Text("%s", asset->name);
+                State::Asset* asset = &state->materialAssets[i];
+                if (asset->asset.id == 0) { continue; }
 
-                auto baseColorHandle = renderer->GetTextureHandle(renderWorld, asset->desc.baseColorMap);
-                auto roughnessHandle = renderer->GetTextureHandle(renderWorld, asset->desc.roughnessMap);
-                auto metalnessHandle = renderer->GetTextureHandle(renderWorld, asset->desc.metalnessMap);
-                auto normalVecHandle = renderer->GetTextureHandle(renderWorld, asset->desc.normalVecMap);
-                auto occlusionHandle = renderer->GetTextureHandle(renderWorld, asset->desc.occlusionMap);
+                ImGui::PushID((int)i);
+                AssetRefLabel(state, asset, false);
+                ImGui::PopID();
+
+                auto baseColorHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.baseColorMap);
+                auto roughnessHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.roughnessMap);
+                auto metalnessHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.metalnessMap);
+                auto normalVecHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.normalVecMap);
+                auto occlusionHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.occlusionMap);
                 
                 ImGui::BeginGroup();
                 ImGui::Image((ImTextureID)(uintptr_t)(baseColorHandle.id), ImVec2(64, 64));
@@ -965,8 +1123,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::Image((ImTextureID)(uintptr_t)(occlusionHandle.id), ImVec2(64, 64));
                 ImGui::Text("Occlusion");
                 ImGui::EndGroup();
-                ImGui::SameLine();
-           
+ 
             }
         }
         ImGui::Spacing();
@@ -979,36 +1136,40 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             bool pushed = ImGui::Button("Import");
             ImGui::PopID();
             if (pushed) {
-                char* filenameBuf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE, frameAllocator);
-                if (OpenFileDialog(filenameBuf, State::FILENAME_BUF_SIZE, "FBX Files\0*.fbx\0")) {
-                    GT_LOG_DEBUG("Editor", "Trying to import %s", filenameBuf);
+                const size_t maxNumItems = 64;
+                char* buf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
+                FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
+                size_t numItems = 0;
+                if (OpenFileDialog(buf, State::FILENAME_BUF_SIZE * maxNumItems, "FBX Files\0*.fbx\0", files, maxNumItems, &numItems)) {
 
-                    State::MeshAsset* meshAsset = &state->meshAssets[state->meshAssetIndex++];
-                    meshAsset->asset.id = (uint32_t)state->meshAssetIndex;   // @NOTE STARTING WITH 1 IS INTENTIONAL
-                    strncpy_s(meshAsset->name, State::FILENAME_BUF_SIZE, filenameBuf, State::FILENAME_BUF_SIZE);
-                    {
-                        size_t modelFileSize = 0;
-                        fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator> tempArena(frameAllocator);
-                        void* modelFileData = LoadFileContents(filenameBuf, &tempArena, &modelFileSize);
-                        if (modelFileData && modelFileSize > 0) {
-                            GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", filenameBuf, modelFileSize / 1024);
+                    for (size_t i = 0; i < numItems; ++i) {
+                        GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
 
-                            renderer::MeshDesc* meshDescs = GT_NEW_ARRAY(renderer::MeshDesc, 512, &tempArena);
-                            size_t numSubmeshes = 0;
+                        State::Asset* meshAsset = PushAsset(state, State::Asset::ASSET_TYPE_MESH, files[i].path);
+                        {
+                            size_t modelFileSize = 0;
+                            fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator> tempArena(frameAllocator);
+                            void* modelFileData = LoadFileContents(files[i].path, &tempArena, &modelFileSize);
+                            if (modelFileData && modelFileSize > 0) {
+                                GT_LOG_INFO("Assets", "Loaded %s: %llu kbytes", files[i].path, modelFileSize / 1024);
 
-                            bool res = fbxImporter->FBXImportAsset(&tempArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
-                            if (!res) {
-                                GT_LOG_ERROR("Assets", "Failed to import %s", filenameBuf);
+                                renderer::MeshDesc* meshDescs = GT_NEW_ARRAY(renderer::MeshDesc, 512, &tempArena);
+                                size_t numSubmeshes = 0;
+
+                                bool res = fbxImporter->FBXImportAsset(&tempArena, (char*)modelFileData, modelFileSize, meshDescs, &numSubmeshes);
+                                if (!res) {
+                                    GT_LOG_ERROR("Assets", "Failed to import %s", files[i].path);
+                                }
+                                else {
+                                    GT_LOG_INFO("Assets", "Imported %s", files[i].path);
+
+                                    meshAsset->as_mesh.numSubmeshes = numSubmeshes;
+                                    renderer->UpdateMeshLibrary(renderWorld, meshAsset->asset, meshDescs, numSubmeshes);
+                                }
                             }
                             else {
-                                GT_LOG_INFO("Assets", "Imported %s", filenameBuf);
-
-                                meshAsset->numSubmeshes = numSubmeshes;
-                                renderer->UpdateMeshLibrary(renderWorld, meshAsset->asset, meshDescs, numSubmeshes);
+                                GT_LOG_ERROR("Assets", "Failed to import %s", files[i].path);
                             }
-                        }
-                        else {
-                            GT_LOG_ERROR("Assets", "Failed to import %s", filenameBuf);
                         }
                     }
                 }
@@ -1017,7 +1178,10 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             ImGui::BeginChild("##meshes", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
             ImGui::Spacing();
             for (size_t i = 0; i < state->meshAssetIndex; ++i) {
-                ImGui::Text("%s", state->meshAssets[i]);
+                if (state->meshAssets[i].asset.id == 0) { continue; }
+                ImGui::PushID((int)i);
+                AssetRefLabel(state, &state->meshAssets[i], false);
+                ImGui::PopID();
             }
             ImGui::EndChild();
         }
@@ -1101,17 +1265,17 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                
                 bool anyChange = false;
 
-                auto LookupMeshAsset = [](core::Asset ID, State::MeshAsset* assets, size_t numAssets) -> State::MeshAsset* {
+                auto LookupMeshAsset = [](core::Asset ID, State::Asset* assets, size_t numAssets) -> State::Asset* {
                     for (size_t i = 0; i < numAssets; ++i) {
-                        if (assets[i].asset == ID) {
+                        if (assets[i].asset == ID && assets[i].type == State::Asset::ASSET_TYPE_MESH) {
                             return &assets[i];
                         }
                     }
                     return nullptr;
                 };
-                auto LookupMaterialAsset = [](core::Asset ID, State::MaterialAsset* assets, size_t numAssets) -> State::MaterialAsset* {
+                auto LookupMaterialAsset = [](core::Asset ID, State::Asset* assets, size_t numAssets) -> State::Asset* {
                     for (size_t i = 0; i < numAssets; ++i) {
-                        if (assets[i].asset == ID) {
+                        if (assets[i].asset == ID && assets[i].type == State::Asset::ASSET_TYPE_MATERIAL) {
                             return &assets[i];
                         }
                     }
@@ -1132,18 +1296,21 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                 ImGui::Text("Mesh: ");
                 ImGui::SameLine();
-                if (meshAsset.id != 0) {
-                    auto asset = LookupMeshAsset(meshAsset, state->meshAssets, state->meshAssetIndex);
-                    ImGui::Text(asset->name);
-                }
-                else {
-                    ImGui::Text("None");
+
+                auto asset = LookupMeshAsset(meshAsset, state->meshAssets, state->meshAssetIndex);
+                ImGui::PushID(-1);
+                auto newMesh = AssetRefLabel(state, asset, true);
+                ImGui::PopID();
+                if (newMesh != nullptr) {
+                    anyChange = true;
+                    meshAsset = newMesh->asset;
                 }
                 if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
                     ImGui::OpenPopup("##meshPicker");
                 }
                 if (ImGui::BeginPopup("##meshPicker")) {
                     for (size_t i = 0; i < state->meshAssetIndex; ++i) {
+                        if (state->meshAssets[i].asset.id == 0) { continue; }
                         ImGui::Text("%s", state->meshAssets[i].name);
                         if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
                             meshAsset = state->meshAssets[i].asset;
@@ -1158,23 +1325,58 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::Text("Materials");
                 ImGui::BeginChild("##materials", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
                 
-                static size_t editMaterialIndex = 0;
+                static int editMaterialIndex = -1;
+                if (numSubmeshes > 0) {
+                    ImGui::Text("mat_master");
+                    if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
+                        editMaterialIndex = -1;
+                        ImGui::OpenPopup("##materialPicker");
+                    }
+                    ImGui::SameLine();
+                    State::Asset* asset = LookupMaterialAsset(materials[0], state->materialAssets, state->materialAssetIndex);
+                    ImGui::PushID(-1);
+                    auto newMat = AssetRefLabel(state, asset, true);
+                    ImGui::PopID();
+                    if (newMat != nullptr) {
+                        for (size_t i = 0; i < numSubmeshes; ++i) {
+                            if (materials[i].id != newMat->asset.id) {
+                                materials[i] = newMat->asset;
+                                anyChange = true;
+                            }
+                        }
+                    }
+                }
                 for (size_t i = 0; i < numSubmeshes; ++i) {
-                    auto asset = LookupMaterialAsset(materials[i], state->materialAssets, state->materialAssetIndex);
+                    State::Asset* asset = LookupMaterialAsset(materials[i], state->materialAssets, state->materialAssetIndex);
                     ImGui::PushID((int)i);
-                    ImGui::Text("mat_%llu: %s", i, asset->name);
+                    ImGui::Text("mat_%llu: ", i);
                     ImGui::PopID();
                     if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
-                        editMaterialIndex = i;
+                        editMaterialIndex = (int)i;
                         ImGui::OpenPopup("##materialPicker");
                         break;
+                    }
+                    ImGui::SameLine();
+                    ImGui::PushID((int)i);
+                    auto newMat = AssetRefLabel(state, asset, true);
+                    ImGui::PopID();
+                    if (newMat != nullptr) {
+                        anyChange = true;
+                        materials[i] = newMat->asset;
                     }
                 }
                 if (ImGui::BeginPopup("##materialPicker")) {
                     for (size_t i = 0; i < state->materialAssetIndex; ++i) {
                         ImGui::Text("%s", state->materialAssets[i].name);
                         if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
-                            materials[editMaterialIndex] = state->materialAssets[i].asset;
+                            if (editMaterialIndex >= 0) {
+                                materials[editMaterialIndex] = state->materialAssets[i].asset;
+                            }
+                            else {
+                                for (size_t j = 0; j < numSubmeshes; ++j) {
+                                    materials[j] = state->materialAssets[i].asset;
+                                }
+                            }
                             anyChange = true;
                             ImGui::CloseCurrentPopup();
                             break;
