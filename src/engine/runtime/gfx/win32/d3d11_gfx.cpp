@@ -1391,7 +1391,7 @@ namespace gfx
     void PresentSwapChain(Device* device, SwapChain swapChain) 
     {
         D3D11SwapChain* swpChn = device->interf->swapChainPool.Get(swapChain.id);
-        swpChn->swapChain->Present(0, 0);
+        swpChn->swapChain->Present(1, 0);
     }
 
     D3D11_MAP g_mapTypeTable[] = {

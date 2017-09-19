@@ -956,11 +956,13 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     }
                 }
             }
-            ImGui::BeginChild("##textures", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
-            
+
             ImGui::Spacing();
             static float displayScale = 1.0f;
             ImGui::SliderFloat("##displayScale", &displayScale, 0.5f, 4.0f);
+
+            ImGui::BeginChild("##textures", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
+            ImGui::Spacing();
             size_t numDisplayColumns = (size_t)(ImGui::GetContentRegionAvailWidth() / (displayScale * 128.0f));
             numDisplayColumns = numDisplayColumns > 1 ? numDisplayColumns : 1;
             for (size_t i = 1; i < state->textureAssetIndex; ++i) {
@@ -1111,6 +1113,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                                 //ImGui::CloseCurrentPopup();
                             }
                         }
+                            
+                        if (i != 0 && (i % 4) != 0) { ImGui::SameLine(); }
                     }
                     //ImGui::EndChild();
                     ImGui::EndPopup();
@@ -1334,6 +1338,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                 renderer::StaticMesh mesh = renderer->GetStaticMesh(renderWorld, selectedEntity.id);
                 
+                ImGui::Text("(#%i)", mesh.id);
+
                 core::Asset meshAsset = renderer->GetMeshAsset(renderWorld, mesh);
                 core::Asset* materials = nullptr;
                 
@@ -1439,9 +1445,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                 if (anyChange) {
                     if (mesh.id != renderer::INVALID_ID) {
+                        GT_LOG_DEBUG("Editor", "Destroying mesh component #%i", mesh.id);
                         renderer->DestroyStaticMesh(renderWorld, mesh);
                     }
-                    renderer->CreateStaticMesh(renderWorld, selectedEntity.id, meshAsset, materials, numSubmeshes);
+                    auto newMesh = renderer->CreateStaticMesh(renderWorld, selectedEntity.id, meshAsset, materials, numSubmeshes);
+                    GT_LOG_DEBUG("Editor", "Created mesh component #%i", newMesh.id);
                 }
 
                 ImGui::TreePop();

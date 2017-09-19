@@ -394,9 +394,11 @@ namespace renderer
         for (size_t i = 0; i < snapshot->numTransforms; ++i) {
             uint32_t id = snapshot->transforms[i].entityID;
 
-            for (size_t i = 0; i < world->firstFreeStaticMesh; ++i) {
-                if (world->staticMeshes[i].entityID == id) {
-                    util::Copy4x4FloatMatrixCM(snapshot->transforms[i].transform, world->staticMeshes[i].transform);
+            for (size_t j = 0; j < world->firstFreeStaticMesh; ++j) {
+                if (world->staticMeshes[j].entityID == id) {
+                    //auto pos = util::Get4x4FloatMatrixColumnCM(snapshot->transforms[i].transform, 3).xyz;
+                    //GT_LOG_DEBUG("Renderer", "Updating entity #%i to position (%f, %f, %f)", id, pos.x, pos.y, pos.z);
+                    util::Copy4x4FloatMatrixCM(snapshot->transforms[i].transform, world->staticMeshes[j].transform);
                 }
             }
         }
@@ -1178,11 +1180,12 @@ namespace renderer
     
         uint32_t lastNonFree = (uint32_t)world->firstFreeStaticMesh - 1;
         StaticMeshRenderable* swap = &world->staticMeshes[lastNonFree];
-        StaticMeshRenderable* target = &world->staticMeshes[index->index];
         RenderableIndex* swapIndex = world->staticMeshIndices.Get(swap->handle.id);
-        swapIndex->index = index->index;
+
+        StaticMeshRenderable* target = &world->staticMeshes[index->index];
 
         memcpy(target, swap, sizeof(StaticMeshRenderable));
+        swapIndex->index = index->index;
         
         world->firstFreeStaticMesh--;
         world->staticMeshIndices.Free(mesh.id);
@@ -1318,6 +1321,8 @@ namespace renderer
             for (size_t i = 0; i < world->firstFreeStaticMesh; ++i) {
                 auto staticMesh = &world->staticMeshes[i];
                 
+                //GT_LOG_DEBUG("Renderer", "Rendering mesh #%llu", i);
+
                 void* cBufferMem = gfx::MapBuffer(renderer->gfxDevice, renderer->cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
                 if (cBufferMem != nullptr) {
                     ConstantData object;
