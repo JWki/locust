@@ -617,13 +617,18 @@ namespace gfx
         if (desc->type == ImageType::IMAGE_TYPE_CUBE) {     // @HACK
             assert(numDataItems <= 6);
         }
-        D3D11_SUBRESOURCE_DATA pData[512];    // @TODO: Support more than 6?
+        D3D11_SUBRESOURCE_DATA pData[512];    // @TODO
         D3D11_SUBRESOURCE_DATA* pDataPtr = numDataItems > 0 ? &pData[0] : nullptr;
         UINT numComponents = g_pixelFormatComponentCount[(uint8_t)desc->pixelFormat];
         UINT componentSize = g_pixelFormatComponentSize[(uint8_t)desc->pixelFormat];
+        auto width = desc->width;
         for (int i = 0; i < numDataItems; ++i) {
             pData[i].pSysMem = desc->initialData[i];
-            pData[i].SysMemPitch = desc->width * numComponents * componentSize;
+            pData[i].SysMemPitch = width * numComponents * componentSize;
+            // @HACK
+            if (desc->numMipmaps > 1) {
+                width /= 2;
+            }
             pData[i].SysMemSlicePitch = pData[i].SysMemPitch * desc->height;  // @TODO: Verify?
         }
         assert((desc->isRenderTarget || desc->isDepthStencilTarget) || !(usage == ResourceUsage::USAGE_IMMUTABLE && pDataPtr == nullptr));

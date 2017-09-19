@@ -892,15 +892,34 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             //assert(numComponents == 4);
 
                             // mipmap generation
+
+                            static auto GetMipmapSize = [](int width, int height, int* widthOut, int* heightOut) -> void {
+                             
+                                *widthOut = width >> 1;
+                                *heightOut = height >> 1;
+                            };
+
+                            static auto GenMipmaps = [](uint8_t* imageIn, int width, int height, int numCompontents, uint8_t* imageOut) -> bool {
+                                if (width == 0 || height == 0) { return false; }
+                                if (numCompontents != 4) { return false; }  
+
+                                cro_GenMipMapAvgI((int*)imageIn, width, height, (int*)imageOut);
+
+                                return true;
+                            };
+
                             int numMipMapLevels = cro_GetMipMapLevels(width, height);
-                            int** mipmaps = (int**)frameAllocator->Allocate(sizeof(int*) * numMipMapLevels, alignof(int*));
-                            unsigned int w = width;
-                            unsigned int h = height;
-                            mipmaps[0] = (int*)image;
+                            uint8_t** mipmaps = (uint8_t**)frameAllocator->Allocate(sizeof(uint8_t*) * numMipMapLevels, alignof(uint8_t*));
+                            int w = width;
+                            int h = height;
+                            mipmaps[0] = (uint8_t*)image;
                             for (int i = 1; i < numMipMapLevels; ++i) {
-                                cro_GetMipMapSize(w, h, &w, &h);
-                                mipmaps[i] = (int*)frameAllocator->Allocate(sizeof(int) * w * h, alignof(int));
-                                cro_GenMipMapAvgI(mipmaps[i - 1], w * 2, h * 2, mipmaps[i]);
+                                GetMipmapSize(w, h, &w, &h);
+                                mipmaps[i] = (uint8_t*)frameAllocator->Allocate(sizeof(uint8_t) * 4 * w * h, alignof(int));
+                                auto res = GenMipmaps(mipmaps[i - 1], w * 2, h * 2, 4, mipmaps[i]);
+                                if (!res) {
+                                    GT_LOG_ERROR("Editor", "Failed to generate mipmap level %i for %s", i, files[i].path);
+                                }
                             }
 
                             gfx::SamplerDesc defaultSamplerStateDesc;
@@ -922,7 +941,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             for (int i = 0; i < numMipMapLevels; ++i) {
                                 data[i] = mipmaps[i];
                                 dataSizes[i] = sizeof(stbi_uc) * 4 * w * h;
-                                cro_GetMipMapSize(w, h, &w, &h);
+                                GetMipmapSize(w, h, &w, &h);
                             }
 
                             diffDesc.initialData = data;
