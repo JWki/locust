@@ -606,17 +606,18 @@ namespace gfx
 
         texDesc.MiscFlags = 0;
         if (texDesc.MipLevels > 1) {
-            texDesc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
+            //@HACK
+            //texDesc.MiscFlags |= D3D11_RESOURCE_MISC_GENERATE_MIPS;
         }
         if (desc->type == ImageType::IMAGE_TYPE_CUBE) {
             texDesc.MiscFlags |= D3D11_RESOURCE_MISC_TEXTURECUBE;
         }
 
         size_t numDataItems = desc->numDataItems;
-        if (desc->type == ImageType::IMAGE_TYPE_CUBE || true) {     // @HACK
+        if (desc->type == ImageType::IMAGE_TYPE_CUBE) {     // @HACK
             assert(numDataItems <= 6);
         }
-        D3D11_SUBRESOURCE_DATA pData[6];    // @TODO: Support more than 6?
+        D3D11_SUBRESOURCE_DATA pData[512];    // @TODO: Support more than 6?
         D3D11_SUBRESOURCE_DATA* pDataPtr = numDataItems > 0 ? &pData[0] : nullptr;
         UINT numComponents = g_pixelFormatComponentCount[(uint8_t)desc->pixelFormat];
         UINT componentSize = g_pixelFormatComponentSize[(uint8_t)desc->pixelFormat];

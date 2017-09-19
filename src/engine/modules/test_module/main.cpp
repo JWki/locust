@@ -21,6 +21,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 //#define STBI_NO_STDIO
 #include <stb/stb_image.h>
+#pragma warning(push, 0)    // lots of warnings in here  
+#include "cro_mipmap.h"
+#pragma warning(pop)
 
 #include <engine/runtime/core/api_registry.h>
 #include <engine/runtime/renderer/renderer.h>
@@ -450,7 +453,12 @@ State::Asset* AssetRefLabel(State* state, State::Asset* asset, bool acceptDrop)
         if (isHovered) {
             ("drag type is %s", state->drag.type != State::DragContent::NONE ? "something" : "none");
             if (!state->drag.wasReleased && state->drag.type != State::DragContent::NONE) {
-                ImGui::SetTooltip("Release mouse to drop %s", state->drag.data.as_asset->name);
+                if (asset->type == state->drag.data.as_asset->type) {
+                    ImGui::SetTooltip("Release mouse to drop %s", state->drag.data.as_asset->name);
+                }
+                else {
+                    ImGui::SetTooltip("Can't drop %s here", state->drag.data.as_asset->name);
+                }
             }
             if (state->drag.wasReleased) {
                 if (state->drag.type == State::DragContent::DRAG_TYPE_ASSET_REF) {
@@ -869,7 +877,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 char* buf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
                 FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
                 size_t numItems = 0;
-                if (OpenFileDialog(buf, State::FILENAME_BUF_SIZE * maxNumItems, "PNG Image Files\0*.png\0", files, maxNumItems, &numItems)) {
+                if (OpenFileDialog(buf, State::FILENAME_BUF_SIZE * maxNumItems, "PNG Image Files\0*.png\0JPG Image Files\0*.jpeg\0", files, maxNumItems, &numItems)) {
                    
                     for (size_t i = 0; i < numItems; ++i) {
                         GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
@@ -883,19 +891,42 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             }
                             //assert(numComponents == 4);
 
+                            // mipmap generation
+                            int numMipMapLevels = cro_GetMipMapLevels(width, height);
+                            int** mipmaps = (int**)frameAllocator->Allocate(sizeof(int*) * numMipMapLevels, alignof(int*));
+                            unsigned int w = width;
+                            unsigned int h = height;
+                            mipmaps[0] = (int*)image;
+                            for (int i = 1; i < numMipMapLevels; ++i) {
+                                cro_GetMipMapSize(w, h, &w, &h);
+                                mipmaps[i] = (int*)frameAllocator->Allocate(sizeof(int) * w * h, alignof(int));
+                                cro_GenMipMapAvgI(mipmaps[i - 1], w * 2, h * 2, mipmaps[i]);
+                            }
+
                             gfx::SamplerDesc defaultSamplerStateDesc;
+                            defaultSamplerStateDesc.minFilter = gfx::FilterMode::FILTER_LINEAR_MIPMAP_LINEAR;
+
                             gfx::ImageDesc diffDesc;
                             //paintTextureDesc.usage = gfx::ResourceUsage::USAGE_DYNAMIC;
                             diffDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+                            diffDesc.numMipmaps = numMipMapLevels;
                             diffDesc.width = width;
                             diffDesc.height = height;
                             diffDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R8G8B8A8_UNORM;
                             diffDesc.samplerDesc = &defaultSamplerStateDesc;
-                            diffDesc.numDataItems = 1;
-                            void* data[] = { image };
-                            size_t size = sizeof(stbi_uc) * width * height * 4;
+                            diffDesc.numDataItems = numMipMapLevels;
+                            void* data[64];
+                            size_t dataSizes[64];
+                            //data[0] = image;
+                            w = width; h = height;
+                            for (int i = 0; i < numMipMapLevels; ++i) {
+                                data[i] = mipmaps[i];
+                                dataSizes[i] = sizeof(stbi_uc) * 4 * w * h;
+                                cro_GetMipMapSize(w, h, &w, &h);
+                            }
+
                             diffDesc.initialData = data;
-                            diffDesc.initialDataSizes = &size;
+                            diffDesc.initialDataSizes = dataSizes;
 
                             renderer::TextureDesc texDesc;
                             texDesc.desc = diffDesc;
@@ -1322,7 +1353,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 }
 
                 ImGui::Spacing();
-                ImGui::Text("Materials");
+                ImGui::Text("Materials (%llu)", numSubmeshes);
                 ImGui::BeginChild("##materials", ImVec2(0, 0), true, ImGuiWindowFlags_HorizontalScrollbar);
                 
                 static int editMaterialIndex = -1;
