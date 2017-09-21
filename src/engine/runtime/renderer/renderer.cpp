@@ -305,7 +305,8 @@ namespace renderer
         gfx::Image mainDepthBuffer;
         gfx::Image brdfLUT;
         static const size_t NUM_CONVOLUTION_MIPS = 11;
-        static const size_t NUM_CUBEMAPS = 1;
+        static const size_t NUM_CUBEMAPS = 4;
+        size_t activeCubemap = 0;
         gfx::Image hdrCubemap[NUM_CUBEMAPS];
         gfx::Image hdrDiffuse[NUM_CUBEMAPS];
 
@@ -1254,6 +1255,8 @@ namespace renderer
         float pink[] = { 1.0f, 192.0f / 255.0f, 203.0f / 255.0f, 1.0f };
         memcpy(clearAllAction.colors[0].color, pink, sizeof(float) * 4);
 
+        renderer->activeCubemap = renderer->activeCubemap < Renderer::NUM_CUBEMAPS ? renderer->activeCubemap : Renderer::NUM_CUBEMAPS - 1;
+
         {   // initial cbuffer setup
             void* cBufferMem = gfx::MapBuffer(renderer->gfxDevice, renderer->cBuffer, gfx::MapType::MAP_WRITE_DISCARD);
             if (cBufferMem != nullptr) {
@@ -1305,10 +1308,10 @@ namespace renderer
             cubemapDrawCall.numElements = 36;
             cubemapDrawCall.pipelineState = renderer->cubemapPipeline;
             cubemapDrawCall.vsConstantInputs[0] = renderer->cBuffer;
-            cubemapDrawCall.psImageInputs[0] = renderer->prefilteredCubemap[0];
+            cubemapDrawCall.psImageInputs[0] = renderer->prefilteredCubemap[renderer->activeCubemap];
 
-            meshDrawCall.psImageInputs[9] = renderer->prefilteredCubemap[0];
-            meshDrawCall.psImageInputs[10] = renderer->hdrDiffuse[0];
+            meshDrawCall.psImageInputs[9] = renderer->prefilteredCubemap[renderer->activeCubemap];
+            meshDrawCall.psImageInputs[10] = renderer->hdrDiffuse[renderer->activeCubemap];
             meshDrawCall.psImageInputs[11] = renderer->brdfLUT;
         }
 
@@ -1437,6 +1440,13 @@ namespace renderer
 
         frameIndex++;
     }
+
+
+    size_t* GetActiveCubemap(RenderWorld* world)
+    {
+        return &world->renderer->activeCubemap;
+    }
+        
 }
 
 
@@ -1470,6 +1480,8 @@ bool renderer_get_interface(renderer::RendererInterface* outInterface)
     outInterface->GetCameraProjection = &renderer::GetCameraProjection;
 
     outInterface->UpdateWorldState = &renderer::UpdateWorldState;
+
+    outInterface->GetActiveCubemap = &renderer::GetActiveCubemap;
 
     return true;
 }

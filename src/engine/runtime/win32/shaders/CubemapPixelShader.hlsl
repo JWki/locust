@@ -18,8 +18,10 @@ float2 SampleSphericalMap(float3 dir)
 }
 
 
+
 float4 main(PixelInput input) : SV_Target
 {
     float2 uv = SampleSphericalMap(normalize(input.localPos.xyz));
+    
     return hdrCubemap.SampleLevel(sampler1, uv, 0);
 }

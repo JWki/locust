@@ -87,7 +87,9 @@ float3 FilterCubemap(Texture2D map, sampler smpl, float3 V, float3 N, float roug
         float NdotL = max(dot(N, L), 0.0f);
         if (NdotL > 0.0f)
         {
-            prefilteredColor += map.Sample(smpl, SampleSphericalMap(L)).rgb * NdotL;
+            float3 sampleColor = map.Sample(smpl, SampleSphericalMap(L)).rgb;
+
+            prefilteredColor += sampleColor * NdotL;
             totalWeight += NdotL;
         }
     }

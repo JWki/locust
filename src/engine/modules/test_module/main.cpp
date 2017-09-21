@@ -7,6 +7,7 @@
 #include <foundation/memory/allocators.h>
 #include <engine/runtime/entities/entities.h>
 #include "ImGui/imgui.h"
+#include "ImGui/imgui_internal.h"
 
 #include <engine/tools/fbx_importer/fbx_importer.h>
 
@@ -297,7 +298,7 @@ bool IsEntityInList(EntityNodeList* list, entity_system::Entity ent, EntityNode*
 
 
 #define ENTITY_NODE_POOL_SIZE 512
-struct State {
+struct Editor {
     core::api_registry::APIRegistry* apiRegistry = nullptr;
     core::api_registry::APIRegistryInterface* apiRegistryInterface = nullptr;
 
@@ -327,7 +328,7 @@ struct State {
     static const size_t FILENAME_BUF_SIZE = 512;
 
     struct TextureAsset {
-
+        renderer::TextureDesc desc;
     };
 
     struct MaterialAsset {
@@ -393,25 +394,25 @@ struct State {
 };
 //static_assert(sizeof(State) == 1024 * 1024, "");
 
-State::Asset* PushAsset(State* state, State::Asset::Type type, const char* path)
+Editor::Asset* PushAsset(Editor* editor, Editor::Asset::Type type, const char* path)
 {
-    State::Asset* asset = nullptr;
+    Editor::Asset* asset = nullptr;
     core::Asset assetID;
     switch (type) {
-    case State::Asset::ASSET_TYPE_MESH:
-        assetID.id = (uint32_t)state->meshAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
-        asset = &state->meshAssets[state->meshAssetIndex++];
+    case Editor::Asset::ASSET_TYPE_MESH:
+        assetID.id = (uint32_t)editor->meshAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
+        asset = &editor->meshAssets[editor->meshAssetIndex++];
         break;
-    case State::Asset::ASSET_TYPE_MATERIAL:
-        assetID.id = (uint32_t)state->materialAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
-        asset = &state->materialAssets[state->materialAssetIndex++];
+    case Editor::Asset::ASSET_TYPE_MATERIAL:
+        assetID.id = (uint32_t)editor->materialAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
+        asset = &editor->materialAssets[editor->materialAssetIndex++];
         break;
-    case State::Asset::ASSET_TYPE_TEXTURE:
-        assetID.id = (uint32_t)state->textureAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
-        asset = &state->textureAssets[state->textureAssetIndex++];
+    case Editor::Asset::ASSET_TYPE_TEXTURE:
+        assetID.id = (uint32_t)editor->textureAssetIndex;   // @NOTE STARTING WITH 0 IS INTENTIONAL, first asset to be pushed will be default asset
+        asset = &editor->textureAssets[editor->textureAssetIndex++];
         break;
     }
-    strncpy_s(asset->name, State::FILENAME_BUF_SIZE, path, State::FILENAME_BUF_SIZE);
+    strncpy_s(asset->name, Editor::FILENAME_BUF_SIZE, path, Editor::FILENAME_BUF_SIZE);
     asset->type = type;
     asset->asset = assetID;
     return asset;
@@ -420,52 +421,52 @@ State::Asset* PushAsset(State* state, State::Asset::Type type, const char* path)
 extern "C" __declspec(dllexport)
 void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiRegistryInterface)
 {
-    State* state = (State*)GT_NEW(State, memoryArena);
-    state->apiRegistry = apiRegistry;
-    state->apiRegistryInterface = apiRegistryInterface;
+    Editor* editor = (Editor*)GT_NEW(Editor, memoryArena);
+    editor->apiRegistry = apiRegistry;
+    editor->apiRegistryInterface = apiRegistryInterface;
 
-    state->applicationArena = memoryArena;
+    editor->applicationArena = memoryArena;
 
-    state->textureAssets = GT_NEW_ARRAY(State::Asset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
-    state->materialAssets = GT_NEW_ARRAY(State::Asset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
-    state->meshAssets = GT_NEW_ARRAY(State::Asset, State::MAX_NUM_TEXTURE_ASSETS, state->applicationArena);
+    editor->textureAssets = GT_NEW_ARRAY(Editor::Asset, Editor::MAX_NUM_TEXTURE_ASSETS, editor->applicationArena);
+    editor->materialAssets = GT_NEW_ARRAY(Editor::Asset, Editor::MAX_NUM_TEXTURE_ASSETS, editor->applicationArena);
+    editor->meshAssets = GT_NEW_ARRAY(Editor::Asset, Editor::MAX_NUM_TEXTURE_ASSETS, editor->applicationArena);
 
-    PushAsset(state, State::Asset::ASSET_TYPE_MESH, "None");
-    PushAsset(state, State::Asset::ASSET_TYPE_MATERIAL, "None");
-    PushAsset(state, State::Asset::ASSET_TYPE_TEXTURE, "None");
+    PushAsset(editor, Editor::Asset::ASSET_TYPE_MESH, "None");
+    PushAsset(editor, Editor::Asset::ASSET_TYPE_MATERIAL, "None");
+    PushAsset(editor, Editor::Asset::ASSET_TYPE_TEXTURE, "None");
 
-    util::Make4x4FloatMatrixIdentity(state->cameraRotation);
-    util::Make4x4FloatMatrixIdentity(state->cameraOffset);
-    util::Make4x4FloatMatrixIdentity(state->camOffsetWithRotation);
-    util::Make4x4FloatTranslationMatrixCM(state->cameraPos, { 0.0f, -0.4f, 2.75f });
+    util::Make4x4FloatMatrixIdentity(editor->cameraRotation);
+    util::Make4x4FloatMatrixIdentity(editor->cameraOffset);
+    util::Make4x4FloatMatrixIdentity(editor->camOffsetWithRotation);
+    util::Make4x4FloatTranslationMatrixCM(editor->cameraPos, { 0.0f, -0.4f, 2.75f });
 
-    return state;
+    return editor;
 }
 
-State::Asset* AssetRefLabel(State* state, State::Asset* asset, bool acceptDrop)
+Editor::Asset* AssetRefLabel(Editor* editor, Editor::Asset* asset, bool acceptDrop, float maxWidth = -1.0f)
 {
     if (asset == nullptr) { 
         ImGui::Text("null");
         return nullptr; 
     }
-    auto AcceptDrop = [](State* state, State::Asset* asset) -> State::Asset* {
+    auto AcceptDrop = [](Editor* editor, Editor::Asset* asset) -> Editor::Asset* {
         bool isHovered = ImGui::IsItemHoveredRect();
         if (isHovered) {
-            ("drag type is %s", state->drag.type != State::DragContent::NONE ? "something" : "none");
-            if (!state->drag.wasReleased && state->drag.type != State::DragContent::NONE) {
-                if (asset->type == state->drag.data.as_asset->type) {
-                    ImGui::SetTooltip("Release mouse to drop %s", state->drag.data.as_asset->name);
+            ("drag type is %s", editor->drag.type != Editor::DragContent::NONE ? "something" : "none");
+            if (!editor->drag.wasReleased && editor->drag.type != Editor::DragContent::NONE) {
+                if (asset->type == editor->drag.data.as_asset->type) {
+                    ImGui::SetTooltip("Release mouse to drop %s", editor->drag.data.as_asset->name);
                 }
                 else {
-                    ImGui::SetTooltip("Can't drop %s here", state->drag.data.as_asset->name);
+                    ImGui::SetTooltip("Can't drop %s here", editor->drag.data.as_asset->name);
                 }
             }
-            if (state->drag.wasReleased) {
-                if (state->drag.type == State::DragContent::DRAG_TYPE_ASSET_REF) {
-                    GT_LOG_DEBUG("Editor", "Trying to drag %s onto %s", state->drag.data.as_asset->name, asset->name);
+            if (editor->drag.wasReleased) {
+                if (editor->drag.type == Editor::DragContent::DRAG_TYPE_ASSET_REF) {
+                    GT_LOG_DEBUG("Editor", "Trying to drag %s onto %s", editor->drag.data.as_asset->name, asset->name);
 
-                    if (asset->type == state->drag.data.as_asset->type) {
-                        return state->drag.data.as_asset;
+                    if (asset->type == editor->drag.data.as_asset->type) {
+                        return editor->drag.data.as_asset;
                     }
                     else {
                         GT_LOG_DEBUG("Editor", "Trying to match assets of different type");
@@ -475,18 +476,35 @@ State::Asset* AssetRefLabel(State* state, State::Asset* asset, bool acceptDrop)
         }
         return nullptr;
     };
-    State::Asset* res = nullptr;
+    Editor::Asset* res = nullptr;
 
-    ImGui::Selectable(asset->name);
+    char* displayString = asset->name;
+    char formatBuf[512] = "";
+    if (maxWidth > 0.0f) {
+        ImFont* font = ImGui::GetCurrentContext()->Font;
+        const float fontSize = ImGui::GetCurrentContext()->FontSize;
+
+        // @NOTE this is probably a very inefficient way to do things
+        char* str = asset->name;
+        snprintf(formatBuf, 512, "...%s", str);
+        ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, formatBuf);
+        while (textSize.x > maxWidth * 0.8f) {
+            str++;
+            snprintf(formatBuf, 512, "...%s", str);
+            textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, str);
+        }
+        displayString = formatBuf;
+    }
+    ImGui::Selectable(displayString);
     
     if (acceptDrop) {
-        res = AcceptDrop(state, asset);
+        res = AcceptDrop(editor, asset);
         if (res != nullptr) { return res; }
     }
     if (ImGui::IsItemActive() && !ImGui::IsItemHovered()) {
         //GT_LOG_DEBUG("Editor", "Trying to drag %s with delta %f, %f", asset->name, ImGui::GetMouseDragDelta(MOUSE_LEFT).x, ImGui::GetMouseDragDelta(MOUSE_LEFT).y);
-        state->drag.type = State::DragContent::DRAG_TYPE_ASSET_REF;
-        state->drag.data.as_asset = asset;
+        editor->drag.type = Editor::DragContent::DRAG_TYPE_ASSET_REF;
+        editor->drag.data.as_asset = asset;
     }
     return res;
 }
@@ -497,7 +515,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     using namespace fnd;
     ConsoleLogger consoleLogger;
 
-    auto state = (State*)userData;
+    auto state = (Editor*)userData;
 
     auto entitySystem = (entity_system::EntitySystemInterface*) state->apiRegistryInterface->Get(state->apiRegistry, ENTITY_SYSTEM_API_NAME);
     assert(entitySystem);
@@ -520,15 +538,15 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     ImGuizmo::BeginFrame();
 
     if (state->drag.wasReleased) {
-        state->drag = State::DragContent();
+        state->drag = Editor::DragContent();
     }
     if (!ImGui::IsMouseDown(MOUSE_LEFT)) {
         state->drag.wasReleased = true;
     }
 
     ImGui::Begin("Drag Debug"); {
-        const char* fmt = state->drag.type != State::DragContent::NONE ? "Dragging %s with delta %f, %f" : "Not dragging";
-        if (state->drag.type != State::DragContent::NONE) {
+        const char* fmt = state->drag.type != Editor::DragContent::NONE ? "Dragging %s with delta %f, %f" : "Not dragging";
+        if (state->drag.type != Editor::DragContent::NONE) {
             ImGui::Text(fmt, state->drag.data.as_asset->name, ImGui::GetMouseDragDelta().x, ImGui::GetMouseDragDelta().y);
         }
         else {
@@ -874,14 +892,14 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             ImGui::PopID();
             if (pushed) {
                 const size_t maxNumItems = 64;
-                char* buf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
+                char* buf = GT_NEW_ARRAY(char, Editor::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
                 FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
                 size_t numItems = 0;
-                if (OpenFileDialog(buf, State::FILENAME_BUF_SIZE * maxNumItems, "PNG Image Files\0*.png\0JPG Image Files\0*.jpeg\0", files, maxNumItems, &numItems)) {
+                if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE * maxNumItems, "PNG Image Files\0*.png\0JPG Image Files\0*.jpeg\0TGA Image Files\0*.tga\0HDR Image Files\0*.hdr\0", files, maxNumItems, &numItems)) {
                    
                     for (size_t i = 0; i < numItems; ++i) {
                         GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
-                        State::Asset* textureAsset = PushAsset(state, State::Asset::ASSET_TYPE_TEXTURE, files[i].path);
+                        Editor::Asset* textureAsset = PushAsset(state, Editor::Asset::ASSET_TYPE_TEXTURE, files[i].path);
                         {
                             int width, height, numComponents;
                             auto image = stbi_load(files[i].path, &width, &height, &numComponents, 4);
@@ -949,6 +967,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                             renderer::TextureDesc texDesc;
                             texDesc.desc = diffDesc;
+                            textureAsset->as_texture.desc = texDesc;
                             renderer->UpdateTextureLibrary(renderWorld, textureAsset->asset, &texDesc);
 
                             stbi_image_free(image);
@@ -974,18 +993,45 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 else {
                     ImGui::Spacing();
                 }
-                ImGui::BeginGroup();
-                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128 * displayScale, 128 * displayScale));
-                if (ImGui::IsItemHovered()) {
-                    ImGui::BeginTooltip();
-                    ImGui::Text("%s", state->textureAssets[i].name);
-                    ImGui::EndTooltip();
+                {   // thumbnail group
+                    ImGui::BeginGroup();
+
+                    float width = state->textureAssets[i].as_texture.desc.desc.width;
+                    float height = state->textureAssets[i].as_texture.desc.desc.height;
+                    float ratio = width / height;
+
+                    const ImVec2 thumbnailSize = ImVec2(128 * displayScale, 128 * displayScale);
+                    if (width > thumbnailSize.x) {
+                        width = thumbnailSize.x;
+                        height = width / ratio;
+                    }
+                    if (height > thumbnailSize.y) {
+                        height = thumbnailSize.y;
+                        width = height * ratio;
+                    }
+
+                    auto drawList = ImGui::GetWindowDrawList();
+                    auto cursorPos = ImGui::GetCursorScreenPos();
+                    drawList->AddRectFilled(cursorPos, ImVec2(cursorPos.x + thumbnailSize.x, cursorPos.y + thumbnailSize.y), ImGui::ColorConvertFloat4ToU32(ImVec4(0.0f, 0.0f, 0.0f, 1.0f)));
+                    auto offset = ImGui::GetCursorPos();
+                    offset.x += thumbnailSize.x * 0.5f - width * 0.5f;
+                    offset.y += thumbnailSize.y * 0.5f - height * 0.5f;
+                    ImGui::SetCursorPos(offset);
+                    ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(width, height));
+                    ImGui::SetCursorScreenPos(cursorPos);
+                    ImGui::Dummy(thumbnailSize);
+
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::BeginTooltip();
+                        ImGui::Text("%s", state->textureAssets[i].name);
+                        ImGui::EndTooltip();
+                    }
+                    Editor::Asset* asset = &state->textureAssets[i];
+                    ImGui::PushID((int)i);
+                    AssetRefLabel(state, asset, false, thumbnailSize.x);
+                    ImGui::PopID();
+                    ImGui::EndGroup();
                 }
-                State::Asset* asset = &state->textureAssets[i];
-                ImGui::PushID((int)i);
-                AssetRefLabel(state, asset, false);
-                ImGui::PopID();
-                ImGui::EndGroup();
             }
             ImGui::EndChild();
         }
@@ -997,11 +1043,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             
             bool pushed = ImGui::Button("Create New");
 
-            static char nameEditBuf[State::FILENAME_BUF_SIZE];
-            State::MaterialAsset* editAsset = nullptr;
+            static char nameEditBuf[Editor::FILENAME_BUF_SIZE];
+            Editor::MaterialAsset* editAsset = nullptr;
             if (pushed) {
                 ImGui::OpenPopup("Material Editor");
-                snprintf(nameEditBuf, State::FILENAME_BUF_SIZE, "Material%llu", state->materialAssetIndex);
+                snprintf(nameEditBuf, Editor::FILENAME_BUF_SIZE, "Material%llu", state->materialAssetIndex);
             }
 
             if (ImGui::BeginPopup("Material Editor")) {
@@ -1009,7 +1055,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 static renderer::MaterialDesc desc;
                 static core::Asset* texSlot = nullptr;
 
-                ImGui::InputText("##name", nameEditBuf, State::FILENAME_BUF_SIZE);
+                ImGui::InputText("##name", nameEditBuf, Editor::FILENAME_BUF_SIZE);
 
                 {   // base color
                     ImGui::Text("Base Color");
@@ -1125,7 +1171,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::SameLine();
                 bool cancel = ImGui::Button("Cancel", ImVec2(100, 25));
                 if (done) {
-                    State::Asset* materialAsset = PushAsset(state, State::Asset::ASSET_TYPE_MATERIAL, nameEditBuf);
+                    Editor::Asset* materialAsset = PushAsset(state, Editor::Asset::ASSET_TYPE_MATERIAL, nameEditBuf);
                     renderer->UpdateMaterialLibrary(renderWorld, materialAsset->asset, &desc);
                     GT_LOG_INFO("Editor", "Created material %s", materialAsset->name);
 
@@ -1140,7 +1186,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             }
             
             for (size_t i = 0; i < state->materialAssetIndex; ++i) {
-                State::Asset* asset = &state->materialAssets[i];
+                Editor::Asset* asset = &state->materialAssets[i];
                 if (asset->asset.id == 0) { continue; }
 
                 ImGui::PushID((int)i);
@@ -1191,15 +1237,15 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             ImGui::PopID();
             if (pushed) {
                 const size_t maxNumItems = 64;
-                char* buf = GT_NEW_ARRAY(char, State::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
+                char* buf = GT_NEW_ARRAY(char, Editor::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
                 FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
                 size_t numItems = 0;
-                if (OpenFileDialog(buf, State::FILENAME_BUF_SIZE * maxNumItems, "FBX Files\0*.fbx\0", files, maxNumItems, &numItems)) {
+                if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE * maxNumItems, "FBX Files\0*.fbx\0", files, maxNumItems, &numItems)) {
 
                     for (size_t i = 0; i < numItems; ++i) {
                         GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
 
-                        State::Asset* meshAsset = PushAsset(state, State::Asset::ASSET_TYPE_MESH, files[i].path);
+                        Editor::Asset* meshAsset = PushAsset(state, Editor::Asset::ASSET_TYPE_MESH, files[i].path);
                         {
                             size_t modelFileSize = 0;
                             fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator> tempArena(frameAllocator);
@@ -1243,6 +1289,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     } ImGui::End();
 
     //ImGui::ShowTestWindow();
+    ImGui::Begin(ICON_FA_CAMERA_RETRO "  Renderer"); {
+        ImGui::Text("Active environment map");
+        ImGui::InputInt("", (int*)renderer->GetActiveCubemap(renderWorld));
+    } ImGui::End();
+
 
     ImGui::Begin(ICON_FA_WRENCH "  Property Editor"); {
         static entity_system::Entity selectedEntity = { entity_system::INVALID_ID };
@@ -1319,17 +1370,17 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                
                 bool anyChange = false;
 
-                auto LookupMeshAsset = [](core::Asset ID, State::Asset* assets, size_t numAssets) -> State::Asset* {
+                auto LookupMeshAsset = [](core::Asset ID, Editor::Asset* assets, size_t numAssets) -> Editor::Asset* {
                     for (size_t i = 0; i < numAssets; ++i) {
-                        if (assets[i].asset == ID && assets[i].type == State::Asset::ASSET_TYPE_MESH) {
+                        if (assets[i].asset == ID && assets[i].type == Editor::Asset::ASSET_TYPE_MESH) {
                             return &assets[i];
                         }
                     }
                     return nullptr;
                 };
-                auto LookupMaterialAsset = [](core::Asset ID, State::Asset* assets, size_t numAssets) -> State::Asset* {
+                auto LookupMaterialAsset = [](core::Asset ID, Editor::Asset* assets, size_t numAssets) -> Editor::Asset* {
                     for (size_t i = 0; i < numAssets; ++i) {
-                        if (assets[i].asset == ID && assets[i].type == State::Asset::ASSET_TYPE_MATERIAL) {
+                        if (assets[i].asset == ID && assets[i].type == Editor::Asset::ASSET_TYPE_MATERIAL) {
                             return &assets[i];
                         }
                     }
@@ -1389,7 +1440,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                         ImGui::OpenPopup("##materialPicker");
                     }
                     ImGui::SameLine();
-                    State::Asset* asset = LookupMaterialAsset(materials[0], state->materialAssets, state->materialAssetIndex);
+                    Editor::Asset* asset = LookupMaterialAsset(materials[0], state->materialAssets, state->materialAssetIndex);
                     ImGui::PushID(-1);
                     auto newMat = AssetRefLabel(state, asset, true);
                     ImGui::PopID();
@@ -1403,7 +1454,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     }
                 }
                 for (size_t i = 0; i < numSubmeshes; ++i) {
-                    State::Asset* asset = LookupMaterialAsset(materials[i], state->materialAssets, state->materialAssetIndex);
+                    Editor::Asset* asset = LookupMaterialAsset(materials[i], state->materialAssets, state->materialAssetIndex);
                     ImGui::PushID((int)i);
                     ImGui::Text("mat_%llu: ", i);
                     ImGui::PopID();

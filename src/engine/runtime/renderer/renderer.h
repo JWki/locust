@@ -126,6 +126,8 @@ namespace renderer
 
     void UpdateWorldState(RenderWorld* world, WorldSnapshot* snapshot);
 
+    size_t*     GetActiveCubemap(RenderWorld* world);
+
     struct RendererInterface
     {
         decltype(CreateRenderWorld)*        CreateRenderWorld = nullptr;
@@ -157,6 +159,8 @@ namespace renderer
         decltype(GetCameraProjection)*      GetCameraProjection = nullptr;
 
         decltype(UpdateWorldState)*         UpdateWorldState = nullptr;
+    
+        decltype(GetActiveCubemap)*         GetActiveCubemap = nullptr;
     };
 }
 
