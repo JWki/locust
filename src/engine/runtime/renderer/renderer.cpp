@@ -245,6 +245,9 @@ namespace renderer
 
         uint32_t        entityID = 0;
         StaticMesh      handle;
+
+        core::Asset     meshAssetHandle;
+        core::Asset     materialAssetHandles[MAX_NUM_SUBMESHES];
     };
 
     struct RenderableIndex
@@ -367,6 +370,116 @@ namespace renderer
     {
         GT_DELETE(world, world->creationArena);
     }
+
+
+
+    bool SerializeRenderWorld(RenderWorld* world, void* buffer, size_t bufferSize, size_t* requiredBufferSize)
+    {
+        size_t requiredSize = world->config.renderablePoolSize * (sizeof(StaticMeshRenderable)) + world->staticMeshIndices.size * (sizeof(RenderableIndex) + sizeof(uint16_t)) + sizeof(ResourcePool<RenderableIndex>);
+        if (requiredBufferSize != nullptr) {
+            *requiredBufferSize = requiredSize;
+        }
+        if (buffer != nullptr) {
+            if (bufferSize < requiredSize) { return false; }
+            union {
+                void* as_void;
+                StaticMeshRenderable* as_static_renderable;
+                ResourcePool<RenderableIndex>* as_pool;
+                RenderableIndex* as_index;
+                uint16_t* as_uint16_t;
+                uint32_t* as_uint32_t;
+                uint64_t* as_uint64_t;
+            };
+
+            /**
+            Memory layout on disk:
+            {
+                uint64_t                                <- size in bytes
+                ResourcePool                            <-
+                RenderableIndex[resource pool size]     <- index table into renderables
+                uint16_t[resource pool size]            <- index table into renderable index table (yeah)
+                uint32_t                                <- numRenderables
+                StaticMeshRenderable[num renderables]   <- 
+            */
+
+            as_void = buffer;
+
+            uint64_t requiredSizeU64 = requiredSize;
+            memcpy(as_uint64_t, &requiredSizeU64, sizeof(uint64_t));
+            as_uint64_t++;
+            memcpy(as_pool, &world->staticMeshIndices, sizeof(ResourcePool<RenderableIndex>));
+            as_pool++;
+            memcpy(as_index, world->staticMeshIndices.buffer, sizeof(RenderableIndex) * world->staticMeshIndices.size);
+            as_index += world->staticMeshIndices.size;
+            memcpy(as_uint16_t, world->staticMeshIndices.indexList, sizeof(uint16_t) * world->staticMeshIndices.size);
+            as_uint16_t += world->staticMeshIndices.size;
+            uint32_t numRenderables = (uint32_t)world->firstFreeStaticMesh;
+            memcpy(as_uint32_t, &numRenderables, sizeof(uint32_t));
+            as_uint32_t++;
+            memcpy(as_static_renderable, world->staticMeshes, sizeof(StaticMeshRenderable) * numRenderables);
+        }
+        return true;
+    }
+
+    bool DeserializeRenderWorld(RenderWorld* world, void* buffer, size_t bufferSize, size_t* bytesRead)
+    {
+        union {
+            void* as_void;
+            StaticMeshRenderable* as_static_renderable;
+            ResourcePool<RenderableIndex>* as_pool;
+            RenderableIndex* as_index;
+            uint16_t* as_uint16_t;
+            uint32_t* as_uint32_t;
+            uint64_t* as_uint64_t;
+        };
+        as_void = buffer;
+
+        uint64_t bytesReadU64 = 0;
+        memcpy(&bytesReadU64, as_uint64_t, sizeof(uint64_t));
+        as_uint64_t++;
+
+        if (bytesRead != nullptr) {
+            *bytesRead = (size_t)bytesReadU64;
+        }
+
+        if (world->staticMeshIndices.buffer != nullptr) {
+            GT_DELETE_ARRAY(world->staticMeshIndices.buffer, world->creationArena);
+            GT_DELETE_ARRAY(world->staticMeshIndices.indexList, world->creationArena);
+        }
+        memcpy(&world->staticMeshIndices, as_pool, sizeof(ResourcePool<RenderableIndex>));
+        as_pool++;
+
+        world->staticMeshIndices.buffer = GT_NEW_ARRAY(RenderableIndex, world->staticMeshIndices.size, world->creationArena);
+        world->staticMeshIndices.indexList = GT_NEW_ARRAY(uint16_t, world->staticMeshIndices.size, world->creationArena);
+
+        memcpy(world->staticMeshIndices.buffer, as_index, sizeof(RenderableIndex) * world->staticMeshIndices.size);
+        as_index += world->staticMeshIndices.size;
+        memcpy(world->staticMeshIndices.indexList, as_uint16_t, sizeof(uint16_t) * world->staticMeshIndices.size);
+        as_uint16_t += world->staticMeshIndices.size;
+        
+        uint32_t numRenderables = 0;
+        memcpy(&numRenderables, as_uint32_t, sizeof(uint32_t));
+        as_uint32_t++;
+
+        world->firstFreeStaticMesh = numRenderables;
+        if (world->staticMeshes != nullptr) {
+            GT_DELETE_ARRAY(world->staticMeshes, world->creationArena);
+        }
+        world->staticMeshes = GT_NEW_ARRAY(StaticMeshRenderable, world->staticMeshIndices.size, world->creationArena);
+        memcpy(world->staticMeshes, as_static_renderable, sizeof(StaticMeshRenderable) * world->firstFreeStaticMesh);
+        for (auto i = 0; i < world->firstFreeStaticMesh; ++i) {
+            {   // patch resource pointers
+                auto renderable = &world->staticMeshes[i];
+                renderable->firstSubmesh = LookupResource<MeshLibrary, MeshData>(&world->meshLibrary, renderable->meshAssetHandle);
+                for (size_t i = 0; i < MAX_NUM_SUBMESHES; ++i) {
+                    renderable->materials[i] = LookupResource<MaterialLibrary, MaterialData>(&world->materialLibrary, renderable->materialAssetHandles[i]);
+                }
+            }
+        }
+
+        return true;
+    }
+
 
 
     void SetCameraTransform(RenderWorld* world, float* transform)
@@ -1169,7 +1282,10 @@ namespace renderer
         numMaterials = numMaterials <= MAX_NUM_SUBMESHES ? numMaterials : MAX_NUM_SUBMESHES;
         for (size_t i = 0; i < numMaterials; ++i) {
             renderable->materials[i] = LookupResource<MaterialLibrary, MaterialData>(&world->materialLibrary, materials[i]);
+            renderable->materialAssetHandles[i] = materials[i];
         }
+
+        renderable->meshAssetHandle = mesh;
 
         return meshID;
     }
@@ -1454,6 +1570,10 @@ bool renderer_get_interface(renderer::RendererInterface* outInterface)
 {
     outInterface->CreateRenderWorld = &renderer::CreateRenderWorld;
     outInterface->DestroyRenderWorld = &renderer::DestroyRenderWorld;
+
+    outInterface->SerializeRenderWorld = &renderer::SerializeRenderWorld;
+    outInterface->DeserializeRenderWorld = &renderer::DeserializeRenderWorld;
+
     outInterface->UpdateMeshLibrary = &renderer::UpdateMeshLibrary;
     outInterface->UpdateTextureLibrary = &renderer::UpdateTextureLibrary;
     outInterface->UpdateMaterialLibrary = &renderer::UpdateMaterialLibrary;

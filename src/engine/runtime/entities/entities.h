@@ -25,6 +25,9 @@ namespace entity_system
     bool CreateWorld(World** outWorld, fnd::memory::MemoryArenaBase* memoryArena, WorldConfig* config);
     void DestroyWorld(World* world);
 
+    bool SerializeWorld(World* world, void* buffer, size_t bufferSize, size_t* requiredBufferSize);
+    bool DeserializeWorld(World* world, void* buffer, size_t bufferSize, size_t* bytesRead);
+
     enum { INVALID_ID = 0 };
     typedef struct { uint32_t id = INVALID_ID; } Entity;
     
@@ -45,6 +48,8 @@ namespace entity_system
     {
         bool(*CreateWorld)(World**, fnd::memory::MemoryArenaBase*, WorldConfig*) = nullptr;
         void(*DestroyWorld)(World*) = nullptr;
+        decltype(SerializeWorld)*   SerializeWorld = nullptr;
+        decltype(DeserializeWorld)* DeserializeWorld = nullptr;
         Entity(*CreateEntity)(World*) = nullptr;
         void(*DestroyEntity)(World*, Entity) = nullptr;
         Entity(*CopyEntity)(World*, Entity) = nullptr;

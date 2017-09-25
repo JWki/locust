@@ -58,6 +58,10 @@ namespace renderer
     bool CreateRenderWorld(RenderWorld** outWorld, fnd::memory::MemoryArenaBase* memoryArena, RenderWorldConfig* config);
     void DestroyRenderWorld(RenderWorld* world);
 
+    /** @NOTE: these only serialize/deserialize renderables, NOT RESOURCES */
+    bool SerializeRenderWorld(RenderWorld* world, void* buffer, size_t bufferSize, size_t* requiredBufferSize);
+    bool DeserializeRenderWorld(RenderWorld* world, void* buffer, size_t bufferSize, size_t* bytesRead);
+
     struct RendererConfig
     {
         gfx::Device* gfxDevice = nullptr;
@@ -132,6 +136,10 @@ namespace renderer
     {
         decltype(CreateRenderWorld)*        CreateRenderWorld = nullptr;
         decltype(DestroyRenderWorld)*       DestroyRenderWorld = nullptr;
+
+        decltype(SerializeRenderWorld)*     SerializeRenderWorld = nullptr;
+        decltype(DeserializeRenderWorld)*   DeserializeRenderWorld = nullptr;
+
         decltype(UpdateMeshLibrary)*        UpdateMeshLibrary = nullptr;
         decltype(UpdateTextureLibrary)*     UpdateTextureLibrary = nullptr;
         decltype(UpdateMaterialLibrary)*    UpdateMaterialLibrary = nullptr;

@@ -753,7 +753,7 @@ int win32_main(int argc, char* argv[])
     debugArena.GetTrackingPolicy()->SetName("Debug Heap");
 #endif
 
-    const size_t reservedMemorySize = GIGABYTES(2);
+    const size_t reservedMemorySize = GIGABYTES(4);
     void* reservedMemory = malloc(reservedMemorySize);
 
     memory::LinearAllocator applicationAllocator(reservedMemory, reservedMemorySize);
@@ -1013,7 +1013,7 @@ int win32_main(int argc, char* argv[])
 
     size_t numEntities = 0;
 
-    static const size_t frameAllocatorSize = MEGABYTES(512);
+    static const size_t frameAllocatorSize = GIGABYTES(2);
     memory::LinearAllocator frameAllocator(applicationArena.Allocate(frameAllocatorSize, 16, GT_SOURCE_INFO), frameAllocatorSize);
 
     GT_LOG_INFO("Application", "Starting main loop");

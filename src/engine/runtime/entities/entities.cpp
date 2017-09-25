@@ -125,6 +125,83 @@ namespace entity_system
         GT_DELETE(world, world->memoryArena);
     }
 
+    bool SerializeWorld(World* world, void* buffer, size_t bufferSize, size_t* outRequiredBufferSize)
+    {   
+        auto requiredBufferSize = sizeof(ResourcePool<EntityData>) + world->entities.size * (sizeof(EntityData) + sizeof(uint16_t));
+        if (outRequiredBufferSize != nullptr) {
+            *outRequiredBufferSize = requiredBufferSize;
+        }
+        if (buffer != nullptr) {
+            if (bufferSize < requiredBufferSize) { return false; }
+            union {
+                void* as_void;
+                ResourcePool<EntityData>* as_pool;
+                EntityData* as_entityData;
+                uint16_t* as_uint16_t;
+                uint64_t* as_uint64_t;
+            };
+
+            /**
+                Memory layout on disk:
+                {
+                    uint64_t                                <- size in bytes
+                    ResourcePool                    <- 
+                    EntityData[resource pool size]  <- 
+                    uint16_t[resource pool size]    <- index table
+            */
+
+
+            as_void = buffer;
+            
+            uint64_t requiredSizeU64 = requiredBufferSize;
+            memcpy(as_uint64_t, &requiredSizeU64, sizeof(uint64_t));
+            as_uint64_t++;
+
+            memcpy(as_pool, &world->entities, sizeof(ResourcePool<EntityData>));
+            as_pool++;
+            memcpy(as_entityData, world->entities.buffer, sizeof(EntityData) * world->entities.size);
+            as_entityData += world->entities.size;
+            memcpy(as_uint16_t, world->entities.indexList, sizeof(uint16_t) * world->entities.size);
+        }
+        return true;
+    }
+
+    bool DeserializeWorld(World* world, void* buffer, size_t bufferSize, size_t* bytesRead)
+    {
+        union {
+            void* as_void;
+            ResourcePool<EntityData>* as_pool;
+            EntityData* as_entityData;
+            uint16_t* as_uint16_t;
+            uint64_t* as_uint64_t;
+        };
+        as_void = buffer;
+
+        uint64_t bytesReadU64 = 0;
+        memcpy(&bytesReadU64, as_uint64_t, sizeof(uint64_t));
+        as_uint64_t++;
+
+        if (bytesRead != nullptr) {
+            *bytesRead = (size_t)bytesReadU64;
+        }
+
+        if (world->entities.buffer != nullptr) {
+            GT_DELETE_ARRAY(world->entities.buffer, world->memoryArena);
+            GT_DELETE_ARRAY(world->entities.indexList, world->memoryArena);
+        }
+        memcpy(&world->entities, as_pool, sizeof(ResourcePool<EntityData>));
+        
+        world->entities.buffer = GT_NEW_ARRAY(EntityData, world->entities.size, world->memoryArena);
+        world->entities.indexList = GT_NEW_ARRAY(uint16_t, world->entities.size, world->memoryArena);
+
+        as_pool++;
+        memcpy(world->entities.buffer, as_entityData, sizeof(EntityData) * world->entities.size);
+        as_entityData += world->entities.size;
+        memcpy(world->entities.indexList, as_uint16_t, sizeof(uint16_t) * world->entities.size);
+
+        return true;
+    }
+
     void SetEntityName(World* world, Entity entity, const char* name)
     {
         assert(entity.id != 0);
@@ -156,6 +233,7 @@ namespace entity_system
         if (!world->entities.Allocate(&entityData, &entity.id)) {
             return { INVALID_ID };
         }
+        //GT_PLACEMENT_NEW(entityData) Entity();
         entityData->isAlive = true;
         return entity;
     }
@@ -206,6 +284,8 @@ bool entity_system_get_interface(entity_system::EntitySystemInterface* interface
 {
     interface->CreateWorld = &entity_system::CreateWorld;
     interface->DestroyWorld = &entity_system::DestroyWorld;
+    interface->SerializeWorld = &entity_system::SerializeWorld;
+    interface->DeserializeWorld = &entity_system::DeserializeWorld;
     interface->CreateEntity = &entity_system::CreateEntity;
     interface->DestroyEntity = &entity_system::DestroyEntity;
     interface->CopyEntity = &entity_system::CopyEntity;
