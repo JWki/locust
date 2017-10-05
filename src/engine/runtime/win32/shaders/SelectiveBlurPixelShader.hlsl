@@ -29,7 +29,7 @@ float4 main(PixelInput input) : SV_Target
         for (int i = 0; i < kernelWidth; ++i) {
             for (int j = 0; j < kernelWidth; ++j) {
                 float2 sampleOffset = blurRadius * (i - fac, j - fac) * aspect;
-                float4 s = texture0.Sample(sampler1, input.uv + sampleOffset);
+                float4 s = texture0.Sample(sampler0, input.uv + sampleOffset);
                 s = s / (1.0f + s);
                 s = pow(s, 1.0f / 2.2f);
                 col += s;

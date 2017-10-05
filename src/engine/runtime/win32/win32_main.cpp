@@ -5,6 +5,8 @@
 #undef near
 #undef far
 
+#include <engine/runtime/runtime.h>
+
 #include <engine/runtime/ImGui/imgui.h>
 #include <engine/runtime/win32/imgui_impl_dx11.h>
 
@@ -579,21 +581,6 @@ void PrintVector(const fnd::math::Vector<TElement, ELEMENT_COUNT>& vec)
 }
 
 
-
-#ifdef _MSC_VER
-#ifdef GT_DEBUG
-#pragma comment(lib, "sodium-debug.lib")
-#else
-#pragma comment(lib, "sodium-release.lib")
-#endif
-#endif
-#include <engine/runtime/netcode_io/netcode.h>
-
-static uint8_t private_key[NETCODE_KEY_BYTES] = { 0x60, 0x6a, 0xbe, 0x6e, 0xc9, 0x19, 0x10, 0xea,
-0x9a, 0x65, 0x62, 0xf6, 0x6f, 0x2b, 0x30, 0xe4,
-0x43, 0x71, 0xd6, 0x2c, 0xd1, 0x99, 0x27, 0x26,
-0x6b, 0x3c, 0x60, 0xf4, 0xb7, 0x15, 0xab, 0xa1 };
-
 #include <engine/runtime/gfx/gfx.h>
 
 
@@ -727,7 +714,46 @@ public:
     }
 };
 
+namespace runtime
+{
+    void SetWindowTitle(void* window, const char* title)
+    {
+        SetWindowTextA((HWND)window, title);
+    }
 
+    void* CreateWindow()
+    {
+        WNDCLASSEX wc = { sizeof(WNDCLASSEX), CS_CLASSDC, WndProc, 0L, 0L, GetModuleHandle(NULL), NULL, LoadCursor(NULL, IDC_ARROW), NULL, NULL, _T("GTRuntimeWindowClass"), NULL };
+        RegisterClassEx(&wc);
+
+        RECT windowRect;
+        windowRect.left = 0;
+        windowRect.top = 0;
+        windowRect.right = WINDOW_WIDTH;
+        windowRect.bottom = WINDOW_HEIGHT;
+        AdjustWindowRectEx(&windowRect, WS_OVERLAPPEDWINDOW, FALSE, WS_EX_OVERLAPPEDWINDOW);
+        auto hwnd = CreateWindowEx(WS_EX_OVERLAPPEDWINDOW, _T("GTRuntimeWindowClass"), _T("GT Runtime"), WS_OVERLAPPEDWINDOW, windowRect.left, windowRect.top, windowRect.right - windowRect.left, windowRect.bottom - windowRect.top, NULL, NULL, wc.hInstance, NULL);
+        return hwnd;
+    }
+
+    void DestroyWindow(void* window)
+    {
+        DestroyWindow((HWND)window);
+    }
+
+    void GetWindowSize(void* window, int* w, int* h)
+    {
+        RECT r;
+        GetClientRect(g_hwnd, &r);  // @TODO should probably have an extra function for this and use GetWindowRect instead here
+        *w = r.right - r.left;
+        *h = r.bottom - r.top;
+    }
+
+    void SetWindowSize(void* window, int w, int h)
+    {
+        SetWindowPos((HWND)window, NULL, 0, 0, w, h, SWP_NOMOVE);
+    }
+}
 
 
 GT_RUNTIME_API
@@ -953,7 +979,21 @@ int win32_main(int argc, char* argv[])
     MSG msg;
     ZeroMemory(&msg, sizeof(msg));
 
+    auto RenderViewCallback = [](void* window, ImDrawData* drawData, void* userData) -> void {};
 
+    runtime::UIContextConfig uiContextConfig = {
+        &runtime::CreateWindow,
+        &runtime::DestroyWindow,
+        &runtime::GetWindowSize,
+        &runtime::SetWindowSize,
+        renderer,
+        RenderViewCallback,
+        ImGui_ImplDX11_NewFrame,
+        []() -> void { ImGui::Render(); }
+    };
+
+    runtime::UIContext* uiContext = nullptr;
+    runtime::CreateUIContext(&uiContext, &applicationArena, &uiContextConfig);
 
     entity_system::World* mainWorld;
     entity_system::WorldConfig worldConfig;
@@ -978,11 +1018,15 @@ int win32_main(int argc, char* argv[])
     fbx_importer::FBXImportInterface fbxImporterInterface;
     fbx_importer_get_interface(&fbxImporterInterface);
     
+    runtime::RuntimeInterface runtimeInterface;
+    runtime_get_interface(&runtimeInterface);
+
     core::api_registry::Add(apiRegistry, ENTITY_SYSTEM_API_NAME, &entitySystem);
     core::api_registry::Add(apiRegistry, RENDERER_API_NAME, &rendererInterface);
     core::api_registry::Add(apiRegistry, FBX_IMPORTER_API_NAME, &fbxImporterInterface);
+    core::api_registry::Add(apiRegistry, RUNTIME_API_NAME, &runtimeInterface);
 
-    void(*UpdateModule)(void*, ImGuiContext*, entity_system::World*, renderer::RenderWorld*, fnd::memory::LinearAllocator*, entity_system::Entity**, size_t*);
+    void(*UpdateModule)(void*, ImGuiContext*, runtime::UIContext*, entity_system::World*, renderer::RenderWorld*, fnd::memory::LinearAllocator*, entity_system::Entity**, size_t*);
     void*(*InitializeModule)(memory::MemoryArenaBase*, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiInterface);
 
     char tempPath[512] = "";
@@ -1104,12 +1148,13 @@ int win32_main(int argc, char* argv[])
             if (msg.message == WM_QUIT) { exitFlag = true; }
 
             ImGui_ImplDX11_NewFrame();
+            //runtime::BeginFrame(uiContext);
 
             entity_system::Entity* entitySelection = nullptr;
             size_t numEntitiesSelected = 0;
 
             if (UpdateModule) {
-                UpdateModule(testModuleState, ImGui::GetCurrentContext(), mainWorld, renderWorld, &frameAllocator, &entitySelection, &numEntitiesSelected);
+                UpdateModule(testModuleState, ImGui::GetCurrentContext(), uiContext, mainWorld, renderWorld, &frameAllocator, &entitySelection, &numEntitiesSelected);
             }
 
             entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
@@ -1147,7 +1192,19 @@ int win32_main(int argc, char* argv[])
             ImGui::Text("Simulation time average: %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 
+            /*static float angle = 0.0f;
+            angle += 0.01f;
+            entity_system::GetAllEntities(mainWorld, entityList, &numEntities);
+            for (size_t i = 0; i < numEntities; ++i) {
+                float rotmat[16];
+                float tempmap[16];
+                util::Make4x4FloatRotationMatrixCMLH(rotmat, math::float3(0.0f, 1.0f, 0.0f), angle);
+                util::MultiplyMatricesCM(entity_system::GetEntityTransform(mainWorld, entityList[i]), rotmat, tempmap);
+                util::Copy4x4FloatMatrixCM(tempmap, entity_system::GetEntityTransform(mainWorld, entityList[i]));
+            }*/
+
             /* End sim frame */
+            //runtime::EndFrame(uiContext);
             ImGui::Render();
             t += dt;
             accumulator -= dt;
@@ -1179,9 +1236,10 @@ int win32_main(int argc, char* argv[])
         auto commandSubmissionTimerStart = GetCounter();
       
         // draw UI
+        //runtime::RenderViews(uiContext);
         auto uiDrawData = ImGui::GetDrawData();
         if (uiDrawData) {
-            renderer::RenderUI(renderer, uiDrawData);
+            renderer::RenderUI(renderer, uiDrawData, swapChain);
         }
 
         // draw world
@@ -1208,3 +1266,22 @@ int main(int argc, char* argv[])
     return win32_main(argc, argv);
 }
 #endif
+
+namespace runtime
+{
+    void SetMainWindowTitle(const char* title)
+    {
+        if (g_hwnd == nullptr) { return; }
+        SetWindowTextA(g_hwnd, title);
+    }
+}
+
+bool runtime_get_interface(runtime::RuntimeInterface* outInterface)
+{
+    outInterface->SetMainWindowTitle = &runtime::SetMainWindowTitle;
+    outInterface->GetImGuiContextForView = &runtime::GetImGuiContextForView;
+    outInterface->BeginView = &runtime::BeginView;
+    outInterface->EndView = &runtime::EndView;
+
+    return true;
+}

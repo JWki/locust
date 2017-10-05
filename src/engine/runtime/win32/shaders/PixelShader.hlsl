@@ -104,6 +104,7 @@ float GeometrySmith(float NdotV, float NdotL, float roughness)
     return ggx1 * ggx2;
 }
 
+
 // http://blog.selfshadow.com/publications/blending-in-detail/
 float3 blend_rnm(float3 n1, float3 n2)
 {

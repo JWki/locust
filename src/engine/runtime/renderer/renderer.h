@@ -120,7 +120,7 @@ namespace renderer
     void GetMaterials(RenderWorld* world, StaticMesh mesh, core::Asset* outMaterials, size_t* outNumMaterials);
 
     void Render(RenderWorld* world, gfx::SwapChain swapChain);
-    void RenderUI(Renderer* renderer, ImDrawData* drawData);
+    void RenderUI(Renderer* renderer, ImDrawData* drawData, gfx::SwapChain swapChain);
 
     void SetCameraTransform(RenderWorld* world, float* transform);
     void SetCameraProjection(RenderWorld* world, float* transform);

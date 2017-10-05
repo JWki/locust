@@ -288,6 +288,8 @@ namespace renderer
         gfx::Shader pBlitShader;
         gfx::Shader pTonemapShader;
         gfx::Shader pBlurShader;
+        gfx::Shader pBloomShader;
+        gfx::Shader pLuminanceShader;
         gfx::Shader pBRDFLUTShader;
         gfx::Shader vCubemapShader;
         gfx::Shader pCubemapShader;
@@ -300,15 +302,19 @@ namespace renderer
         gfx::PipelineState blitPipeline;
         gfx::PipelineState tonemapPipeline;
         gfx::PipelineState blurPipeline;
+        gfx::PipelineState bloomPipeline;
+        gfx::PipelineState luminancePipeline;
         gfx::PipelineState brdfLUTPipeline;
         gfx::PipelineState prefilterPipeline;
 
         gfx::Image uiRenderTarget;
         gfx::Image mainRT;
+        gfx::Image luminanceRT;
+        gfx::Image bloomRT;
         gfx::Image mainDepthBuffer;
         gfx::Image brdfLUT;
         static const size_t NUM_CONVOLUTION_MIPS = 11;
-        static const size_t NUM_CUBEMAPS = 4;
+        static const size_t NUM_CUBEMAPS = 1;
         size_t activeCubemap = 0;
         gfx::Image hdrCubemap[NUM_CUBEMAPS];
         gfx::Image hdrDiffuse[NUM_CUBEMAPS];
@@ -318,6 +324,9 @@ namespace renderer
 
         gfx::RenderPass mainPass;
         gfx::RenderPass uiPass;
+        gfx::RenderPass luminancePass;
+        gfx::RenderPass bloomPass;
+        gfx::RenderPass bloomBlitPass;
         gfx::RenderPass brdfLUTPass;
        
         gfx::Buffer cubeVertexBuffer;
@@ -336,7 +345,7 @@ namespace renderer
         float projection[16];
         float model[16];
         fnd::math::float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        fnd::math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 0.0f };
+        fnd::math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 2.0f };
         float metallic = 0.0f;
         float roughness = 1.0f;
         uint32_t  useTextures = 1;
@@ -563,6 +572,18 @@ namespace renderer
                 GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
             }
 
+            size_t pBloomShaderCodeSize = 0;
+            char* pBloomShaderCode = static_cast<char*>(LoadFileContents("BloomBlurPixelShader.cso", memoryArena, &pBloomShaderCodeSize));
+            if (!pBloomShaderCode) {
+                GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
+            }
+
+            size_t pLuminanceShaderCodeSize = 0;
+            char* pLuminanceShaderCode = static_cast<char*>(LoadFileContents("LuminancePixelShader.cso", memoryArena, &pLuminanceShaderCodeSize));
+            if (!pLuminanceShaderCode) {
+                GT_LOG_ERROR("D3D11", "Failed to load pixel shader\n");
+            }
+
             size_t vPaintShaderCodeSize = 0;
             char* vPaintShaderCode = static_cast<char*>(LoadFileContents("PaintVertexShader.cso", memoryArena, &vPaintShaderCodeSize));
             if (!vPaintShaderCode) {
@@ -630,6 +651,16 @@ namespace renderer
             pBlurShaderDesc.code = pBlurShaderCode;
             pBlurShaderDesc.codeSize = pBlurShaderCodeSize;
 
+            gfx::ShaderDesc pBloomShaderDesc;
+            pBloomShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+            pBloomShaderDesc.code = pBloomShaderCode;
+            pBloomShaderDesc.codeSize = pBloomShaderCodeSize;
+
+            gfx::ShaderDesc pLuminanceShaderDesc;
+            pLuminanceShaderDesc.type = gfx::ShaderType::SHADER_TYPE_PS;
+            pLuminanceShaderDesc.code = pLuminanceShaderCode;
+            pLuminanceShaderDesc.codeSize = pLuminanceShaderCodeSize;
+
             gfx::ShaderDesc vPaintShaderDesc;
             vPaintShaderDesc.type = gfx::ShaderType::SHADER_TYPE_VS;
             vPaintShaderDesc.code = vPaintShaderCode;
@@ -693,6 +724,15 @@ namespace renderer
                 GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
             }
 
+            renderer->pBloomShader = gfx::CreateShader(renderer->gfxDevice, &pBloomShaderDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->pBloomShader)) {
+                GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+            }
+
+            renderer->pLuminanceShader = gfx::CreateShader(renderer->gfxDevice, &pLuminanceShaderDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->pLuminanceShader)) {
+                GT_LOG_ERROR("Renderer", "Failed to create pixel shader");
+            }
 
             renderer->vCubemapShader = gfx::CreateShader(renderer->gfxDevice, &vCubemapShaderDesc);
             if (!GFX_CHECK_RESOURCE(renderer->vCubemapShader)) {
@@ -837,7 +877,6 @@ namespace renderer
             blurPipelineStateDesc.vertexShader = renderer->vBlitShader;
             blurPipelineStateDesc.pixelShader = renderer->pBlurShader;
             blurPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
-
             blurPipelineStateDesc.depthStencilState.enableDepth = false;
             blurPipelineStateDesc.blendState.enableBlend = false;
             blurPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
@@ -846,6 +885,32 @@ namespace renderer
             blurPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
             renderer->blurPipeline = gfx::CreatePipelineState(renderer->gfxDevice, &blurPipelineStateDesc);
             if (!GFX_CHECK_RESOURCE(renderer->blurPipeline)) {
+                GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
+            }
+
+            gfx::PipelineStateDesc bloomPipelineStateDesc;
+            bloomPipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+            bloomPipelineStateDesc.vertexShader = renderer->vBlitShader;
+            bloomPipelineStateDesc.pixelShader = renderer->pBloomShader;
+            bloomPipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
+            bloomPipelineStateDesc.depthStencilState.enableDepth = false;
+            bloomPipelineStateDesc.blendState.enableBlend = false;
+            bloomPipelineStateDesc.blendState.srcBlend = gfx::BlendFactor::BLEND_SRC_ALPHA;
+            bloomPipelineStateDesc.blendState.dstBlend = gfx::BlendFactor::BLEND_INV_SRC_ALPHA;
+            bloomPipelineStateDesc.blendState.blendOp = gfx::BlendOp::BLEND_OP_ADD;
+            bloomPipelineStateDesc.blendState.writeMask = gfx::COLOR_WRITE_MASK_COLOR;
+            renderer->bloomPipeline = gfx::CreatePipelineState(renderer->gfxDevice, &bloomPipelineStateDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->bloomPipeline)) {
+                GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
+            }
+
+            gfx::PipelineStateDesc luminancePipelineStateDesc;
+            luminancePipelineStateDesc.indexFormat = gfx::IndexFormat::INDEX_FORMAT_NONE;
+            luminancePipelineStateDesc.vertexShader = renderer->vBlitShader;
+            luminancePipelineStateDesc.pixelShader = renderer->pLuminanceShader;
+            luminancePipelineStateDesc.primitiveType = gfx::PrimitiveType::PRIMITIVE_TYPE_TRIANGLE_STRIP;
+            renderer->luminancePipeline = gfx::CreatePipelineState(renderer->gfxDevice, &luminancePipelineStateDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->luminancePipeline)) {
                 GT_LOG_ERROR("Renderer", "Failed to create pipeline state for blit");
             }
 
@@ -884,6 +949,30 @@ namespace renderer
             mainRTDesc.samplerDesc = &defaultSamplerStateDesc;
             renderer->mainRT = gfx::CreateImage(renderer->gfxDevice, &mainRTDesc);
             if (!GFX_CHECK_RESOURCE(renderer->mainRT)) {
+                GT_LOG_ERROR("Renderer", "Failed to create main render target");
+            }
+
+            gfx::ImageDesc luminanceRTDesc;
+            luminanceRTDesc.isRenderTarget = true;
+            luminanceRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+            luminanceRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+            luminanceRTDesc.width = config->windowWidth;
+            luminanceRTDesc.height = config->windowHeight;
+            luminanceRTDesc.samplerDesc = &defaultSamplerStateDesc;
+            renderer->luminanceRT = gfx::CreateImage(renderer->gfxDevice, &luminanceRTDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->luminanceRT)) {
+                GT_LOG_ERROR("Renderer", "Failed to create main render target");
+            }
+
+            gfx::ImageDesc bloomRTDesc;
+            bloomRTDesc.isRenderTarget = true;
+            bloomRTDesc.type = gfx::ImageType::IMAGE_TYPE_2D;
+            bloomRTDesc.pixelFormat = gfx::PixelFormat::PIXEL_FORMAT_R16G16B16A16_FLOAT;
+            bloomRTDesc.width = config->windowWidth;
+            bloomRTDesc.height = config->windowHeight;
+            bloomRTDesc.samplerDesc = &defaultSamplerStateDesc;
+            renderer->bloomRT = gfx::CreateImage(renderer->gfxDevice, &bloomRTDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->bloomRT)) {
                 GT_LOG_ERROR("Renderer", "Failed to create main render target");
             }
 
@@ -1045,6 +1134,27 @@ namespace renderer
             uiPassDesc.colorAttachments[0].image = renderer->uiRenderTarget;
             renderer->uiPass = gfx::CreateRenderPass(renderer->gfxDevice, &uiPassDesc);
             if (!GFX_CHECK_RESOURCE(renderer->uiPass)) {
+                GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
+            }
+
+            gfx::RenderPassDesc luminancePassDesc;
+            luminancePassDesc.colorAttachments[0].image = renderer->luminanceRT;
+            renderer->luminancePass = gfx::CreateRenderPass(renderer->gfxDevice, &luminancePassDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->luminancePass)) {
+                GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
+            }
+
+            gfx::RenderPassDesc bloomPassDesc;
+            bloomPassDesc.colorAttachments[0].image = renderer->bloomRT;
+            renderer->bloomPass = gfx::CreateRenderPass(renderer->gfxDevice, &bloomPassDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->bloomPass)) {
+                GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
+            }
+
+            gfx::RenderPassDesc bloomBlitPassDesc;
+            bloomBlitPassDesc.colorAttachments[0].image = renderer->mainRT;
+            renderer->bloomBlitPass = gfx::CreateRenderPass(renderer->gfxDevice, &bloomBlitPassDesc);
+            if (!GFX_CHECK_RESOURCE(renderer->bloomBlitPass)) {
                 GT_LOG_ERROR("Renderer", "Failed to create render pass for UI");
             }
 
@@ -1348,7 +1458,7 @@ namespace renderer
         }
     }
 
-    void RenderUI(Renderer* renderer, ImDrawData* drawData)
+    void RenderUI(Renderer* renderer, ImDrawData* drawData, gfx::SwapChain swapChain)
     {
         gfx::RenderPassAction uiPassAction;
         uiPassAction.colors[0].color[0] = 0.0f;
@@ -1395,7 +1505,7 @@ namespace renderer
                 util::MultiplyMatricesCM(world->cameraProjection, world->cameraTransform, object.VP);
 
                 object.color = fnd::math::float4();
-                object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 0.0f);
+                object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 2.0f);
                 object.roughness = 0.0f;
                 object.metallic = 0.0f;
                 object.useTextures = 1;
@@ -1465,7 +1575,7 @@ namespace renderer
                     util::MultiplyMatricesCM(world->cameraProjection, world->cameraTransform, object.VP);
 
                     object.color = fnd::math::float4();
-                    object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 0.0f);
+                    object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 8.0f);
                     object.roughness = 0.0f;
                     object.metallic = 0.0f;
                     object.useTextures = 1;
@@ -1512,6 +1622,49 @@ namespace renderer
         }
 
         gfx::RenderPassAction blitAction;
+
+        {   // luminance
+            blitAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+
+            gfx::DrawCall luminanceDrawCall;
+            luminanceDrawCall.pipelineState = renderer->luminancePipeline;
+            luminanceDrawCall.numElements = 4;
+            luminanceDrawCall.psImageInputs[0] = renderer->mainRT;
+
+            gfx::BeginRenderPass(renderer->gfxDevice, renderer->commandBuffer, renderer->luminancePass, &blitAction);
+            gfx::SubmitDrawCall(renderer->gfxDevice, renderer->commandBuffer, &luminanceDrawCall);
+            gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
+
+            blitAction.colors[0].action = gfx::Action::ACTION_LOAD;
+        }
+
+        {   // bloom blur
+            blitAction.colors[0].action = gfx::Action::ACTION_CLEAR;
+
+            gfx::DrawCall blurDrawCall;
+            blurDrawCall.pipelineState = renderer->bloomPipeline;
+            blurDrawCall.numElements = 4;
+            blurDrawCall.psImageInputs[0] = renderer->mainRT;
+            blurDrawCall.psImageInputs[1] = renderer->luminanceRT;
+
+            gfx::BeginRenderPass(renderer->gfxDevice, renderer->commandBuffer, renderer->bloomPass, &blitAction);
+            gfx::SubmitDrawCall(renderer->gfxDevice, renderer->commandBuffer, &blurDrawCall);
+            gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
+        }
+
+        {   // bloom blit
+            blitAction.colors[0].action = gfx::Action::ACTION_LOAD;
+
+            gfx::DrawCall blitDrawCall;
+            blitDrawCall.pipelineState = renderer->blitPipeline;
+            blitDrawCall.numElements = 4;
+    
+            blitDrawCall.psImageInputs[0] = renderer->bloomRT;
+            gfx::BeginRenderPass(renderer->gfxDevice, renderer->commandBuffer, renderer->bloomBlitPass, &blitAction);
+            gfx::SubmitDrawCall(renderer->gfxDevice, renderer->commandBuffer, &blitDrawCall);
+            gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
+        }
+
         {   // tonemapping
             blitAction.colors[0].action = gfx::Action::ACTION_CLEAR;
 

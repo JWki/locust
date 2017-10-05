@@ -2,6 +2,7 @@
 #include <foundation/logging/logging.h>
 #include <malloc.h>
 
+
 #include <foundation/math/math.h>
 #include <foundation/memory/memory.h>
 #include <foundation/memory/allocators.h>
@@ -16,8 +17,12 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <Commdlg.h>
+#include <shlobj.h>
+#include <shlwapi.h>
+#pragma comment(lib, "shlwapi.lib")
 #undef near
 #undef far
+#undef interface
 
 #define STB_IMAGE_IMPLEMENTATION
 //#define STBI_NO_STDIO
@@ -28,6 +33,7 @@
 
 #include <engine/runtime/core/api_registry.h>
 #include <engine/runtime/renderer/renderer.h>
+#include <engine/runtime/runtime.h>
 
 #include <fontawesome/IconsFontAwesome.h>
 
@@ -181,6 +187,13 @@ static bool OpenFileDialog(char* outNameBuf, size_t outNameBufSize, const char* 
     return true;
 }
 
+static bool DoesFileExist(const char* path) 
+{
+    DWORD dwAttrib = GetFileAttributesA(path);
+
+    return (dwAttrib != INVALID_FILE_ATTRIBUTES &&
+        !(dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
 
 static void* LoadFileContents(const char* path, fnd::memory::MemoryArenaBase* memoryArena, size_t* fileSize = nullptr)
 {
@@ -252,7 +265,8 @@ public:
 };
 
 typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, PrintfWriter> ConsoleLogger;
-
+using namespace fnd;
+ConsoleLogger g_consoleLogger;
 
 struct EntityNode
 {
@@ -348,10 +362,45 @@ bool IsEntityInList(EntityNodeList* list, entity_system::Entity ent, EntityNode*
 }
 
 
+struct NonTrivialFoo
+{
+    size_t field = 32;
+};
+
+struct TrivialFoo
+{
+    size_t field;
+};
+
+
+struct SumType
+{
+    union {
+        NonTrivialFoo as_non_trivial_foo;
+        TrivialFoo as_trivial_foo;
+    };
+
+    SumType() { as_non_trivial_foo = NonTrivialFoo(); }
+};
+
+
+
+struct Project
+{
+    char basePath[MAX_PATH];
+    char name[MAX_PATH];
+};
 
 #define ENTITY_NODE_POOL_SIZE 512
 struct Editor {
     size_t frameIndex = 0;
+
+    char* prefPath = nullptr;
+
+    size_t numRecentProjects = 0;
+    char** recentProjectPaths = nullptr;
+
+    Project currentProject;
 
     core::api_registry::APIRegistry* apiRegistry = nullptr;
     core::api_registry::APIRegistryInterface* apiRegistryInterface = nullptr;
@@ -359,13 +408,13 @@ struct Editor {
     EntityNodeList entitySelection;
     entity_system::Entity lastSelected;
 
-    //EntityNodeGroup entityGroups;
-
     EntityNode entityNodePool[ENTITY_NODE_POOL_SIZE];
 
     entity_system::World* currentWorld = nullptr;
     renderer::RenderWorld* currentRenderWorld = nullptr;
     renderer::RendererInterface* renderer = nullptr;
+
+    runtime::RuntimeInterface* runtime = nullptr;
 
     bool isEditing = false;
     
@@ -408,11 +457,14 @@ struct Editor {
         char name[FILENAME_BUF_SIZE] = "";
         core::Asset asset;
 
-        // @NOTE this should really be a union but alas unions can't have non trivially constructed members in MSVC for some reason
-        TextureAsset as_texture;
-        MaterialAsset as_material;
-        MeshAsset as_mesh;
+        // @NOTE because we want this to be a union, we're required to explicitely create the non-trivially constructible fields in it 
+        union {
+            TextureAsset as_texture;
+            MaterialAsset as_material;
+            MeshAsset as_mesh;
+        };
 
+        Asset() { as_texture = TextureAsset(); }
     };
 
   
@@ -450,7 +502,9 @@ struct Editor {
             PROPERTY_EDITOR,
             ASSET_BROWSER,
             RENDERER_SETTINGS,
-            DRAG_DEBUG
+            DRAG_DEBUG,
+
+            PROJECT_WIZARD
         };
 
         static const size_t MAX_NUM_VIEWS = 128;
@@ -503,6 +557,7 @@ Editor::Asset* PushAsset(Editor* editor, Editor::Asset::Type type, const char* p
     return asset;
 }
 
+
 extern "C" __declspec(dllexport)
 void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiRegistryInterface)
 {
@@ -511,6 +566,8 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     editor->apiRegistryInterface = apiRegistryInterface;
 
     editor->applicationArena = memoryArena;
+
+    editor->runtime = (runtime::RuntimeInterface*)apiRegistryInterface->Get(apiRegistry, RUNTIME_API_NAME);
 
     editor->textureAssets = GT_NEW_ARRAY(Editor::Asset, Editor::MAX_NUM_TEXTURE_ASSETS, editor->applicationArena);
     editor->materialAssets = GT_NEW_ARRAY(Editor::Asset, Editor::MAX_NUM_TEXTURE_ASSETS, editor->applicationArena);
@@ -525,6 +582,26 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     util::Make4x4FloatMatrixIdentity(editor->camOffsetWithRotation);
     util::Make4x4FloatTranslationMatrixCM(editor->cameraPos, { 0.0f, -0.4f, 2.75f });
 
+
+    editor->prefPath = GT_NEW_ARRAY(char, MAX_PATH, memoryArena);
+    if (!SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, editor->prefPath))) {
+        GT_LOG_ERROR("Editor", "Failed to locate user preferences path");
+    }
+    size_t prefPathLen = strlen(editor->prefPath);
+    memcpy(editor->prefPath + prefPathLen, "\\GTEditor\\", strlen("\\GTEditor\\"));
+
+    if (!SUCCEEDED(CreateDirectoryA(editor->prefPath, NULL))) {
+        GT_LOG_ERROR("Editor", "Failed to create directory for user preferences at &s", editor->prefPath);
+        GT_DELETE_ARRAY(editor->prefPath, memoryArena);
+        editor->prefPath = nullptr;
+    }
+    else {
+        GT_LOG_INFO("Editor", "Directory for user preferences: %s", editor->prefPath);
+    }
+
+    strncpy_s(editor->currentProject.basePath, MAX_PATH, editor->prefPath, MAX_PATH);     // temp project
+    strncpy_s(editor->currentProject.name, MAX_PATH, "temp", MAX_PATH);
+    
 
     return editor;
 }
@@ -541,11 +618,14 @@ Editor::Asset* AssetRefLabel(Editor* editor, Editor::Asset* asset, bool acceptDr
             ("drag type is %s", editor->drag.type != Editor::DragContent::NONE ? "something" : "none");
             if (!editor->drag.wasReleased && editor->drag.type != Editor::DragContent::NONE) {
                 if (asset->type == editor->drag.data.as_asset->type) {
+                    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.0f, 1.0f, 0.0f, 0.6f));
                     ImGui::SetTooltip("Release mouse to drop %s", editor->drag.data.as_asset->name);
                 }
                 else {
+                    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1.0f, 0.0f, 0.0f, 0.6f));
                     ImGui::SetTooltip("Can't drop %s here", editor->drag.data.as_asset->name);
                 }
+                ImGui::PopStyleColor();
             }
             if (editor->drag.wasReleased) {
                 if (editor->drag.type == Editor::DragContent::DRAG_TYPE_ASSET_REF) {
@@ -582,7 +662,7 @@ Editor::Asset* AssetRefLabel(Editor* editor, Editor::Asset* asset, bool acceptDr
         displayString = formatBuf;
     }
     ImGui::Selectable(displayString);
-    
+
     if (acceptDrop) {
         res = AcceptDrop(editor, asset);
         if (res != nullptr) { return res; }
@@ -603,7 +683,7 @@ struct SceneFileHeader
 
     uint32_t    numAssets = 0;
 
-    void        SetName(const char* name) 
+    void        SetName(const char* name)
     {
         memset(nameString, 0x0, MAX_NAME_STRING_LEN);
         nameStringLen = (uint32_t)strlen(name);
@@ -611,51 +691,93 @@ struct SceneFileHeader
     }
 };
 
+template <class TFunc>
+struct OneTimeHelper
+{
+    OneTimeHelper(TFunc func)
+    {
+        func();
+    }
+};
 
 extern "C" __declspec(dllexport)
-void Update(void* userData, ImGuiContext* guiContext, entity_system::World* world, renderer::RenderWorld* renderWorld, fnd::memory::LinearAllocator* frameAllocator, entity_system::Entity** entitySelection, size_t* numEntitiesSelected)
+void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCtx, entity_system::World* world, renderer::RenderWorld* renderWorld, fnd::memory::LinearAllocator* frameAllocator, entity_system::Entity** entitySelection, size_t* numEntitiesSelected)
 {
-    using namespace fnd;
-    ConsoleLogger consoleLogger;
 
-    auto state = (Editor*)userData;
+    auto editor = (Editor*)userData;
 
+    editor->runtime->SetMainWindowTitle(editor->currentProject.basePath);
 
-    auto entitySystem = (entity_system::EntitySystemInterface*) state->apiRegistryInterface->Get(state->apiRegistry, ENTITY_SYSTEM_API_NAME);
+    auto entitySystem = (entity_system::EntitySystemInterface*) editor->apiRegistryInterface->Get(editor->apiRegistry, ENTITY_SYSTEM_API_NAME);
     assert(entitySystem);
 
-    auto renderer = (renderer::RendererInterface*) state->apiRegistryInterface->Get(state->apiRegistry, RENDERER_API_NAME);
+    auto renderer = (renderer::RendererInterface*) editor->apiRegistryInterface->Get(editor->apiRegistry, RENDERER_API_NAME);
     assert(renderer);
 
-    auto fbxImporter = (fbx_importer::FBXImportInterface*) state->apiRegistryInterface->Get(state->apiRegistry, FBX_IMPORTER_API_NAME);
+    auto fbxImporter = (fbx_importer::FBXImportInterface*) editor->apiRegistryInterface->Get(editor->apiRegistry, FBX_IMPORTER_API_NAME);
 
-    state->currentWorld = world;
-    state->currentRenderWorld = renderWorld;
-    state->renderer = renderer;
+    editor->currentWorld = world;
+    editor->currentRenderWorld = renderWorld;
+    editor->renderer = renderer;
 
     float camera[16];
     float projection[16];
     util::Copy4x4FloatMatrixCM(renderer->GetCameraTransform(renderWorld), camera);
     util::Copy4x4FloatMatrixCM(renderer->GetCameraProjection(renderWorld), projection);
-    
+
     util::Make4x4FloatProjectionMatrixCMLH(projection, 1.0f, (float)1920, (float)1080, 0.1f, 1000.0f);
     renderer->SetCameraProjection(renderWorld, projection);
 
-    ImGui::SetCurrentContext(guiContext);
-    
+    ImGui::SetCurrentContext(imguiContext);
+
     ImGuizmo::BeginFrame();
 
-    if (state->drag.wasReleased) {
-        state->drag = Editor::DragContent();
-    }
-    if (!ImGui::IsMouseDown(MOUSE_LEFT)) {
-        state->drag.wasReleased = true;
-    }
-
-    
     int WINDOW_WIDTH = 1920;
     int WINDOW_HEIGHT = 1080;
-    
+
+
+    auto canvasFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs;
+    ImGui::SetNextWindowSize(ImVec2((float)WINDOW_WIDTH, (float)WINDOW_HEIGHT));
+    ImGui::Begin("##canvas", nullptr, ImVec2(0, 0), 0.0f, canvasFlags);
+    ImGui::End();
+
+    if (editor->drag.wasReleased) {
+        editor->drag = Editor::DragContent();
+    }
+    if (!ImGui::IsMouseDown(MOUSE_LEFT)) {
+        editor->drag.wasReleased = true;
+    }
+
+    if (editor->drag.type == Editor::DragContent::DRAG_TYPE_ASSET_REF) {
+        ImGui::Begin("##canvas");
+        ImGui::BeginTooltip();
+        if (editor->drag.data.as_asset->type == Editor::Asset::Type::ASSET_TYPE_TEXTURE) {
+            auto texHandle = renderer->GetTextureHandle(renderWorld, editor->drag.data.as_asset->asset);
+            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+        }
+        char* displayString = editor->drag.data.as_asset->name;
+        char formatBuf[512] = "";
+        auto maxWidth = 128.0f;
+        if (maxWidth > 0.0f) {
+            ImFont* font = ImGui::GetCurrentContext()->Font;
+            const float fontSize = ImGui::GetCurrentContext()->FontSize;
+
+            // @NOTE this is probably a very inefficient way to do things
+            char* str = editor->drag.data.as_asset->name;
+            snprintf(formatBuf, 512, "...%s", str);
+            ImVec2 textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, formatBuf);
+            while (textSize.x > maxWidth * 0.8f) {
+                str++;
+                snprintf(formatBuf, 512, "...%s", str);
+                textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, str);
+            }
+            displayString = formatBuf;
+        }
+        ImGui::Text("%s", displayString);
+        ImGui::EndTooltip();
+        ImGui::End();
+    }
+
     //
     const char* VIEW_LABELS[] = {
         "NONE",
@@ -665,7 +787,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         ICON_FA_WRENCH "  Property Editor",
         ICON_FA_FILE_O "  Asset Browser",
         ICON_FA_CAMERA_RETRO "  Renderer",
-        "Drag Debug"
+        "Drag Debug",
+        "Project Wizard"
     };
 
 
@@ -898,10 +1021,10 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     //
     static void* tempScene = nullptr;
     size_t tempFileSize = 0;
-    if (state->frameIndex++ == 0) {
+    if (editor->frameIndex++ == 0) {
         fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator> tempArena(frameAllocator);
 
-        if (tempScene = LoadFileContents("temp.scene", state->applicationArena, &tempFileSize)) {
+        if (tempScene = LoadFileContents("temp.scene", editor->applicationArena, &tempFileSize)) {
             //ImGui::OpenPopup("Restore Session");
         }
     }
@@ -919,6 +1042,61 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     //
     if (ImGui::BeginMainMenuBar()) {
 
+        // Project
+        if (ImGui::BeginMenu(ICON_FA_FILE_O "  Project")) {
+            if (ImGui::MenuItem("Create New")) {
+                editor->views.enableView[Editor::Views::PROJECT_WIZARD] = true;
+            }
+            if (ImGui::MenuItem("Open")) {
+                char* buf = (char*)frameAllocator->Allocate(sizeof(char) * Editor::FILENAME_BUF_SIZE, alignof(char));
+                memset(buf, 0x0, sizeof(char) * Editor::FILENAME_BUF_SIZE);
+
+                FileInfo fileInfo;
+                if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE, "Project Files\0*.gtproj\0", &fileInfo, 1, nullptr)) {
+
+                    {   // switch project
+                        fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator> tempArena(frameAllocator);
+                        LoadFileContents(fileInfo.path, &tempArena);
+                    }
+                }
+            }
+            if (ImGui::MenuItem("Save")) {
+                auto fullPath = (char*)GT_NEW_ARRAY(char, MAX_PATH, frameAllocator);
+                snprintf(fullPath, MAX_PATH, "%s\\%s.gtproj", editor->currentProject.basePath, editor->currentProject.name);
+
+                if (!DumpToFile(fullPath, &editor->currentProject, sizeof(Project))) {
+                    GT_LOG_ERROR("Editor", "Failed to save project");
+                }
+            }
+            if (ImGui::MenuItem("Save As...")) {
+                char* buf = (char*)frameAllocator->Allocate(sizeof(char) * Editor::FILENAME_BUF_SIZE, alignof(char));
+                memset(buf, 0x0, sizeof(char) * Editor::FILENAME_BUF_SIZE);
+
+                if (SaveFileDialog(buf, Editor::FILENAME_BUF_SIZE, "Project Files\0*.gtproj\0", editor->currentProject.name)) {
+                    if (!DumpToFile(buf, &editor->currentProject, sizeof(Project))) {
+                        GT_LOG_ERROR("Editor", "Failed to save project");
+                    }
+
+                    char* basePath = nullptr;
+                    char* name = nullptr;
+
+                    memset(editor->currentProject.basePath, 0x0, MAX_PATH);
+                    memset(editor->currentProject.name, 0x0, MAX_PATH);
+
+                    memcpy(editor->currentProject.basePath, buf, Editor::FILENAME_BUF_SIZE);
+                    PathRemoveFileSpecA(editor->currentProject.basePath);
+                    name = buf + strlen(buf) - 1 - strlen("gtproj");
+                    size_t nameLen = 0;
+                    while (*name != '\\' && name != buf) {
+                        name--;
+                        nameLen++;
+                    }
+                    memcpy(editor->currentProject.name, name + 1, nameLen);
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         // File
         if (ImGui::BeginMenu(ICON_FA_FILE "  File")) {
 
@@ -927,7 +1105,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 memset(buf, 0x0, sizeof(char) * Editor::FILENAME_BUF_SIZE);
 
                 if (SaveFileDialog(buf, Editor::FILENAME_BUF_SIZE, "Scene Files\0*.scene\0", "lcscene")) {
-                    if (!SaveScene(state, buf, frameAllocator)) {
+                    if (!SaveScene(editor, buf, frameAllocator)) {
                         GT_LOG_ERROR("Editor", "Failed to save scene");
                     }
                 }
@@ -939,7 +1117,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 
                 FileInfo fileInfo;
                 if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE, "Scene Files\0*.scene\0", &fileInfo, 1, nullptr)) {
-                    if (!LoadScene(state, fileInfo.path, frameAllocator, renderer, renderWorld)) {
+                    if (!LoadScene(editor, fileInfo.path, frameAllocator, renderer, renderWorld)) {
                         GT_LOG_ERROR("Editor", "Failed to load scene");
                     }
                 }
@@ -951,22 +1129,154 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         // View
         if (ImGui::BeginMenu(ICON_FA_WINDOWS "  View")) {
             for (size_t i = 1; i < Editor::Views::MAX_NUM_VIEWS && i < ARRAYSIZE(VIEW_LABELS); ++i) {
-                if (ImGui::MenuItem(VIEW_LABELS[i], nullptr, &state->views.enableView[i])) { }
+                if (ImGui::MenuItem(VIEW_LABELS[i], nullptr, &editor->views.enableView[i])) { }
             }
             ImGui::EndMenu();
         }
 
+        ImGui::Text("%s%s.gtproj", editor->currentProject.basePath, editor->currentProject.name);
         ImGui::EndMainMenuBar();
     } 
 
+    //
+    //
+    
+    static bool isEditProjectInitialized = false;
+    if (editor->views.enableView[Editor::Views::PROJECT_WIZARD]) {
+        if(editor->runtime->BeginView(uiCtx, VIEW_LABELS[Editor::Views::PROJECT_WIZARD])) {
+        //if (ImGui::Begin(VIEW_LABELS[Editor::Views::PROJECT_WIZARD], &editor->views.enableView[Editor::Views::PROJECT_WIZARD], ImGuiWindowFlags_AlwaysAutoResize)) {
+
+            static Project edit;
+            static const char* error = "";
+            static bool errorIsBad = false;
+
+            if(!isEditProjectInitialized) {
+                strncpy_s(edit.basePath, MAX_PATH, editor->currentProject.basePath, MAX_PATH);
+                strncpy_s(edit.name, MAX_PATH, "MyProject", MAX_PATH);
+
+                isEditProjectInitialized = true;
+            };
+
+            auto editFlags = ImGuiInputTextFlags_CharsNoBlank | ImGuiInputTextFlags_AutoSelectAll;
+
+            ImGui::Text("Name"); ImGui::SameLine(80);
+            ImGui::PushID("Name");
+            ImGui::InputText("", edit.name, MAX_PATH, editFlags);
+            ImGui::PopID();
+            ImGui::SameLine();
+            ImGui::Text(".gtproj");
+
+            ImGui::Text("Location"); ImGui::SameLine(80);
+            ImGui::InputText("", edit.basePath, MAX_PATH, editFlags);
+            if (ImGui::IsItemHovered() && !ImGui::IsItemActive()) {
+                ImGui::SetTooltip("%s", edit.basePath);
+            }
+        
+            // https://www.codeproject.com/Articles/13088/How-to-Browse-for-a-Folder
+            auto GetFolder = [](char* outPath, const char* caption) -> bool {
+                bool retVal = false;
+
+                // The BROWSEINFO struct tells the shell 
+                // how it should display the dialog.
+                BROWSEINFOA bi;
+                memset(&bi, 0, sizeof(bi));
+
+                bi.ulFlags = BIF_USENEWUI;
+                bi.hwndOwner = NULL;
+                bi.lpszTitle = caption;
+
+                // must call this if using BIF_USENEWUI
+                ::OleInitialize(NULL);
+
+                // Show the dialog and get the itemIDList for the 
+                // selected folder.
+                LPITEMIDLIST pIDL = ::SHBrowseForFolderA(&bi);
+
+                if (pIDL != NULL)
+                {
+
+                    if (::SHGetPathFromIDListA(pIDL, outPath) != 0)
+                    {
+                        retVal = true;
+                    }
+
+                    // free the item id list
+                    CoTaskMemFree(pIDL);
+                }
+
+                ::OleUninitialize();
+
+                return retVal;
+            };
+
+            ImGui::SameLine();
+            if (ImGui::Button(ICON_FA_FOLDER "  Browse...")) {
+                if (!GetFolder(edit.basePath, "Choose Project Directory")) {
+
+                }
+                else {
+                    
+                }
+            }
+
+            auto fullPath = (char*)GT_NEW_ARRAY(char, MAX_PATH, frameAllocator);
+            snprintf(fullPath, MAX_PATH, "%s\\%s.gtproj", edit.basePath, edit.name);
+
+            auto fileExists = DoesFileExist(fullPath);
+            auto isPathValid = strlen(edit.basePath) > 0 && strlen(edit.name) > 0;
+            bool canCreate = !fileExists && isPathValid;
+            if (!canCreate) {
+                errorIsBad = true;
+
+                if (fileExists) {
+                    error = "Project already exists!";
+                }
+
+                if (!isPathValid) {
+                    error = "Path is invalid!";
+                }
+            }
+            else {
+                error = "Can create that project there!";
+                errorIsBad = false;
+            }
+
+
+            if (ImGui::Button("Create")) {
+                
+                editor->currentProject = edit;
+
+                if (canCreate) {
+                    if (DumpToFile(fullPath, &editor->currentProject, sizeof(Project))) {
+
+                    }
+                    else {
+                        error = "Failed to create project";
+                        errorIsBad = true;
+                    }
+                    editor->views.enableView[Editor::Views::PROJECT_WIZARD] = false;
+                }
+                else {
+                    
+                }
+            }
+            
+            ImGui::PushID("##error");
+            ImGui::TextColored(errorIsBad ? ImVec4(1.0f, 0.0f, 0.0f, 1.0f) : ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "%s", error);
+            ImGui::PopID();
+        } ImGui::End();
+    }
+    else {  
+        isEditProjectInitialized = false;
+    }
 
     //
     //
-    if (state->views.enableView[Editor::Views::DRAG_DEBUG]) {
-        if(ImGui::Begin(VIEW_LABELS[Editor::Views::DRAG_DEBUG], &state->views.enableView[Editor::Views::DRAG_DEBUG])) {
-        const char* fmt = state->drag.type != Editor::DragContent::NONE ? "Dragging %s with delta %f, %f" : "Not dragging";
-        if (state->drag.type != Editor::DragContent::NONE) {
-            ImGui::Text(fmt, state->drag.data.as_asset->name, ImGui::GetMouseDragDelta().x, ImGui::GetMouseDragDelta().y);
+    if (editor->views.enableView[Editor::Views::DRAG_DEBUG]) {
+        if(ImGui::Begin(VIEW_LABELS[Editor::Views::DRAG_DEBUG], &editor->views.enableView[Editor::Views::DRAG_DEBUG])) {
+        const char* fmt = editor->drag.type != Editor::DragContent::NONE ? "Dragging %s with delta %f, %f" : "Not dragging";
+        if (editor->drag.type != Editor::DragContent::NONE) {
+            ImGui::Text(fmt, editor->drag.data.as_asset->name, ImGui::GetMouseDragDelta().x, ImGui::GetMouseDragDelta().y);
         }
         else {
             ImGui::Text(fmt);
@@ -991,8 +1301,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
                     camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
 
-                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, state->cameraRotation);
-                    state->camPos += worldSpaceDelta;
+                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, editor->cameraRotation);
+                    editor->camPos += worldSpaceDelta;
                 }
                 else {
                     math::float2 delta;
@@ -1000,20 +1310,20 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     delta.y = 8.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
                     float sign = -1.0f;
                     sign = delta.y > 0.0f ? 1.0f : -1.0f;
-                    state->camOffset.z -= math::Length(delta) * sign;
-                    state->camOffset.z = state->camOffset.z > -0.1f ? -0.1f : state->camOffset.z;
+                    editor->camOffset.z -= math::Length(delta) * sign;
+                    editor->camOffset.z = editor->camOffset.z > -0.1f ? -0.1f : editor->camOffset.z;
                 }
             }
             else {
-                state->camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
-                state->camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
+                editor->camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
+                editor->camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
             }
             ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
             ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
         }
     }
     else {
-        state->camOffset = math::float3(0.0f);
+        editor->camOffset = math::float3(0.0f);
         if (ImGui::IsMouseDragging(MOUSE_RIGHT) || ImGui::IsMouseDragging(MOUSE_MIDDLE)) {
 
             if (ImGui::IsMouseDown(MOUSE_RIGHT)) {
@@ -1021,90 +1331,90 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     math::float3 camPosDelta;
                     camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
                     camPosDelta.y = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
-                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, state->cameraRotation);
-                    state->camPos += worldSpaceDelta;
+                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, editor->cameraRotation);
+                    editor->camPos += worldSpaceDelta;
                 }
                 else {
                     math::float3 camPosDelta;
                     camPosDelta.x = 2.0f * (-ImGui::GetMouseDragDelta(MOUSE_RIGHT).x / WINDOW_WIDTH);
                     camPosDelta.z = 2.0f * (ImGui::GetMouseDragDelta(MOUSE_RIGHT).y / WINDOW_HEIGHT);
-                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, state->cameraRotation);
-                    state->camPos += worldSpaceDelta;
+                    math::float3 worldSpaceDelta = util::TransformDirectionCM(camPosDelta, editor->cameraRotation);
+                    editor->camPos += worldSpaceDelta;
                 }
             }
             else {
-                state->camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
-                state->camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
+                editor->camYaw += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).x / WINDOW_WIDTH);
+                editor->camPitch += 180.0f * (-ImGui::GetMouseDragDelta(MOUSE_MIDDLE).y / WINDOW_HEIGHT);
             }
             ImGui::ResetMouseDragDelta(MOUSE_MIDDLE);
             ImGui::ResetMouseDragDelta(MOUSE_RIGHT);
         }
     }
 
-    if (state->views.enableView[Editor::Views::CAMERA_CONTROLS]) {
-        if (ImGui::Begin(VIEW_LABELS[Editor::Views::CAMERA_CONTROLS], &state->views.enableView[Editor::Views::CAMERA_CONTROLS])) {
+    if (editor->views.enableView[Editor::Views::CAMERA_CONTROLS]) {
+        if (ImGui::Begin(VIEW_LABELS[Editor::Views::CAMERA_CONTROLS], &editor->views.enableView[Editor::Views::CAMERA_CONTROLS])) {
             static float camOffsetStore = 0.0f;
 
             if (ImGui::Combo("Mode", (int*)&mode, modeStrings, 2)) {
                 if (mode == CAMERA_MODE_ARCBALL) {
                     // we were in free cam mode before
                     // -> get stored cam offset, calculate what state->camPos must be based off that
-                    state->camOffset.z = camOffsetStore;
-                    util::Make4x4FloatTranslationMatrixCM(state->cameraOffset, state->camOffset);
-                    util::MultiplyMatricesCM(state->cameraRotation, state->cameraOffset, state->camOffsetWithRotation);
-                    math::float3 transformedOrigin = util::TransformPositionCM(math::float3(), state->camOffsetWithRotation);
-                    state->camPos = state->camPos - transformedOrigin;
+                    editor->camOffset.z = camOffsetStore;
+                    util::Make4x4FloatTranslationMatrixCM(editor->cameraOffset, editor->camOffset);
+                    util::MultiplyMatricesCM(editor->cameraRotation, editor->cameraOffset, editor->camOffsetWithRotation);
+                    math::float3 transformedOrigin = util::TransformPositionCM(math::float3(), editor->camOffsetWithRotation);
+                    editor->camPos = editor->camPos - transformedOrigin;
                 }
                 else {
                     // we were in arcball mode before
                     // -> fold camera offset + rotation into cam pos, preserve offset 
                     float fullTransform[16];
-                    util::Make4x4FloatTranslationMatrixCM(state->cameraPos, state->camPos);
-                    util::MultiplyMatricesCM(state->cameraPos, state->camOffsetWithRotation, fullTransform);
-                    state->camPos = util::Get4x4FloatMatrixColumnCM(fullTransform, 3).xyz;
-                    camOffsetStore = state->camOffset.z;
-                    state->camOffset.z = 0.0f;
+                    util::Make4x4FloatTranslationMatrixCM(editor->cameraPos, editor->camPos);
+                    util::MultiplyMatricesCM(editor->cameraPos, editor->camOffsetWithRotation, fullTransform);
+                    editor->camPos = util::Get4x4FloatMatrixColumnCM(fullTransform, 3).xyz;
+                    camOffsetStore = editor->camOffset.z;
+                    editor->camOffset.z = 0.0f;
                 }
             }
 
 
-            ImGui::DragFloat("Camera Yaw", &state->camYaw);
+            ImGui::DragFloat("Camera Yaw", &editor->camYaw);
             ImGui::SameLine();
             if (ImGui::Button(ICON_FA_UNDO "##yaw")) {
-                state->camYaw = 0.0f;
+                editor->camYaw = 0.0f;
             }
 
-            ImGui::DragFloat("Camera Pitch", &state->camPitch);
+            ImGui::DragFloat("Camera Pitch", &editor->camPitch);
             ImGui::SameLine();
             if (ImGui::Button(ICON_FA_UNDO "##pitch")) {
-                state->camPitch = 0.0f;
+                editor->camPitch = 0.0f;
             }
 
-            ImGui::DragFloat3("Camera Offset", (float*)&state->camOffset, 0.01f);
+            ImGui::DragFloat3("Camera Offset", (float*)&editor->camOffset, 0.01f);
             ImGui::SameLine();
             if (ImGui::Button(ICON_FA_UNDO "##offset")) {
-                state->camOffset = math::float3(0.0f);
+                editor->camOffset = math::float3(0.0f);
             }
 
-            ImGui::DragFloat3("Camera Pos", (float*)&state->camPos, 0.01f);
+            ImGui::DragFloat3("Camera Pos", (float*)&editor->camPos, 0.01f);
             ImGui::SameLine();
             if (ImGui::Button(ICON_FA_UNDO "##pos")) {
-                state->camPos = math::float3(0.0f);
+                editor->camPos = math::float3(0.0f);
             }
         } ImGui::End();
     }
 
     float cameraRotX[16], cameraRotY[16];
-    util::Make4x4FloatRotationMatrixCMLH(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), state->camPitch * (3.141f / 180.0f));
-    util::Make4x4FloatRotationMatrixCMLH(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), state->camYaw * (3.141f / 180.0f));
+    util::Make4x4FloatRotationMatrixCMLH(cameraRotX, math::float3(1.0f, 0.0f, 0.0f), editor->camPitch * (3.141f / 180.0f));
+    util::Make4x4FloatRotationMatrixCMLH(cameraRotY, math::float3(0.0f, 1.0f, 0.0f), editor->camYaw * (3.141f / 180.0f));
 
 
-    util::Make4x4FloatTranslationMatrixCM(state->cameraOffset, state->camOffset);
-    util::Make4x4FloatTranslationMatrixCM(state->cameraPos, state->camPos);
-    util::MultiplyMatricesCM(cameraRotY, cameraRotX, state->cameraRotation);
+    util::Make4x4FloatTranslationMatrixCM(editor->cameraOffset, editor->camOffset);
+    util::Make4x4FloatTranslationMatrixCM(editor->cameraPos, editor->camPos);
+    util::MultiplyMatricesCM(cameraRotY, cameraRotX, editor->cameraRotation);
 
-    util::MultiplyMatricesCM(state->cameraRotation, state->cameraOffset, state->camOffsetWithRotation);
-    util::MultiplyMatricesCM(state->cameraPos, state->camOffsetWithRotation, camera);
+    util::MultiplyMatricesCM(editor->cameraRotation, editor->cameraOffset, editor->camOffsetWithRotation);
+    util::MultiplyMatricesCM(editor->cameraPos, editor->camOffsetWithRotation, camera);
 
     float camInverse[16];
     util::Inverse4x4FloatMatrixCM(camera, camInverse);
@@ -1117,8 +1427,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     entity_system::Entity* entityList = GT_NEW_ARRAY(entity_system::Entity, 512, frameAllocator);
     size_t numEntities = 0;
 
-    if (state->views.enableView[Editor::Views::ENTITY_EXPLORER]) {
-        if (ImGui::Begin(VIEW_LABELS[Editor::Views::ENTITY_EXPLORER], &state->views.enableView[Editor::Views::ENTITY_EXPLORER], windowFlags)) {
+    if (editor->views.enableView[Editor::Views::ENTITY_EXPLORER]) {
+        if (ImGui::Begin(VIEW_LABELS[Editor::Views::ENTITY_EXPLORER], &editor->views.enableView[Editor::Views::ENTITY_EXPLORER], windowFlags)) {
 
 
             /* Add / delete of entities */
@@ -1126,20 +1436,20 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             if (ImGui::Button(ICON_FA_USER_PLUS "  Create New")) {
                 entity_system::Entity ent = entitySystem->CreateEntity(world);
                 if (!ImGui::GetIO().KeyCtrl) {
-                    ClearList(&state->entitySelection);
+                    ClearList(&editor->entitySelection);
                 }
-                EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                EntityNode* selectionNode = AllocateEntityNode(editor->entityNodePool, ENTITY_NODE_POOL_SIZE);
                 selectionNode->ent = ent;
-                AddToList(&state->entitySelection, selectionNode);
-                state->lastSelected = ent;
+                AddToList(&editor->entitySelection, selectionNode);
+                editor->lastSelected = ent;
             }
 
             entitySystem->GetAllEntities(world, entityList, &numEntities);
 
-            if (state->entitySelection.head != nullptr && entitySystem->IsEntityAlive(world, state->entitySelection.head->ent)) {
+            if (editor->entitySelection.head != nullptr && entitySystem->IsEntityAlive(world, editor->entitySelection.head->ent)) {
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_FA_USER_TIMES "  Delete")) {
-                    EntityNode* it = state->entitySelection.head;
+                    EntityNode* it = editor->entitySelection.head;
                     while (it) {
                         entitySystem->DestroyEntity(world, it->ent);
                         renderer::StaticMesh meshComponent = renderer->GetStaticMesh(renderWorld, it->ent.id);
@@ -1150,11 +1460,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                         it = it->next;
                     }
-                    ClearList(&state->entitySelection);
+                    ClearList(&editor->entitySelection);
                 }
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_FA_USERS "  Copy")) {
-                    EntityNode* it = state->entitySelection.head;
+                    EntityNode* it = editor->entitySelection.head;
                     EntityNodeList copies;
                     while (it) {
                         auto newEntity = entitySystem->CopyEntity(world, it->ent);
@@ -1164,17 +1474,17 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             renderer->CopyStaticMesh(renderWorld, newEntity.id, meshComponent);
                         }
 
-                        EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                        EntityNode* selectionNode = AllocateEntityNode(editor->entityNodePool, ENTITY_NODE_POOL_SIZE);
                         selectionNode->ent = newEntity;
                         AddToList(&copies, selectionNode);
-                        state->lastSelected = newEntity;
+                        editor->lastSelected = newEntity;
                         it = it->next;
                     }
-                    ClearList(&state->entitySelection);
+                    ClearList(&editor->entitySelection);
                     it = copies.head;
                     while (it) {
                         auto next = it->next;
-                        AddToList(&state->entitySelection, it);
+                        AddToList(&editor->entitySelection, it);
                         it = next;
                     }
                 }
@@ -1207,11 +1517,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     return index;
                 };
 
-                int lastSelectedIndex = GetIndex(state->lastSelected, entityList, numEntities);
+                int lastSelectedIndex = GetIndex(editor->lastSelected, entityList, numEntities);
                 ImGui::PushStyleColor(ImGuiCol_Header, lastSelectedIndex == (int)i ? ImVec4(0.2f, 0.4f, 1.0f, 1.0f) : ImGui::GetStyle().Colors[ImGuiCol_Header]);
-                bool select = ImGui::Selectable(name, IsEntityInList(&state->entitySelection, entity));
+                bool select = ImGui::Selectable(name, IsEntityInList(&editor->entitySelection, entity));
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(MOUSE_LEFT)) {
-                    state->camPos = util::Get4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, entity), 3).xyz;
+                    editor->camPos = util::Get4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, entity), 3).xyz;
                 }
                 if (select) {
                     ImGui::PopStyleColor();
@@ -1223,14 +1533,14 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             int clickedIndex = (int)i;
                             if (clickedIndex > lastSelectedIndex) {
                                 for (int i = lastSelectedIndex; i <= clickedIndex; ++i) {
-                                    if (!IsEntityInList(&state->entitySelection, entityList[i], &node) && !ImGui::GetIO().KeyCtrl) {
-                                        EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                                    if (!IsEntityInList(&editor->entitySelection, entityList[i], &node) && !ImGui::GetIO().KeyCtrl) {
+                                        EntityNode* selectionNode = AllocateEntityNode(editor->entityNodePool, ENTITY_NODE_POOL_SIZE);
                                         selectionNode->ent = entityList[i];
-                                        AddToList(&state->entitySelection, selectionNode);
+                                        AddToList(&editor->entitySelection, selectionNode);
                                     }
                                     else {
                                         if (ImGui::GetIO().KeyCtrl) {
-                                            RemoveFromList(&state->entitySelection, node);
+                                            RemoveFromList(&editor->entitySelection, node);
                                         }
                                     }
                                 }
@@ -1238,14 +1548,14 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             else {
                                 if (clickedIndex < lastSelectedIndex) {
                                     for (int i = lastSelectedIndex; i >= clickedIndex; --i) {
-                                        if (!IsEntityInList(&state->entitySelection, entityList[i], &node) && !ImGui::GetIO().KeyCtrl) {
-                                            EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                                        if (!IsEntityInList(&editor->entitySelection, entityList[i], &node) && !ImGui::GetIO().KeyCtrl) {
+                                            EntityNode* selectionNode = AllocateEntityNode(editor->entityNodePool, ENTITY_NODE_POOL_SIZE);
                                             selectionNode->ent = entityList[i];
-                                            AddToList(&state->entitySelection, selectionNode);
+                                            AddToList(&editor->entitySelection, selectionNode);
                                         }
                                         else {
                                             if (ImGui::GetIO().KeyCtrl) {
-                                                RemoveFromList(&state->entitySelection, node);
+                                                RemoveFromList(&editor->entitySelection, node);
                                             }
                                         }
                                     }
@@ -1258,26 +1568,26 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                         }
                         else {
                             EntityNode* node = nullptr;
-                            if (!IsEntityInList(&state->entitySelection, entity, &node)) {  // ADD
-                                EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                            if (!IsEntityInList(&editor->entitySelection, entity, &node)) {  // ADD
+                                EntityNode* selectionNode = AllocateEntityNode(editor->entityNodePool, ENTITY_NODE_POOL_SIZE);
                                 selectionNode->ent = entity;
-                                AddToList(&state->entitySelection, selectionNode);
+                                AddToList(&editor->entitySelection, selectionNode);
                             }
                             else {  // REMOVE
-                                RemoveFromList(&state->entitySelection, node);
+                                RemoveFromList(&editor->entitySelection, node);
                                 FreeEntityNode(node);
                             }
                         }
                     }
                     else {  // SET selection
-                        ClearList(&state->entitySelection);
-                        EntityNode* selectionNode = AllocateEntityNode(state->entityNodePool, ENTITY_NODE_POOL_SIZE);
+                        ClearList(&editor->entitySelection);
+                        EntityNode* selectionNode = AllocateEntityNode(editor->entityNodePool, ENTITY_NODE_POOL_SIZE);
                         selectionNode->ent = entity;
-                        AddToList(&state->entitySelection, selectionNode);
+                        AddToList(&editor->entitySelection, selectionNode);
                     }
 
-                    if (IsEntityInList(&state->entitySelection, entity)) {
-                        state->lastSelected = entity;
+                    if (IsEntityInList(&editor->entitySelection, entity)) {
+                        editor->lastSelected = entity;
                     }
                 }
                 else {
@@ -1291,7 +1601,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::PopID();
             }
             if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered() && ImGui::IsMouseClicked(0)) {
-                ClearList(&state->entitySelection);
+                ClearList(&editor->entitySelection);
             }
             ImGui::EndChild();
 
@@ -1303,8 +1613,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
         //ImGuizmo::DrawCube(camera, projection, entitySystem->GetEntityTransform(world, entityList[i]));
     }
 
-    if (state->views.enableView[Editor::Views::ASSET_BROWSER]) {
-        if (ImGui::Begin(VIEW_LABELS[Editor::Views::ASSET_BROWSER], &state->views.enableView[Editor::Views::ASSET_BROWSER])) {
+    if (editor->views.enableView[Editor::Views::ASSET_BROWSER]) {
+        if (ImGui::Begin(VIEW_LABELS[Editor::Views::ASSET_BROWSER], &editor->views.enableView[Editor::Views::ASSET_BROWSER])) {
             ImGui::Spacing();
             {   // Textures
                 ImGui::Text("Textures");
@@ -1321,7 +1631,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                         for (size_t i = 0; i < numItems; ++i) {
                             GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
-                            ImportTextureFromFile(state, files[i].path, frameAllocator, renderer, renderWorld);
+                            ImportTextureFromFile(editor, files[i].path, frameAllocator, renderer, renderWorld);
                         }
                     }
                 }
@@ -1334,9 +1644,9 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 ImGui::Spacing();
                 size_t numDisplayColumns = (size_t)(ImGui::GetContentRegionAvailWidth() / (displayScale * 128.0f));
                 numDisplayColumns = numDisplayColumns > 1 ? numDisplayColumns : 1;
-                for (size_t i = 1; i < state->textureAssetIndex; ++i) {
-                    if (state->textureAssets[i].asset.id == 0) { continue; }
-                    auto texHandle = renderer->GetTextureHandle(renderWorld, state->textureAssets[i].asset);
+                for (size_t i = 1; i < editor->textureAssetIndex; ++i) {
+                    if (editor->textureAssets[i].asset.id == 0) { continue; }
+                    auto texHandle = renderer->GetTextureHandle(renderWorld, editor->textureAssets[i].asset);
                     if (((i - 1) % numDisplayColumns) != 0) {
                         ImGui::SameLine();
                     }
@@ -1346,8 +1656,8 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     {   // thumbnail group
                         ImGui::BeginGroup();
 
-                        float width = state->textureAssets[i].as_texture.desc.desc.width;
-                        float height = state->textureAssets[i].as_texture.desc.desc.height;
+                        float width = editor->textureAssets[i].as_texture.desc.desc.width;
+                        float height = editor->textureAssets[i].as_texture.desc.desc.height;
                         float ratio = width / height;
 
                         const ImVec2 thumbnailSize = ImVec2(128 * displayScale, 128 * displayScale);
@@ -1373,12 +1683,12 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
                         if (ImGui::IsItemHovered()) {
                             ImGui::BeginTooltip();
-                            ImGui::Text("%s", state->textureAssets[i].name);
+                            ImGui::Text("%s", editor->textureAssets[i].name);
                             ImGui::EndTooltip();
                         }
-                        Editor::Asset* asset = &state->textureAssets[i];
+                        Editor::Asset* asset = &editor->textureAssets[i];
                         ImGui::PushID((int)i);
-                        AssetRefLabel(state, asset, false, thumbnailSize.x);
+                        AssetRefLabel(editor, asset, false, thumbnailSize.x);
                         ImGui::PopID();
                         ImGui::EndGroup();
                     }
@@ -1397,7 +1707,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                 Editor::MaterialAsset* editAsset = nullptr;
                 if (pushed) {
                     ImGui::OpenPopup("Material Editor");
-                    snprintf(nameEditBuf, Editor::FILENAME_BUF_SIZE, "Material%llu", state->materialAssetIndex);
+                    snprintf(nameEditBuf, Editor::FILENAME_BUF_SIZE, "Material%llu", editor->materialAssetIndex);
                 }
 
                 if (ImGui::BeginPopup("Material Editor")) {
@@ -1495,17 +1805,17 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             ImGui::CloseCurrentPopup();
                         }
                         //ImGui::BeginChild("##list", ImGui::GetContentRegionAvail());
-                        for (size_t i = 0; i < state->textureAssetIndex; ++i) {
-                            if (state->textureAssets[i].asset.id == 0) { continue; }
-                            auto texHandle = renderer->GetTextureHandle(renderWorld, state->textureAssets[i].asset);
+                        for (size_t i = 0; i < editor->textureAssetIndex; ++i) {
+                            if (editor->textureAssets[i].asset.id == 0) { continue; }
+                            auto texHandle = renderer->GetTextureHandle(renderWorld, editor->textureAssets[i].asset);
                             ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
                             if (ImGui::IsItemHovered()) {
                                 ImGui::BeginTooltip();
-                                ImGui::Text("%s", state->textureAssets[i].name);
+                                ImGui::Text("%s", editor->textureAssets[i].name);
                                 ImGui::EndTooltip();
 
                                 if (ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                                    *texSlot = state->textureAssets[i].asset;
+                                    *texSlot = editor->textureAssets[i].asset;
                                     //ImGui::CloseCurrentPopup();
                                 }
                             }
@@ -1521,7 +1831,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     ImGui::SameLine();
                     bool cancel = ImGui::Button("Cancel", ImVec2(100, 25));
                     if (done) {
-                        ImportMaterialAsset(state, nameEditBuf, &desc, renderer, renderWorld);
+                        ImportMaterialAsset(editor, nameEditBuf, &desc, renderer, renderWorld);
 
                         desc = renderer::MaterialDesc();
                     }
@@ -1532,12 +1842,12 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     ImGui::EndPopup();
                 }
 
-                for (size_t i = 0; i < state->materialAssetIndex; ++i) {
-                    Editor::Asset* asset = &state->materialAssets[i];
+                for (size_t i = 0; i < editor->materialAssetIndex; ++i) {
+                    Editor::Asset* asset = &editor->materialAssets[i];
                     if (asset->asset.id == 0) { continue; }
 
                     ImGui::PushID((int)i);
-                    AssetRefLabel(state, asset, false);
+                    AssetRefLabel(editor, asset, false);
                     ImGui::PopID();
 
                     auto baseColorHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.baseColorMap);
@@ -1592,17 +1902,17 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                         for (size_t i = 0; i < numItems; ++i) {
                             GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
 
-                            ImportMeshAssetFromFile(state, files[i].path, frameAllocator, renderer, renderWorld);
+                            ImportMeshAssetFromFile(editor, files[i].path, frameAllocator, renderer, renderWorld);
                         }
                     }
                 }
 
                 ImGui::BeginChild("##meshes", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
                 ImGui::Spacing();
-                for (size_t i = 0; i < state->meshAssetIndex; ++i) {
-                    if (state->meshAssets[i].asset.id == 0) { continue; }
+                for (size_t i = 0; i < editor->meshAssetIndex; ++i) {
+                    if (editor->meshAssets[i].asset.id == 0) { continue; }
                     ImGui::PushID((int)i);
-                    AssetRefLabel(state, &state->meshAssets[i], false);
+                    AssetRefLabel(editor, &editor->meshAssets[i], false);
                     ImGui::PopID();
                 }
                 ImGui::EndChild();
@@ -1612,20 +1922,20 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     }
 
     //ImGui::ShowTestWindow();
-    if (state->views.enableView[Editor::Views::RENDERER_SETTINGS]) {
-        if (ImGui::Begin(VIEW_LABELS[Editor::Views::RENDERER_SETTINGS], &state->views.enableView[Editor::Views::RENDERER_SETTINGS])) {
+    if (editor->views.enableView[Editor::Views::RENDERER_SETTINGS]) {
+        if (ImGui::Begin(VIEW_LABELS[Editor::Views::RENDERER_SETTINGS], &editor->views.enableView[Editor::Views::RENDERER_SETTINGS])) {
             ImGui::Text("Active environment map");
             ImGui::InputInt("", (int*)renderer->GetActiveCubemap(renderWorld));
         } ImGui::End();
     }
 
-    if (state->views.enableView[Editor::Views::PROPERTY_EDITOR]) {
-        if (ImGui::Begin(VIEW_LABELS[Editor::Views::PROPERTY_EDITOR], &state->views.enableView[Editor::Views::PROPERTY_EDITOR])) {
+    if (editor->views.enableView[Editor::Views::PROPERTY_EDITOR]) {
+        if (ImGui::Begin(VIEW_LABELS[Editor::Views::PROPERTY_EDITOR], &editor->views.enableView[Editor::Views::PROPERTY_EDITOR])) {
             static entity_system::Entity selectedEntity = { entity_system::INVALID_ID };
-            if (!IsEntityInList(&state->entitySelection, selectedEntity)) {
+            if (!IsEntityInList(&editor->entitySelection, selectedEntity)) {
                 selectedEntity = { entity_system::INVALID_ID };
             }
-            EntityNode* it = state->entitySelection.head;
+            EntityNode* it = editor->entitySelection.head;
             if (selectedEntity.id == entity_system::INVALID_ID && it != nullptr) {
                 selectedEntity = it->ent;
             }
@@ -1675,7 +1985,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             util::Set4x4FloatMatrixColumnCM(groupTransform, 3, math::float4(meanPosition, 1.0f));
             //ImGuizmo::RecomposeMatrixFromComponents((float*)meanPosition, (float*)meanRotation, (float*)meanScale, groupTransform);
 
-            ImGui::Text("Editing %s", state->isEditing ? ICON_FA_CHECK : ICON_FA_TIMES);
+            ImGui::Text("Editing %s", editor->isEditing ? ICON_FA_CHECK : ICON_FA_TIMES);
 
             ImVec2 contentRegion = ImGui::GetContentRegionAvail();
             ImGui::BeginChild("##properties", contentRegion);
@@ -1729,9 +2039,9 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                     ImGui::Text("Mesh: ");
                     ImGui::SameLine();
 
-                    auto asset = LookupMeshAsset(meshAsset, state->meshAssets, state->meshAssetIndex);
+                    auto asset = LookupMeshAsset(meshAsset, editor->meshAssets, editor->meshAssetIndex);
                     ImGui::PushID(-1);
-                    auto newMesh = AssetRefLabel(state, asset, true);
+                    auto newMesh = AssetRefLabel(editor, asset, true);
                     ImGui::PopID();
                     if (newMesh != nullptr) {
                         anyChange = true;
@@ -1741,11 +2051,11 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                         ImGui::OpenPopup("##meshPicker");
                     }
                     if (ImGui::BeginPopup("##meshPicker")) {
-                        for (size_t i = 0; i < state->meshAssetIndex; ++i) {
-                            if (state->meshAssets[i].asset.id == 0) { continue; }
-                            ImGui::Text("%s", state->meshAssets[i].name);
+                        for (size_t i = 0; i < editor->meshAssetIndex; ++i) {
+                            if (editor->meshAssets[i].asset.id == 0) { continue; }
+                            ImGui::Text("%s", editor->meshAssets[i].name);
                             if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
-                                meshAsset = state->meshAssets[i].asset;
+                                meshAsset = editor->meshAssets[i].asset;
                                 anyChange = true;
                                 ImGui::CloseCurrentPopup();
                             }
@@ -1765,9 +2075,9 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                             ImGui::OpenPopup("##materialPicker");
                         }
                         ImGui::SameLine();
-                        Editor::Asset* asset = LookupMaterialAsset(materials[0], state->materialAssets, state->materialAssetIndex);
+                        Editor::Asset* asset = LookupMaterialAsset(materials[0], editor->materialAssets, editor->materialAssetIndex);
                         ImGui::PushID(-1);
-                        auto newMat = AssetRefLabel(state, asset, true);
+                        auto newMat = AssetRefLabel(editor, asset, true);
                         ImGui::PopID();
                         if (newMat != nullptr) {
                             for (size_t i = 0; i < numSubmeshes; ++i) {
@@ -1779,7 +2089,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                         }
                     }
                     for (size_t i = 0; i < numSubmeshes; ++i) {
-                        Editor::Asset* asset = LookupMaterialAsset(materials[i], state->materialAssets, state->materialAssetIndex);
+                        Editor::Asset* asset = LookupMaterialAsset(materials[i], editor->materialAssets, editor->materialAssetIndex);
                         ImGui::PushID((int)i);
                         ImGui::Text("mat_%llu: ", i);
                         ImGui::PopID();
@@ -1790,7 +2100,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                         }
                         ImGui::SameLine();
                         ImGui::PushID((int)i);
-                        auto newMat = AssetRefLabel(state, asset, true);
+                        auto newMat = AssetRefLabel(editor, asset, true);
                         ImGui::PopID();
                         if (newMat != nullptr) {
                             anyChange = true;
@@ -1798,15 +2108,15 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
                         }
                     }
                     if (ImGui::BeginPopup("##materialPicker")) {
-                        for (size_t i = 0; i < state->materialAssetIndex; ++i) {
-                            ImGui::Text("%s", state->materialAssets[i].name);
+                        for (size_t i = 0; i < editor->materialAssetIndex; ++i) {
+                            ImGui::Text("%s", editor->materialAssets[i].name);
                             if (ImGui::IsItemHovered() && ImGui::IsItemClicked(MOUSE_LEFT)) {
                                 if (editMaterialIndex >= 0) {
-                                    materials[editMaterialIndex] = state->materialAssets[i].asset;
+                                    materials[editMaterialIndex] = editor->materialAssets[i].asset;
                                 }
                                 else {
                                     for (size_t j = 0; j < numSubmeshes; ++j) {
-                                        materials[j] = state->materialAssets[i].asset;
+                                        materials[j] = editor->materialAssets[i].asset;
                                     }
                                 }
                                 anyChange = true;
@@ -1838,19 +2148,19 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
             auto posDifference = newPosition - meanPosition;
 
             if (math::Length(posDifference) > 0.001f) {
-                if (!state->isEditing) {
-                    state->isEditing = true;
+                if (!editor->isEditing) {
+                    editor->isEditing = true;
 
                 }
             }
             else {
-                if (state->isEditing) {
-                    state->isEditing = false;
+                if (editor->isEditing) {
+                    editor->isEditing = false;
                 }
             }
 
 
-            it = state->entitySelection.head;
+            it = editor->entitySelection.head;
             while (it) {
                 math::float3 pos = util::Get4x4FloatMatrixColumnCM(entitySystem->GetEntityTransform(world, it->ent), 3).xyz;
 
@@ -1868,7 +2178,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
     }
 
     *numEntitiesSelected = 0;
-    auto it = state->entitySelection.head;
+    auto it = editor->entitySelection.head;
     while (it != nullptr) {
         (*numEntitiesSelected)++;
         it = it->next;
@@ -1876,7 +2186,7 @@ void Update(void* userData, ImGuiContext* guiContext, entity_system::World* worl
 
     if (*numEntitiesSelected > 0) {
         *entitySelection = (entity_system::Entity*)frameAllocator->Allocate(sizeof(entity_system::Entity) * (*numEntitiesSelected), alignof(entity_system::Entity));
-        it = state->entitySelection.head;
+        it = editor->entitySelection.head;
         int i = 0;
         while (it != nullptr) {
             (*entitySelection)[i++].id = it->ent.id;

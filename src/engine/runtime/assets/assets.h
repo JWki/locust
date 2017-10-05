@@ -13,44 +13,26 @@ namespace fnd {
 
 namespace assets
 {
-    
-    enum class AssetType : uint16_t
+    typedef uint16_t AssetType;
+    typedef uint64_t AssetID;
+
+    enum class NativeAssetType : AssetType
     {
-        STATIC_MESH,
+        STATIC_MESH = 0,
         MATERIAL,
-        TEXTURE
+        TEXTURE,
+        _LAST = TEXTURE
     };
-
-
-    struct StaticMeshAsset
-    {
-        gfx::VertexLayoutDesc   vertexLayout;
-        gfx::IndexFormat        indexFormat;
-        void*                   vertexBuffer;
-        void*                   indexBuffer;
-    };
-
-    struct MaterialAsset
-    {
-
-    };
-
-    struct TextureAsset
-    {
-
-    };
-
+    
     struct Asset
     {
-        AssetType type;
 
-        union {
-            StaticMeshAsset staticMesh;
-            MaterialAsset material;
-            TextureAsset texture;
-        };
     };
 
+    struct AssetRef
+    {
+        AssetID     ID;
+    };
 
     struct AssetLibrary;
     struct AssetLibraryConfig
