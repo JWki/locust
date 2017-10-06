@@ -231,7 +231,11 @@ namespace gfx
         uint16_t    width           = 0;
         uint16_t    height          = 0;
         uint16_t    numMipmaps      = 1;
-        uint16_t    numSlices       = 1;
+
+        //union {
+            //uint16_t    depth;
+            uint16_t    numSlices = 1;
+        //};
 
         ResourceUsage   usage       = ResourceUsage::_DEFAULT;
         

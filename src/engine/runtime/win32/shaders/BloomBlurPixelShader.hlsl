@@ -14,11 +14,11 @@ float4 blur9(Texture2D image, sampler smpler, float2 uv, float2 resolution, floa
     float4 color = 0.0f;
     float2 off1 = 1.3846153846 * direction;
     float2 off2 = 3.2307692308 * direction;
-    color += image.Sample(smpler, uv) * 0.2270270270;
-    color += image.Sample(smpler, uv + (off1 / resolution)) * 0.3162162162;
-    color += image.Sample(smpler, uv - (off1 / resolution)) * 0.3162162162;
-    color += image.Sample(smpler, uv + (off2 / resolution)) * 0.0702702703;
-    color += image.Sample(smpler, uv - (off2 / resolution)) * 0.0702702703;
+    color += image.Sample(smpler, uv) * 0.2270270270 * (texture1.Sample(sampler1, uv).a > 1.0f ? 1.0f : 0.0f);
+    color += image.Sample(smpler, uv + (off1 / resolution)) * 0.3162162162 * (texture1.Sample(sampler1, uv + (off1 / resolution)).a > 1.0f ? 1.0f : 0.0f);
+    color += image.Sample(smpler, uv - (off1 / resolution)) * 0.3162162162 * (texture1.Sample(sampler1, uv - (off1 / resolution)).a > 1.0f ? 1.0f : 0.0f);
+    color += image.Sample(smpler, uv + (off2 / resolution)) * 0.0702702703 * (texture1.Sample(sampler1, uv + (off2 / resolution)).a > 1.0f ? 1.0f : 0.0f);
+    color += image.Sample(smpler, uv - (off2 / resolution)) * 0.0702702703 * (texture1.Sample(sampler1, uv - (off2 / resolution)).a > 1.0f ? 1.0f : 0.0f);
     return color;
 }
 
@@ -29,11 +29,17 @@ float4 main(PixelInput input) : SV_Target
     float2 aspect = float2(1.0f / 1920.0f, 1.0f / 1080.0f);
 
     float2 res;
-    texture1.GetDimensions(res.x, res.y);
-    float a = texture1.Sample(sampler1, input.uv).a;
-    float4 col = blur9(texture0, sampler0, input.uv, res, float2(1.0f, 0.0f));
-    //if (a < 1.0f) { discard; }
+    texture0.GetDimensions(res.x, res.y);
+    
+    float4 colA = blur9(texture0, sampler0, input.uv, res, float2(1.0f, 0.0f));
+    float4 colB = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 1.0f));
+    float4 colC = blur9(texture0, sampler0, input.uv, res, float2(1.0f, 1.0f));
+    //float4 colD = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 0.0f));
+    //float4 colE = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 1.0f));
+    //float4 colF = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 1.0f));
+    float4 col = colA + colB + colC;
     /*
+    float4 colB //if (a < 1.0f) { discard; }
     int numSamples = 0;
     float2 blurRadius = float2(4.0f, 4.0f);
     const int kernelCount = 2;
