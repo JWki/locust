@@ -12,8 +12,8 @@ sampler sampler1 : register(s1);
 
 float4 blur9(Texture2D image, sampler smpler, float2 uv, float2 resolution, float2 direction) {
     float4 color = 0.0f;
-    float2 off1 = 1.3846153846 * direction;
-    float2 off2 = 3.2307692308 * direction;
+    float2 off1 = 1.3846153846 * direction * 4.0f;
+    float2 off2 = 3.2307692308 * direction * 4.0f;
     color += image.Sample(smpler, uv) * 0.2270270270 * (texture1.Sample(sampler1, uv).a > 1.0f ? 1.0f : 0.0f);
     color += image.Sample(smpler, uv + (off1 / resolution)) * 0.3162162162 * (texture1.Sample(sampler1, uv + (off1 / resolution)).a > 1.0f ? 1.0f : 0.0f);
     color += image.Sample(smpler, uv - (off1 / resolution)) * 0.3162162162 * (texture1.Sample(sampler1, uv - (off1 / resolution)).a > 1.0f ? 1.0f : 0.0f);
@@ -31,9 +31,9 @@ float4 main(PixelInput input) : SV_Target
     float2 res;
     texture0.GetDimensions(res.x, res.y);
     
-    float4 colA = blur9(texture0, sampler0, input.uv, res, float2(1.0f, 0.0f));
-    float4 colB = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 1.0f));
-    float4 colC = blur9(texture0, sampler0, input.uv, res, float2(1.0f, 1.0f));
+    float4 colA = blur9(texture1, sampler0, input.uv, res, float2(1.0f, 0.0f));
+    float4 colB = blur9(texture1, sampler0, input.uv, res, float2(0.0f, 1.0f));
+    float4 colC = blur9(texture1, sampler0, input.uv, res, float2(1.0f, 1.0f));
     //float4 colD = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 0.0f));
     //float4 colE = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 1.0f));
     //float4 colF = blur9(texture0, sampler0, input.uv, res, float2(0.0f, 1.0f));
