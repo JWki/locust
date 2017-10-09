@@ -187,6 +187,107 @@ static bool OpenFileDialog(char* outNameBuf, size_t outNameBufSize, const char* 
     return true;
 }
 
+bool ListDirectoryContents(const char *sDir)
+{
+    WIN32_FIND_DATAA fdFile;
+    HANDLE hFind = NULL;
+
+    char sPath[2048];
+
+    //Specify a file mask. *.* = We want everything!
+    snprintf(sPath, 2048, "%s\\*.*", sDir);
+
+    if ((hFind = FindFirstFileA(sPath, &fdFile)) == INVALID_HANDLE_VALUE)
+    {
+        printf("Path not found: [%s]\n", sDir);
+        return false;
+    }
+
+    do
+    {
+        //Find first file will always return "."
+        //    and ".." as the first two directories.
+        if (strcmp(fdFile.cFileName, ".") != 0
+            && strcmp(fdFile.cFileName, "..") != 0)
+        {
+            //Build up our file path using the passed in
+            //  [sDir] and the file/foldername we just found:
+            snprintf(sPath, 2048, "%s\\%s", sDir, fdFile.cFileName);
+
+            //Is the entity a File or Folder?
+            if (fdFile.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                //printf("Directory: %s\n", sPath);
+                size_t offset = strlen(sPath);
+                while (offset > 0 && sPath[offset] != '\\') {
+                    offset--;
+                }
+                if (sPath[offset] == '\\') { offset++; }
+
+                char formatBuf[MAX_PATH];
+                snprintf(formatBuf, MAX_PATH, "%s %s", ICON_FA_FOLDER_O, sPath + offset);
+
+                if (ImGui::TreeNode(sPath, "%s", formatBuf)) {
+                    ListDirectoryContents(sPath); //Recursion, I love it!
+                    ImGui::TreePop();
+                }
+            }
+            else {
+                //printf("File: %s\n", sPath);
+                size_t offset = strlen(sPath);
+                while (offset > 0 && sPath[offset] != '\\') {
+                    offset--;
+                } 
+                if (sPath[offset] == '\\') { offset++; }
+                ImGui::Text("       %s %s", ICON_FA_FILE_O, sPath + offset);
+            }
+        }
+    } while (FindNextFileA(hFind, &fdFile)); //Find the next file.
+   
+
+    FindClose(hFind); //Always, Always, clean things up!
+
+    return true;
+}
+
+// https://www.codeproject.com/Articles/13088/How-to-Browse-for-a-Folder
+bool GetFolder(char* outPath, const char* caption)
+{
+    bool retVal = false;
+
+    // The BROWSEINFO struct tells the shell 
+    // how it should display the dialog.
+    BROWSEINFOA bi;
+    memset(&bi, 0, sizeof(bi));
+
+    bi.ulFlags = BIF_USENEWUI;
+    bi.hwndOwner = NULL;
+    bi.lpszTitle = caption;
+
+    // must call this if using BIF_USENEWUI
+    ::OleInitialize(NULL);
+
+    // Show the dialog and get the itemIDList for the 
+    // selected folder.
+    LPITEMIDLIST pIDL = ::SHBrowseForFolderA(&bi);
+
+    if (pIDL != NULL)
+    {
+
+        if (::SHGetPathFromIDListA(pIDL, outPath) != 0)
+        {
+            retVal = true;
+        }
+
+        // free the item id list
+        CoTaskMemFree(pIDL);
+    }
+
+    ::OleUninitialize();
+
+    return retVal;
+};
+
 static bool DoesFileExist(const char* path) 
 {
     DWORD dwAttrib = GetFileAttributesA(path);
@@ -396,6 +497,7 @@ struct Editor {
     size_t frameIndex = 0;
 
     char* prefPath = nullptr;
+    char* currentDirectory = nullptr;
 
     size_t numRecentProjects = 0;
     char** recentProjectPaths = nullptr;
@@ -582,6 +684,8 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     util::Make4x4FloatMatrixIdentity(editor->camOffsetWithRotation);
     util::Make4x4FloatTranslationMatrixCM(editor->cameraPos, { 0.0f, -0.4f, 2.75f });
 
+    editor->currentDirectory = GT_NEW_ARRAY(char, MAX_PATH, memoryArena);
+    GetCurrentDirectoryA(MAX_PATH, editor->currentDirectory);
 
     editor->prefPath = GT_NEW_ARRAY(char, MAX_PATH, memoryArena);
     if (!SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, editor->prefPath))) {
@@ -1172,42 +1276,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
                 ImGui::SetTooltip("%s", edit.basePath);
             }
         
-            // https://www.codeproject.com/Articles/13088/How-to-Browse-for-a-Folder
-            auto GetFolder = [](char* outPath, const char* caption) -> bool {
-                bool retVal = false;
-
-                // The BROWSEINFO struct tells the shell 
-                // how it should display the dialog.
-                BROWSEINFOA bi;
-                memset(&bi, 0, sizeof(bi));
-
-                bi.ulFlags = BIF_USENEWUI;
-                bi.hwndOwner = NULL;
-                bi.lpszTitle = caption;
-
-                // must call this if using BIF_USENEWUI
-                ::OleInitialize(NULL);
-
-                // Show the dialog and get the itemIDList for the 
-                // selected folder.
-                LPITEMIDLIST pIDL = ::SHBrowseForFolderA(&bi);
-
-                if (pIDL != NULL)
-                {
-
-                    if (::SHGetPathFromIDListA(pIDL, outPath) != 0)
-                    {
-                        retVal = true;
-                    }
-
-                    // free the item id list
-                    CoTaskMemFree(pIDL);
-                }
-
-                ::OleUninitialize();
-
-                return retVal;
-            };
+           
 
             ImGui::SameLine();
             if (ImGui::Button(ICON_FA_FOLDER "  Browse...")) {
@@ -1615,307 +1684,354 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
     if (editor->views.enableView[Editor::Views::ASSET_BROWSER]) {
         if (ImGui::Begin(VIEW_LABELS[Editor::Views::ASSET_BROWSER], &editor->views.enableView[Editor::Views::ASSET_BROWSER])) {
-            ImGui::Spacing();
-            {   // Textures
-                ImGui::Text("Textures");
-                ImGui::Spacing();
-                ImGui::PushID("##importtex");
-                bool pushed = ImGui::Button("Import");
-                ImGui::PopID();
-                if (pushed) {
-                    const size_t maxNumItems = 64;
-                    char* buf = GT_NEW_ARRAY(char, Editor::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
-                    FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
-                    size_t numItems = 0;
-                    if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE * maxNumItems, "All Image Files\0*.png;*.jpeg;*.jpg;*.tga;*.hdr\0PNG Image Files\0*.png\0JPG Image Files\0*.jpeg;*.jpg\0TGA Image Files\0*.tga\0HDR Image Files\0*.hdr\0", files, maxNumItems, &numItems)) {
 
-                        for (size_t i = 0; i < numItems; ++i) {
-                            GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
-                            ImportTextureFromFile(editor, files[i].path, frameAllocator, renderer, renderWorld);
-                        }
+            static const size_t TAB_ASSET_VIEW = 0;
+            static const size_t TAB_FILESYSTEM_VIEW = 1;
+
+            static size_t activeTab = TAB_FILESYSTEM_VIEW;
+
+            auto buttonColor = ImGui::GetStyle().Colors[ImGuiCol_Button];
+
+            ImGui::PushStyleColor(ImGuiCol_Button, activeTab == TAB_ASSET_VIEW ? buttonColor : ImVec4(buttonColor.x, buttonColor.y, buttonColor.z, buttonColor.w * 0.5f));
+            if (ImGui::Button("Asset View")) {
+                activeTab = TAB_ASSET_VIEW;
+            }
+            ImGui::PopStyleColor();
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Button, activeTab == TAB_FILESYSTEM_VIEW ? buttonColor : ImVec4(buttonColor.x, buttonColor.y, buttonColor.z, buttonColor.w * 0.5f));
+            if (ImGui::Button("Filesystem View")) {
+                activeTab = TAB_FILESYSTEM_VIEW;
+            }
+            ImGui::PopStyleColor();
+
+
+            ImGui::Separator();
+
+            if (activeTab == TAB_FILESYSTEM_VIEW) {
+                ImGui::Text("Asset Source Directory");
+                ImGui::InputText("", editor->currentDirectory, MAX_PATH);
+                ImGui::SameLine();
+                if (ImGui::Button(ICON_FA_FOLDER "  Browse...")) {
+                    if (GetFolder(editor->currentDirectory, "Pick asset source directory")) {
+
                     }
                 }
 
-                ImGui::Spacing();
-                static float displayScale = 1.0f;
-                ImGui::SliderFloat("##displayScale", &displayScale, 0.5f, 4.0f);
-
-                ImGui::BeginChild("##textures", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::Spacing();
-                size_t numDisplayColumns = (size_t)(ImGui::GetContentRegionAvailWidth() / (displayScale * 128.0f));
-                numDisplayColumns = numDisplayColumns > 1 ? numDisplayColumns : 1;
-                for (size_t i = 1; i < editor->textureAssetIndex; ++i) {
-                    if (editor->textureAssets[i].asset.id == 0) { continue; }
-                    auto texHandle = renderer->GetTextureHandle(renderWorld, editor->textureAssets[i].asset);
-                    if (((i - 1) % numDisplayColumns) != 0) {
-                        ImGui::SameLine();
-                    }
-                    else {
-                        ImGui::Spacing();
-                    }
-                    {   // thumbnail group
-                        ImGui::BeginGroup();
-
-                        float width = editor->textureAssets[i].as_texture.desc.desc.width;
-                        float height = editor->textureAssets[i].as_texture.desc.desc.height;
-                        float ratio = width / height;
-
-                        const ImVec2 thumbnailSize = ImVec2(128 * displayScale, 128 * displayScale);
-                        if (width > thumbnailSize.x) {
-                            width = thumbnailSize.x;
-                            height = width / ratio;
-                        }
-                        if (height > thumbnailSize.y) {
-                            height = thumbnailSize.y;
-                            width = height * ratio;
-                        }
-
-                        auto drawList = ImGui::GetWindowDrawList();
-                        auto cursorPos = ImGui::GetCursorScreenPos();
-                        drawList->AddRectFilled(cursorPos, ImVec2(cursorPos.x + thumbnailSize.x, cursorPos.y + thumbnailSize.y), ImGui::ColorConvertFloat4ToU32(ImVec4(0.0f, 0.0f, 0.0f, 1.0f)));
-                        auto offset = ImGui::GetCursorPos();
-                        offset.x += thumbnailSize.x * 0.5f - width * 0.5f;
-                        offset.y += thumbnailSize.y * 0.5f - height * 0.5f;
-                        ImGui::SetCursorPos(offset);
-                        ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(width, height));
-                        ImGui::SetCursorScreenPos(cursorPos);
-                        ImGui::Dummy(thumbnailSize);
-
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::BeginTooltip();
-                            ImGui::Text("%s", editor->textureAssets[i].name);
-                            ImGui::EndTooltip();
-                        }
-                        Editor::Asset* asset = &editor->textureAssets[i];
-                        ImGui::PushID((int)i);
-                        AssetRefLabel(editor, asset, false, thumbnailSize.x);
-                        ImGui::PopID();
-                        ImGui::EndGroup();
-                    }
+                ImGui::BeginChild("##listview", ImGui::GetContentRegionAvail(), true);
+                char formatBuf[MAX_PATH];
+                snprintf(formatBuf, MAX_PATH, "%s %s", ICON_FA_FOLDER_O, editor->currentDirectory);
+                if (ImGui::TreeNode(formatBuf)) {
+                    ListDirectoryContents(editor->currentDirectory);
+                    ImGui::TreePop();
                 }
                 ImGui::EndChild();
             }
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-            {   // materials
-                ImGui::Text("Materials");
 
-                bool pushed = ImGui::Button("Create New");
+            if (activeTab == TAB_ASSET_VIEW) {
 
-                static char nameEditBuf[Editor::FILENAME_BUF_SIZE];
-                Editor::MaterialAsset* editAsset = nullptr;
-                if (pushed) {
-                    ImGui::OpenPopup("Material Editor");
-                    snprintf(nameEditBuf, Editor::FILENAME_BUF_SIZE, "Material%llu", editor->materialAssetIndex);
-                }
+                ImGui::Spacing();
+                {   // Textures
+                    ImGui::Text("Textures");
+                    ImGui::Spacing();
+                    ImGui::PushID("##importtex");
+                    bool pushed = ImGui::Button("Import");
+                    ImGui::PopID();
+                    if (pushed) {
+                        const size_t maxNumItems = 64;
+                        char* buf = GT_NEW_ARRAY(char, Editor::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
+                        FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
+                        size_t numItems = 0;
+                        if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE * maxNumItems, "All Image Files\0*.png;*.jpeg;*.jpg;*.tga;*.hdr\0PNG Image Files\0*.png\0JPG Image Files\0*.jpeg;*.jpg\0TGA Image Files\0*.tga\0HDR Image Files\0*.hdr\0", files, maxNumItems, &numItems)) {
 
-                if (ImGui::BeginPopup("Material Editor")) {
-
-                    static renderer::MaterialDesc desc;
-                    static core::Asset* texSlot = nullptr;
-
-                    ImGui::InputText("##name", nameEditBuf, Editor::FILENAME_BUF_SIZE);
-
-                    {   // base color
-                        ImGui::Text("Base Color");
-                        if (desc.baseColorMap.id == 0) {
-                            ImGui::PushID("##basecolor");
-                            ImGui::Dummy(ImVec2(128, 128));
-                            ImGui::PopID();
-                        }
-                        else {
-                            auto texHandle = renderer->GetTextureHandle(renderWorld, desc.baseColorMap);
-                            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
-                        }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                            ImGui::OpenPopup("##texturePicker");
-                            texSlot = &desc.baseColorMap;
-                        }
-                    }
-                    {   // roughness
-                        ImGui::Text("Roughness");
-                        if (desc.baseColorMap.id == 0) {
-                            ImGui::PushID("##roughness");
-                            ImGui::Dummy(ImVec2(128, 128));
-                            ImGui::PopID();
-                        }
-                        else {
-                            auto texHandle = renderer->GetTextureHandle(renderWorld, desc.roughnessMap);
-                            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
-                        }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                            ImGui::OpenPopup("##texturePicker");
-                            texSlot = &desc.roughnessMap;
-                        }
-                    }
-                    {   // metalness
-                        ImGui::Text("Metallic");
-                        if (desc.baseColorMap.id == 0) {
-                            ImGui::PushID("##metallic");
-                            ImGui::Dummy(ImVec2(128, 128));
-                            ImGui::PopID();
-
-                        }
-                        else {
-                            auto texHandle = renderer->GetTextureHandle(renderWorld, desc.metalnessMap);
-                            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
-                        }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                            ImGui::OpenPopup("##texturePicker");
-                            texSlot = &desc.metalnessMap;
-                        }
-                    }
-                    {   // normal map
-                        ImGui::Text("Normal Map");
-                        if (desc.baseColorMap.id == 0) {
-                            ImGui::PushID("##normalmap");
-                            ImGui::Dummy(ImVec2(128, 128));
-                            ImGui::PopID();
-
-                        }
-                        else {
-                            auto texHandle = renderer->GetTextureHandle(renderWorld, desc.normalVecMap);
-                            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
-                        }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                            ImGui::OpenPopup("##texturePicker");
-                            texSlot = &desc.normalVecMap;
-                        }
-                    }
-                    {   // ao map
-                        ImGui::Text("Occlusion Map");
-                        if (desc.baseColorMap.id == 0) {
-                            ImGui::PushID("##occlusion");
-                            ImGui::Dummy(ImVec2(128, 128));
-                            ImGui::PopID();
-                        }
-                        else {
-                            auto texHandle = renderer->GetTextureHandle(renderWorld, desc.occlusionMap);
-                            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
-                        }
-                        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                            ImGui::OpenPopup("##texturePicker");
-                            texSlot = &desc.occlusionMap;
+                            for (size_t i = 0; i < numItems; ++i) {
+                                GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
+                                ImportTextureFromFile(editor, files[i].path, frameAllocator, renderer, renderWorld);
+                            }
                         }
                     }
 
-                    if (ImGui::BeginPopup("##texturePicker")) {
-                        if (ImGui::Button("Cancel")) {
-                            ImGui::CloseCurrentPopup();
+                    ImGui::Spacing();
+                    static float displayScale = 1.0f;
+                    ImGui::SliderFloat("##displayScale", &displayScale, 0.5f, 4.0f);
+
+                    ImGui::BeginChild("##textures", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::Spacing();
+                    size_t numDisplayColumns = (size_t)(ImGui::GetContentRegionAvailWidth() / (displayScale * 128.0f));
+                    numDisplayColumns = numDisplayColumns > 1 ? numDisplayColumns : 1;
+                    for (size_t i = 1; i < editor->textureAssetIndex; ++i) {
+                        if (editor->textureAssets[i].asset.id == 0) { continue; }
+                        auto texHandle = renderer->GetTextureHandle(renderWorld, editor->textureAssets[i].asset);
+                        if (((i - 1) % numDisplayColumns) != 0) {
+                            ImGui::SameLine();
                         }
-                        //ImGui::BeginChild("##list", ImGui::GetContentRegionAvail());
-                        for (size_t i = 0; i < editor->textureAssetIndex; ++i) {
-                            if (editor->textureAssets[i].asset.id == 0) { continue; }
-                            auto texHandle = renderer->GetTextureHandle(renderWorld, editor->textureAssets[i].asset);
-                            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                        else {
+                            ImGui::Spacing();
+                        }
+                        {   // thumbnail group
+                            ImGui::BeginGroup();
+
+                            float width = editor->textureAssets[i].as_texture.desc.desc.width;
+                            float height = editor->textureAssets[i].as_texture.desc.desc.height;
+                            float ratio = width / height;
+
+                            const ImVec2 thumbnailSize = ImVec2(128 * displayScale, 128 * displayScale);
+                            if (width > thumbnailSize.x) {
+                                width = thumbnailSize.x;
+                                height = width / ratio;
+                            }
+                            if (height > thumbnailSize.y) {
+                                height = thumbnailSize.y;
+                                width = height * ratio;
+                            }
+
+                            auto drawList = ImGui::GetWindowDrawList();
+                            auto cursorPos = ImGui::GetCursorScreenPos();
+                            drawList->AddRectFilled(cursorPos, ImVec2(cursorPos.x + thumbnailSize.x, cursorPos.y + thumbnailSize.y), ImGui::ColorConvertFloat4ToU32(ImVec4(0.0f, 0.0f, 0.0f, 1.0f)));
+                            auto offset = ImGui::GetCursorPos();
+                            offset.x += thumbnailSize.x * 0.5f - width * 0.5f;
+                            offset.y += thumbnailSize.y * 0.5f - height * 0.5f;
+                            ImGui::SetCursorPos(offset);
+                            ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(width, height));
+                            ImGui::SetCursorScreenPos(cursorPos);
+                            ImGui::Dummy(thumbnailSize);
+
                             if (ImGui::IsItemHovered()) {
                                 ImGui::BeginTooltip();
                                 ImGui::Text("%s", editor->textureAssets[i].name);
                                 ImGui::EndTooltip();
-
-                                if (ImGui::IsMouseClicked(MOUSE_LEFT)) {
-                                    *texSlot = editor->textureAssets[i].asset;
-                                    //ImGui::CloseCurrentPopup();
-                                }
                             }
-
-                            if (i != 0 && (i % 4) != 0) { ImGui::SameLine(); }
+                            Editor::Asset* asset = &editor->textureAssets[i];
+                            ImGui::PushID((int)i);
+                            AssetRefLabel(editor, asset, false, thumbnailSize.x);
+                            ImGui::PopID();
+                            ImGui::EndGroup();
                         }
-                        //ImGui::EndChild();
+                    }
+                    ImGui::EndChild();
+                }
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+                {   // materials
+                    ImGui::Text("Materials");
+
+                    bool pushed = ImGui::Button("Create New");
+
+                    static char nameEditBuf[Editor::FILENAME_BUF_SIZE];
+                    Editor::MaterialAsset* editAsset = nullptr;
+                    if (pushed) {
+                        ImGui::OpenPopup("Material Editor");
+                        snprintf(nameEditBuf, Editor::FILENAME_BUF_SIZE, "Material%llu", editor->materialAssetIndex);
+                    }
+
+                    if (ImGui::BeginPopup("Material Editor")) {
+
+                        static renderer::MaterialDesc desc;
+                        static core::Asset* texSlot = nullptr;
+
+                        ImGui::InputText("##name", nameEditBuf, Editor::FILENAME_BUF_SIZE);
+
+                        {   // base color
+                            ImGui::Text("Base Color");
+                            if (desc.baseColorMap.id == 0) {
+                                ImGui::PushID("##basecolor");
+                                ImGui::Dummy(ImVec2(128, 128));
+                                ImGui::PopID();
+                            }
+                            else {
+                                auto texHandle = renderer->GetTextureHandle(renderWorld, desc.baseColorMap);
+                                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                            }
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                                ImGui::OpenPopup("##texturePicker");
+                                texSlot = &desc.baseColorMap;
+                            }
+                        }
+                        {   // roughness
+                            ImGui::Text("Roughness");
+                            if (desc.baseColorMap.id == 0) {
+                                ImGui::PushID("##roughness");
+                                ImGui::Dummy(ImVec2(128, 128));
+                                ImGui::PopID();
+                            }
+                            else {
+                                auto texHandle = renderer->GetTextureHandle(renderWorld, desc.roughnessMap);
+                                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                            }
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                                ImGui::OpenPopup("##texturePicker");
+                                texSlot = &desc.roughnessMap;
+                            }
+                        }
+                        {   // metalness
+                            ImGui::Text("Metallic");
+                            if (desc.baseColorMap.id == 0) {
+                                ImGui::PushID("##metallic");
+                                ImGui::Dummy(ImVec2(128, 128));
+                                ImGui::PopID();
+
+                            }
+                            else {
+                                auto texHandle = renderer->GetTextureHandle(renderWorld, desc.metalnessMap);
+                                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                            }
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                                ImGui::OpenPopup("##texturePicker");
+                                texSlot = &desc.metalnessMap;
+                            }
+                        }
+                        {   // normal map
+                            ImGui::Text("Normal Map");
+                            if (desc.baseColorMap.id == 0) {
+                                ImGui::PushID("##normalmap");
+                                ImGui::Dummy(ImVec2(128, 128));
+                                ImGui::PopID();
+
+                            }
+                            else {
+                                auto texHandle = renderer->GetTextureHandle(renderWorld, desc.normalVecMap);
+                                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                            }
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                                ImGui::OpenPopup("##texturePicker");
+                                texSlot = &desc.normalVecMap;
+                            }
+                        }
+                        {   // ao map
+                            ImGui::Text("Occlusion Map");
+                            if (desc.baseColorMap.id == 0) {
+                                ImGui::PushID("##occlusion");
+                                ImGui::Dummy(ImVec2(128, 128));
+                                ImGui::PopID();
+                            }
+                            else {
+                                auto texHandle = renderer->GetTextureHandle(renderWorld, desc.occlusionMap);
+                                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                            }
+                            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                                ImGui::OpenPopup("##texturePicker");
+                                texSlot = &desc.occlusionMap;
+                            }
+                        }
+
+                        if (ImGui::BeginPopup("##texturePicker")) {
+                            if (ImGui::Button("Cancel")) {
+                                ImGui::CloseCurrentPopup();
+                            }
+                            //ImGui::BeginChild("##list", ImGui::GetContentRegionAvail());
+                            for (size_t i = 0; i < editor->textureAssetIndex; ++i) {
+                                if (editor->textureAssets[i].asset.id == 0) { continue; }
+                                auto texHandle = renderer->GetTextureHandle(renderWorld, editor->textureAssets[i].asset);
+                                ImGui::Image((ImTextureID)(uintptr_t)(texHandle.id), ImVec2(128, 128));
+                                if (ImGui::IsItemHovered()) {
+                                    ImGui::BeginTooltip();
+                                    ImGui::Text("%s", editor->textureAssets[i].name);
+                                    ImGui::EndTooltip();
+
+                                    if (ImGui::IsMouseClicked(MOUSE_LEFT)) {
+                                        *texSlot = editor->textureAssets[i].asset;
+                                        //ImGui::CloseCurrentPopup();
+                                    }
+                                }
+
+                                if (i != 0 && (i % 4) != 0) { ImGui::SameLine(); }
+                            }
+                            //ImGui::EndChild();
+                            ImGui::EndPopup();
+                        }
+
+                        bool isValid = desc.baseColorMap.id != 0 && desc.roughnessMap.id != 0 && desc.metalnessMap.id != 0 && desc.normalVecMap.id != 0 && desc.occlusionMap.id != 0;
+                        bool done = ImGui::Button("Done", ImVec2(100, 25)) && isValid;
+                        ImGui::SameLine();
+                        bool cancel = ImGui::Button("Cancel", ImVec2(100, 25));
+                        if (done) {
+                            ImportMaterialAsset(editor, nameEditBuf, &desc, renderer, renderWorld);
+
+                            desc = renderer::MaterialDesc();
+                        }
+
+                        if (done || cancel) {
+                            ImGui::CloseCurrentPopup();
+                        }
                         ImGui::EndPopup();
                     }
 
-                    bool isValid = desc.baseColorMap.id != 0 && desc.roughnessMap.id != 0 && desc.metalnessMap.id != 0 && desc.normalVecMap.id != 0 && desc.occlusionMap.id != 0;
-                    bool done = ImGui::Button("Done", ImVec2(100, 25)) && isValid;
-                    ImGui::SameLine();
-                    bool cancel = ImGui::Button("Cancel", ImVec2(100, 25));
-                    if (done) {
-                        ImportMaterialAsset(editor, nameEditBuf, &desc, renderer, renderWorld);
+                    for (size_t i = 0; i < editor->materialAssetIndex; ++i) {
+                        Editor::Asset* asset = &editor->materialAssets[i];
+                        if (asset->asset.id == 0) { continue; }
 
-                        desc = renderer::MaterialDesc();
+                        ImGui::PushID((int)i);
+                        AssetRefLabel(editor, asset, false);
+                        ImGui::PopID();
+
+                        auto baseColorHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.baseColorMap);
+                        auto roughnessHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.roughnessMap);
+                        auto metalnessHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.metalnessMap);
+                        auto normalVecHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.normalVecMap);
+                        auto occlusionHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.occlusionMap);
+
+                        ImGui::BeginGroup();
+                        ImGui::Image((ImTextureID)(uintptr_t)(baseColorHandle.id), ImVec2(64, 64));
+                        ImGui::Text("Base Color");
+                        ImGui::EndGroup();
+                        ImGui::SameLine();
+                        ImGui::BeginGroup();
+                        ImGui::Image((ImTextureID)(uintptr_t)(roughnessHandle.id), ImVec2(64, 64));
+                        ImGui::Text("Roughness");
+                        ImGui::EndGroup();
+                        ImGui::SameLine();
+                        ImGui::BeginGroup();
+                        ImGui::Image((ImTextureID)(uintptr_t)(metalnessHandle.id), ImVec2(64, 64));
+                        ImGui::Text("Metallic");
+                        ImGui::EndGroup();
+                        ImGui::SameLine();
+                        ImGui::BeginGroup();
+                        ImGui::Image((ImTextureID)(uintptr_t)(normalVecHandle.id), ImVec2(64, 64));
+                        ImGui::Text("Normal Map");
+                        ImGui::EndGroup();
+                        ImGui::SameLine();
+                        ImGui::BeginGroup();
+                        ImGui::Image((ImTextureID)(uintptr_t)(occlusionHandle.id), ImVec2(64, 64));
+                        ImGui::Text("Occlusion");
+                        ImGui::EndGroup();
+
                     }
-
-                    if (done || cancel) {
-                        ImGui::CloseCurrentPopup();
-                    }
-                    ImGui::EndPopup();
                 }
-
-                for (size_t i = 0; i < editor->materialAssetIndex; ++i) {
-                    Editor::Asset* asset = &editor->materialAssets[i];
-                    if (asset->asset.id == 0) { continue; }
-
-                    ImGui::PushID((int)i);
-                    AssetRefLabel(editor, asset, false);
-                    ImGui::PopID();
-
-                    auto baseColorHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.baseColorMap);
-                    auto roughnessHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.roughnessMap);
-                    auto metalnessHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.metalnessMap);
-                    auto normalVecHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.normalVecMap);
-                    auto occlusionHandle = renderer->GetTextureHandle(renderWorld, asset->as_material.desc.occlusionMap);
-
-                    ImGui::BeginGroup();
-                    ImGui::Image((ImTextureID)(uintptr_t)(baseColorHandle.id), ImVec2(64, 64));
-                    ImGui::Text("Base Color");
-                    ImGui::EndGroup();
-                    ImGui::SameLine();
-                    ImGui::BeginGroup();
-                    ImGui::Image((ImTextureID)(uintptr_t)(roughnessHandle.id), ImVec2(64, 64));
-                    ImGui::Text("Roughness");
-                    ImGui::EndGroup();
-                    ImGui::SameLine();
-                    ImGui::BeginGroup();
-                    ImGui::Image((ImTextureID)(uintptr_t)(metalnessHandle.id), ImVec2(64, 64));
-                    ImGui::Text("Metallic");
-                    ImGui::EndGroup();
-                    ImGui::SameLine();
-                    ImGui::BeginGroup();
-                    ImGui::Image((ImTextureID)(uintptr_t)(normalVecHandle.id), ImVec2(64, 64));
-                    ImGui::Text("Normal Map");
-                    ImGui::EndGroup();
-                    ImGui::SameLine();
-                    ImGui::BeginGroup();
-                    ImGui::Image((ImTextureID)(uintptr_t)(occlusionHandle.id), ImVec2(64, 64));
-                    ImGui::Text("Occlusion");
-                    ImGui::EndGroup();
-
-                }
-            }
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-            {   // Meshes
-                ImGui::Text("Meshes");
                 ImGui::Spacing();
-                ImGui::PushID("##importmesh");
-                bool pushed = ImGui::Button("Import");
-                ImGui::PopID();
-                if (pushed) {
-                    const size_t maxNumItems = 64;
-                    char* buf = GT_NEW_ARRAY(char, Editor::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
-                    FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
-                    size_t numItems = 0;
-                    if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE * maxNumItems, "FBX Files\0*.fbx\0", files, maxNumItems, &numItems)) {
+                ImGui::Separator();
+                ImGui::Spacing();
+                {   // Meshes
+                    ImGui::Text("Meshes");
+                    ImGui::Spacing();
+                    ImGui::PushID("##importmesh");
+                    bool pushed = ImGui::Button("Import");
+                    ImGui::PopID();
+                    if (pushed) {
+                        const size_t maxNumItems = 64;
+                        char* buf = GT_NEW_ARRAY(char, Editor::FILENAME_BUF_SIZE * maxNumItems, frameAllocator);
+                        FileInfo* files = GT_NEW_ARRAY(FileInfo, maxNumItems, frameAllocator);
+                        size_t numItems = 0;
+                        if (OpenFileDialog(buf, Editor::FILENAME_BUF_SIZE * maxNumItems, "FBX Files\0*.fbx\0", files, maxNumItems, &numItems)) {
 
-                        for (size_t i = 0; i < numItems; ++i) {
-                            GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
+                            for (size_t i = 0; i < numItems; ++i) {
+                                GT_LOG_DEBUG("Editor", "Trying to import %s", files[i].path);
 
-                            ImportMeshAssetFromFile(editor, files[i].path, frameAllocator, renderer, renderWorld);
+                                ImportMeshAssetFromFile(editor, files[i].path, frameAllocator, renderer, renderWorld);
+                            }
                         }
                     }
+
+                    ImGui::BeginChild("##meshes", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::Spacing();
+                    for (size_t i = 0; i < editor->meshAssetIndex; ++i) {
+                        if (editor->meshAssets[i].asset.id == 0) { continue; }
+                        ImGui::PushID((int)i);
+                        AssetRefLabel(editor, &editor->meshAssets[i], false);
+                        ImGui::PopID();
+                    }
+                    ImGui::EndChild();
                 }
 
-                ImGui::BeginChild("##meshes", ImVec2(ImGui::GetContentRegionAvailWidth(), 400), false, ImGuiWindowFlags_HorizontalScrollbar);
-                ImGui::Spacing();
-                for (size_t i = 0; i < editor->meshAssetIndex; ++i) {
-                    if (editor->meshAssets[i].asset.id == 0) { continue; }
-                    ImGui::PushID((int)i);
-                    AssetRefLabel(editor, &editor->meshAssets[i], false);
-                    ImGui::PopID();
-                }
-                ImGui::EndChild();
             }
 
         } ImGui::End();
