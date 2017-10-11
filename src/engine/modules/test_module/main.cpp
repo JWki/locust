@@ -684,15 +684,14 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     util::Make4x4FloatMatrixIdentity(editor->camOffsetWithRotation);
     util::Make4x4FloatTranslationMatrixCM(editor->cameraPos, { 0.0f, -0.4f, 2.75f });
 
-    editor->currentDirectory = GT_NEW_ARRAY(char, MAX_PATH, memoryArena);
-    GetCurrentDirectoryA(MAX_PATH, editor->currentDirectory);
+    
 
     editor->prefPath = GT_NEW_ARRAY(char, MAX_PATH, memoryArena);
     if (!SUCCEEDED(SHGetFolderPathA(NULL, CSIDL_APPDATA | CSIDL_FLAG_CREATE, NULL, 0, editor->prefPath))) {
         GT_LOG_ERROR("Editor", "Failed to locate user preferences path");
     }
     size_t prefPathLen = strlen(editor->prefPath);
-    memcpy(editor->prefPath + prefPathLen, "\\GTEditor\\", strlen("\\GTEditor\\"));
+    memcpy(editor->prefPath + prefPathLen, "\\GTEditor", strlen("\\GTEditor"));
 
     if (!SUCCEEDED(CreateDirectoryA(editor->prefPath, NULL))) {
         GT_LOG_ERROR("Editor", "Failed to create directory for user preferences at &s", editor->prefPath);
@@ -706,6 +705,9 @@ void* Initialize(fnd::memory::MemoryArenaBase* memoryArena, core::api_registry::
     strncpy_s(editor->currentProject.basePath, MAX_PATH, editor->prefPath, MAX_PATH);     // temp project
     strncpy_s(editor->currentProject.name, MAX_PATH, "temp", MAX_PATH);
     
+    editor->currentDirectory = GT_NEW_ARRAY(char, MAX_PATH, memoryArena);
+    GetCurrentDirectoryA(MAX_PATH, editor->currentDirectory);
+    strncpy_s(editor->currentDirectory, MAX_PATH, editor->currentProject.basePath, MAX_PATH);
 
     return editor;
 }
@@ -1161,6 +1163,24 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
                     {   // switch project
                         fnd::memory::SimpleMemoryArena<fnd::memory::LinearAllocator> tempArena(frameAllocator);
                         LoadFileContents(fileInfo.path, &tempArena);
+
+                        char* basePath = nullptr;
+                        char* name = nullptr;
+
+                        memset(editor->currentProject.basePath, 0x0, MAX_PATH);
+                        memset(editor->currentProject.name, 0x0, MAX_PATH);
+
+                        memcpy(editor->currentProject.basePath, buf, Editor::FILENAME_BUF_SIZE);
+                        PathRemoveFileSpecA(editor->currentProject.basePath);
+                        name = buf + strlen(buf) - 1 - strlen(".gtproj");
+                        size_t nameLen = 0;
+                        while (*name != '\\' && name != buf) {
+                            name--;
+                            nameLen++;
+                        }
+                        memcpy(editor->currentProject.name, name + 1, nameLen);
+                        strncpy_s(editor->currentDirectory, MAX_PATH, editor->currentProject.basePath, MAX_PATH);
+
                     }
                 }
             }
@@ -1189,13 +1209,15 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
                     memcpy(editor->currentProject.basePath, buf, Editor::FILENAME_BUF_SIZE);
                     PathRemoveFileSpecA(editor->currentProject.basePath);
-                    name = buf + strlen(buf) - 1 - strlen("gtproj");
+                    name = buf + strlen(buf) - 1 - strlen(".gtproj");
                     size_t nameLen = 0;
                     while (*name != '\\' && name != buf) {
                         name--;
                         nameLen++;
                     }
                     memcpy(editor->currentProject.name, name + 1, nameLen);
+                    strncpy_s(editor->currentDirectory, MAX_PATH, editor->currentProject.basePath, MAX_PATH);
+
                 }
             }
             ImGui::EndMenu();
@@ -1238,7 +1260,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
             ImGui::EndMenu();
         }
 
-        ImGui::Text("%s%s.gtproj", editor->currentProject.basePath, editor->currentProject.name);
+        ImGui::Text("%s\\%s.gtproj", editor->currentProject.basePath, editor->currentProject.name);
         ImGui::EndMainMenuBar();
     } 
 
@@ -1706,6 +1728,10 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
 
             ImGui::Separator();
+            ImGui::Spacing();
+            ImGui::BeginChild("##view", ImGui::GetContentRegionAvail());
+            ImGui::Spacing();
+
 
             if (activeTab == TAB_FILESYSTEM_VIEW) {
                 ImGui::Text("Asset Source Directory");
@@ -2034,6 +2060,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
             }
 
+            ImGui::EndChild();
         } ImGui::End();
     }
 
