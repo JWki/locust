@@ -1030,21 +1030,21 @@ int win32_main(int argc, char* argv[])
     void*(*InitializeModule)(memory::MemoryArenaBase*, core::api_registry::APIRegistry* apiRegistry, core::api_registry::APIRegistryInterface* apiInterface);
 
     char tempPath[512] = "";
-    snprintf(tempPath, 512, "test_module_%s.dll", "temp");
+    snprintf(tempPath, 512, "editor_%s.dll", "temp");
 
    
     FILETIME testModuleTimestamp;
     HANDLE testModuleWatchHandle;
-    testModuleWatchHandle = CreateFileA("test_module.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    testModuleWatchHandle = CreateFileA("editor.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
     assert(testModuleWatchHandle);
     BOOL res = GetFileTime(testModuleWatchHandle, nullptr, nullptr, &testModuleTimestamp);
     assert(res);
     CloseHandle(testModuleWatchHandle);
 
     GetLastError();
-    res = CopyFileA("test_module.dll", tempPath, FALSE);
+    res = CopyFileA("editor.dll", tempPath, FALSE);
     if (res == FALSE) {
-        GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)", "test_module.dll", tempPath, GetLastError());
+        GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)", "editor.dll", tempPath, GetLastError());
     }
 
     HMODULE testModule = LoadLibraryA(tempPath);
@@ -1092,9 +1092,9 @@ int win32_main(int argc, char* argv[])
             FILETIME currentTestModuleTimestamp;
 
             GetLastError();
-            testModuleWatchHandle = CreateFileA("test_module.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+            testModuleWatchHandle = CreateFileA("editor.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
             if (testModuleWatchHandle == INVALID_HANDLE_VALUE) {
-                GT_LOG_ERROR("Runtime", "Failed to access test_module.dll with error %i", GetLastError());
+                GT_LOG_ERROR("Runtime", "Failed to access editor.dll with error %i", GetLastError());
             }
             GetLastError();
             BOOL res = GetFileTime(testModuleWatchHandle, nullptr, nullptr, &currentTestModuleTimestamp);
@@ -1109,24 +1109,24 @@ int win32_main(int argc, char* argv[])
             //GT_LOG_DEBUG("DLL Hotloader", "comp = %li", comp);
             if (comp < 0) {
                 Sleep(500);     // because otherwise windows will still be locking this
-                GT_LOG_INFO("DLL Hotloader", "Change detected, reloading %s", "test_module.dll");
+                GT_LOG_INFO("DLL Hotloader", "Change detected, reloading %s", "editor.dll");
                 FreeLibrary(testModule);
                 UpdateModule = nullptr;
 
                 GetLastError();
-                res = CopyFileA("test_module.dll", tempPath, FALSE);
+                res = CopyFileA("editor.dll", tempPath, FALSE);
                 if (res == FALSE) {
-                    GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)", "test_module.dll", tempPath, GetLastError());
+                    GT_LOG_ERROR("DLL Hotloader", "failed to copy %s to %s (error code: %i)", "editor.dll", tempPath, GetLastError());
                 }
                 else {
-                    GT_LOG_INFO("DLL Hotloader", "reloaded %s", "test_module.dll");
+                    GT_LOG_INFO("DLL Hotloader", "reloaded %s", "editor.dll");
                     testModule = LoadLibraryA(tempPath);
                     assert(testModule);
                     UpdateModule = (decltype(UpdateModule))GetProcAddress(testModule, "Update");
                     assert(UpdateModule);
                 }
 
-                testModuleWatchHandle = CreateFileA("test_module.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+                testModuleWatchHandle = CreateFileA("editor.dll", 0, FILE_SHARE_READ | FILE_SHARE_WRITE, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
                 assert(testModuleWatchHandle);
                 BOOL res = GetFileTime(testModuleWatchHandle, nullptr, nullptr, &testModuleTimestamp);
                 assert(res);

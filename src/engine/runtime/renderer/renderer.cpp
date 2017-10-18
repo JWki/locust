@@ -345,7 +345,7 @@ namespace renderer
         float projection[16];
         float model[16];
         fnd::math::float4 color = { 1.0f, 1.0f, 1.0f, 1.0f };
-        fnd::math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 2.0f };
+        fnd::math::float4 lightDir = { 1.0f, -1.0f, 1.0f, 0.0f };
         float metallic = 0.0f;
         float roughness = 1.0f;
         uint32_t  useTextures = 1;
@@ -1505,7 +1505,7 @@ namespace renderer
                 util::MultiplyMatricesCM(world->cameraProjection, world->cameraTransform, object.VP);
 
                 object.color = fnd::math::float4();
-                object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 2.0f);
+                object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 0.0f);
                 object.roughness = 0.0f;
                 object.metallic = 0.0f;
                 object.useTextures = 1;
@@ -1575,7 +1575,7 @@ namespace renderer
                     util::MultiplyMatricesCM(world->cameraProjection, world->cameraTransform, object.VP);
 
                     object.color = fnd::math::float4();
-                    object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 8.0f);
+                    object.lightDir = fnd::math::float4(1.0f, -1.0f, 0.0f, 0.0f);
                     object.roughness = 0.0f;
                     object.metallic = 0.0f;
                     object.useTextures = 1;
@@ -1652,6 +1652,7 @@ namespace renderer
             gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
         }
 
+        /*
         {   // bloom blit
             blitAction.colors[0].action = gfx::Action::ACTION_LOAD;
 
@@ -1663,7 +1664,7 @@ namespace renderer
             gfx::BeginRenderPass(renderer->gfxDevice, renderer->commandBuffer, renderer->bloomBlitPass, &blitAction);
             gfx::SubmitDrawCall(renderer->gfxDevice, renderer->commandBuffer, &blitDrawCall);
             gfx::EndRenderPass(renderer->gfxDevice, renderer->commandBuffer);
-        }
+        }*/
 
         {   // tonemapping
             blitAction.colors[0].action = gfx::Action::ACTION_CLEAR;
