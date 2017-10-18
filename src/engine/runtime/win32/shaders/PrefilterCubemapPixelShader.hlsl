@@ -4,7 +4,7 @@ struct PixelInput
     float2 uv : TEXCOORD;
 };
 
-cbuffer Params : register(cb0) {
+cbuffer Params : register(b0) {
     float Roughness;
 };
 

@@ -1,4 +1,4 @@
-cbuffer Object : register(cb0) {
+cbuffer Object : register(b0) {
     float4x4    ModelViewProjection;
     float4x4    ModelView;
     float4x4    ViewProjection;

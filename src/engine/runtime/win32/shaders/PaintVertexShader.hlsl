@@ -1,4 +1,4 @@
-cbuffer Object : register(cb0) {
+cbuffer Object : register(b0) {
     float4x4    ObjToViewMatrix;
     float4x4    ObjToProjMatrix;
     float2      CursorPos;
