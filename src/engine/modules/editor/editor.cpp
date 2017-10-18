@@ -23,6 +23,7 @@
 #undef near
 #undef far
 #undef interface
+#undef GetObject
 
 #define STB_IMAGE_IMPLEMENTATION
 //#define STBI_NO_STDIO
@@ -377,6 +378,7 @@ struct EntityNode
 
     bool isFree = true;
 };
+
 
 EntityNode* AllocateEntityNode(EntityNode* pool, size_t poolSize)
 {
@@ -901,13 +903,17 @@ struct ObjectTypeDesc
     PropertyDesc*   properties      = nullptr;
 };
 
+typedef uint32_t ObjectType;
+typedef uint32_t ObjectHandle;
+typedef uint32_t TypeHandle;
+
 #define STRING_PROPERTY_SIZE 1024
 struct Property
 {
     BaseType type;
 
     union {
-        void* as_object;
+        ObjectHandle as_object;
         float as_float;
         bool as_bool;
         int as_int;
@@ -919,16 +925,8 @@ struct Property
     };
 };
 
-typedef uint32_t ObjectType;
-typedef uint32_t ObjectHandle;
-typedef uint32_t TypeHandle;
 
-struct ObjectHeader
-{
-    const char* name = nullptr;
-    TypeHandle  typeHandle;
-    uint32_t numProperties = 0;
-};
+
 
 struct ObjectDatabase
 {
@@ -941,6 +939,24 @@ struct ObjectDatabase
     };
     ResourcePool<IndexEntry> typeIndex;
     ResourcePool<IndexEntry> objectIndex;
+
+    struct NodeHeader
+    {
+        const char* name = nullptr;
+        TypeHandle  typeHandle;
+
+        union {
+            ObjectHandle objectHandle;
+            ObjectHandle prototypeHandle;
+        };
+        uint32_t numProperties = 0;
+
+        NodeHeader* next = nullptr;
+        NodeHeader* prev = nullptr;
+    };
+
+    NodeHeader*   firstObj = nullptr;
+    NodeHeader*   firstType = nullptr;
     
     TypeHandle RegisterType(ObjectTypeDesc* typeDesc)
     {
@@ -948,15 +964,31 @@ struct ObjectDatabase
         TypeHandle handle = 0;
         typeIndex.Allocate(&indexEntry, &handle);
         
-        size_t blockSize = sizeof(ObjectHeader) + sizeof(PropertyDesc) * typeDesc->numProperties;
+        size_t blockSize = sizeof(NodeHeader) + sizeof(PropertyDesc) * typeDesc->numProperties;
         union {
             void* as_void;
-            ObjectHeader* as_header;
+            NodeHeader* as_header;
             PropertyDesc* as_property;
         };
         as_void = indexEntry->ptr = blockAllocator->Allocate(blockSize, 4);
         as_header->numProperties = (uint32_t)typeDesc->numProperties;
         as_header->name = typeDesc->name;
+        as_header->typeHandle = handle;
+        as_header->prototypeHandle = 0;
+        as_header->next = nullptr;
+        as_header->prev = nullptr;
+        auto it = firstType;
+        while (it != nullptr && it->next != nullptr) {
+            it = it->next;
+        }
+        if (firstType == it && firstType == nullptr) {
+            firstType = as_header;
+        }
+        else {
+            it->next = as_header;
+            as_header->prev = it;
+        }
+
         as_header++;
         for (size_t i = 0; i < typeDesc->numProperties; ++i) {
             *as_property = typeDesc->properties[i];
@@ -965,92 +997,294 @@ struct ObjectDatabase
         return handle;
     }
 
+    void SetPrototype(TypeHandle type, ObjectHandle object)
+    {
+        if (type == 0) { return; }
+        auto indexEntry = typeIndex.Get(type);
+        if (!indexEntry) { return; }
+
+        {   // check validity of object
+            if (object == 0) { return; }
+            auto objIndexEntry = objectIndex.Get(object);
+            if (!objIndexEntry) { return; }
+        }
+
+        auto header = (NodeHeader*)indexEntry->ptr;
+        header->prototypeHandle = object;
+    }
+
     ObjectHandle CreateObjectWithType(const char* name, TypeHandle type)
     {
-        IndexEntry* indexEntry;
+        IndexEntry* objIndexEntry;
         ObjectHandle handle = 0;
-        objectIndex.Allocate(&indexEntry, &handle);
+        objectIndex.Allocate(&objIndexEntry, &handle);
 
         union {
             void* as_void;
-            ObjectHeader* as_header;
+            NodeHeader* as_header;
             PropertyDesc* as_property;
         } source;
         {
-            auto indexEntry = typeIndex.Get(handle);
-            
+            auto indexEntry = typeIndex.Get(type);
             source.as_void = indexEntry->ptr;
         }
 
-        size_t blockSize = sizeof(ObjectHeader) + sizeof(PropertyDesc) * source.as_header->numProperties;
+        size_t blockSize = sizeof(NodeHeader) + sizeof(Property) * source.as_header->numProperties;
         union {
             void* as_void;
-            ObjectHeader* as_header;
+            NodeHeader* as_header;
             Property* as_property;
         } target;
-        target.as_void = indexEntry->ptr = blockAllocator->Allocate(blockSize, 4);
+        target.as_void = objIndexEntry->ptr = blockAllocator->Allocate(blockSize, 4);
         size_t numProperties = target.as_header->numProperties = (uint32_t)source.as_header->numProperties;
         target.as_header->name = name;
         target.as_header->typeHandle = type;
+        target.as_header->objectHandle = handle;
+        target.as_header->next = nullptr;
+        target.as_header->prev = nullptr;
+        auto it = firstObj;
+        while (it != nullptr && it->next != nullptr) {
+            it = it->next;
+        }
+        if (firstObj == it && firstObj == nullptr) {
+            firstObj = target.as_header;
+        }
+        else {
+            it->next = target.as_header;
+            target.as_header->prev = it;
+        }
+        
+        auto prototype = GetObject(source.as_header->prototypeHandle);
+        if (prototype.objHandle == 0 && source.as_header->prototypeHandle != 0) {
+            // log and lazily remove reference to prototype
+            GT_LOG_DEBUG("Object System", "Someone deleted a prototype object");
+            source.as_header->prototypeHandle = 0;
+        }
+
         target.as_header++;
         source.as_header++;
 
         for (size_t i = 0; i < numProperties; ++i) {
             target.as_property->type = source.as_property->type;
-            memset(&target.as_property->as_object, 0x0, sizeof(*target.as_property) - sizeof(target.as_property->type));
+            
+            if (prototype.objHandle == 0) {
+                memset(&target.as_property->as_object, 0x0, sizeof(*target.as_property) - sizeof(target.as_property->type));
+            }
+            else {
+                memcpy(target.as_property, &prototype.properties[i], sizeof(Property));
+            }
             source.as_property++;
             target.as_property++;
         }
         return handle;
     }
 
-    bool PrintTypeInfo(TypeHandle handle)
+    void DestroyObject(ObjectHandle handle)
     {
-        return VisitType(handle, [](size_t, const char* name, void*) {
-            printf("TYPE ( name = '%s' )\n", name);
-        }, nullptr, [](PropertyDesc* property, void*) {
-            printf("PROPERTY ( type = %s, name = '%s' )\n", g_typeNameTable[(int)property->type], property->name);
-        }, nullptr);
+        if (handle == 0) { return; }
+        auto indexEntry = objectIndex.Get(handle);
+        if (!indexEntry) { return; }
+
+        auto header = (NodeHeader*)indexEntry->ptr;
+        if (header->prev) {
+            header->prev->next = header->next;
+        }
+        if (header->next) {
+            header->next->prev = header->prev;
+        }
+        if (header == firstObj) { firstObj = header->next; }
+
+        blockAllocator->Free(indexEntry->ptr);
+        objectIndex.Free(handle);
     }
 
-    bool VisitType(TypeHandle handle, void(*TypeCallback)(size_t, const char*, void*), void* typeUserData, void(*PropertyCallback)(PropertyDesc* property, void*), void* propertyUserData)
+    struct TypeInfo
     {
+        TypeHandle      typeHandle;
+        
+        const char*     name        = nullptr;
+        PropertyDesc*   properties  = nullptr;
+        size_t          numProperties = 0;
+    };
+
+    struct Object
+    {
+        ObjectHandle    objHandle;
+        TypeHandle      type;
+        const char*     name = nullptr;
+        Property*       properties = nullptr;
+        size_t          numProperties = 0;
+    };
+
+    TypeInfo GetTypeInfo(TypeHandle handle)
+    {
+        if (handle == 0) { return TypeInfo(); }
         auto indexEntry = typeIndex.Get(handle);
+        if (!indexEntry) { return TypeInfo(); }
         union {
             void* as_void;
-            ObjectHeader* as_header;
+            NodeHeader* as_header;
             PropertyDesc* as_property;
         };
+        TypeInfo result;
         as_void = indexEntry->ptr;
         auto numProperties = as_header->numProperties;
-        TypeCallback(numProperties, as_header->name, typeUserData);
+        result.name = as_header->name;
+        result.numProperties = numProperties;
+        result.typeHandle = handle;
         as_header++;
-        for (unsigned i = 0; i < numProperties; ++i) {
-            PropertyCallback(as_property, propertyUserData);
-            as_property++;
-        }
-        return true;
+        result.properties = as_property;
+        return result;
     }
 
-    bool VisitObject(ObjectHandle handle, void(*ObjCallback)(size_t, const char*, void*), void* objUserData, void(*PropertyCallback)(Property* property, void*), void* propertyUserData)
+    void GetAllTypeInfos(TypeInfo* outTypeInfo, size_t* outNumTypes)
     {
+        auto it = firstType;
+        size_t numTypes = 0;
+        while (it != nullptr) {
+            if (outTypeInfo) {
+                union {
+                
+                    NodeHeader* as_header;
+                    PropertyDesc* as_property;
+                };
+                TypeInfo result;
+                as_header = it;
+                auto numProperties = as_header->numProperties;
+                result.name = as_header->name;
+                result.numProperties = numProperties;
+                result.typeHandle = it->typeHandle;
+                as_header++;
+                result.properties = as_property;
+                outTypeInfo[numTypes] = result;
+            }
+            numTypes++;
+            it = it->next;
+        }
+        if (outNumTypes) { *outNumTypes = numTypes; }
+    }
+
+    Object GetObject(ObjectHandle handle)
+    {
+        if (handle == 0) { return Object(); }
         auto indexEntry = objectIndex.Get(handle);
+        if (!indexEntry) { return Object(); }
         union {
             void* as_void;
-            ObjectHeader* as_header;
+            NodeHeader* as_header;
             Property* as_property;
         };
+        Object result;
         as_void = indexEntry->ptr;
         auto numProperties = as_header->numProperties;
-        ObjCallback(numProperties, as_header->name, objUserData);
+        result.name = as_header->name;
+        result.numProperties = numProperties;
+        result.objHandle = handle;
+        result.type = as_header->typeHandle;
         as_header++;
-        for (unsigned i = 0; i < numProperties; ++i) {
-            PropertyCallback(as_property, propertyUserData);
-            as_property++;
+        result.properties = as_property;
+        return result;
+    }
+
+    void GetAllObjects(Object* outObject, size_t* outNumObjects)
+    {
+        auto it = firstObj;
+        size_t numObjects = 0;
+        while (it != nullptr) {
+            if (outObject) {
+                union {
+                    NodeHeader* as_header;
+                    Property* as_property;
+                };
+                Object result;
+                as_header = it;
+                auto numProperties = as_header->numProperties;
+                result.name = as_header->name;
+                result.numProperties = numProperties;
+                result.type = as_header->typeHandle;
+                result.objHandle = as_header->objectHandle;
+                as_header++;
+                result.properties = as_property;
+                outObject[numObjects] = result;
+            }
+            numObjects++;
+            it = it->next;
         }
-        return true;
+        if (outNumObjects) { *outNumObjects = numObjects; }
     }
 };
+
+void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, ObjectDatabase::Object* objects, size_t numObjects, int level = 0) 
+{
+    if (obj.objHandle == 0) { return; }
+    ObjectDatabase::TypeInfo typeInfo = objDatabase->GetTypeInfo(obj.type);
+
+    if (obj.objHandle != 0) {
+        ImGui::PushID(level);
+        auto treeID = (const void*)(uintptr_t)obj.objHandle;
+        if (ImGui::TreeNode(treeID, "%s ( type = %s, num properties = %llu)", obj.name, typeInfo.name, obj.numProperties)) {
+            for (size_t i = 0; i < obj.numProperties; ++i) {
+                
+                ImGui::PushID((int)i);
+                ImGui::Text("%s", typeInfo.properties[i].name);
+                ImGui::SameLine(150.0f + level * 20.0f);
+                switch (obj.properties[i].type) {
+                case BaseType::FLOAT3: {
+                    ImGui::DragFloat3("", obj.properties[i].as_float3);
+                } break;
+                case BaseType::STRING: {
+                    ImGui::InputText("", obj.properties[i].as_string.buf, STRING_PROPERTY_SIZE);
+                } break;
+                case BaseType::OBJECT: {
+                    if (obj.properties[i].as_object != 0) {
+                        if (ImGui::Button(ICON_FA_CHAIN_BROKEN "  Break Tie")) {
+                            obj.properties[i].as_object = 0;
+                        }
+                        ImGui::SameLine();
+                        PropertyView(objDatabase->GetObject(obj.properties[i].as_object), objDatabase, objects, numObjects, level + 1);
+                    }
+                    else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.6f));
+                        ImGui::Text("null");
+                        if (ImGui::IsItemClicked()) {
+                            ImGui::OpenPopup("##objectSelector");
+                        }
+                        ImGui::PopStyleColor();
+
+                        if (ImGui::BeginPopup("##objectSelector")) {
+                            for (size_t j = 0; j < numObjects; ++j) {
+                                if (ImGui::Selectable(objects[j].name, false)) {
+                                    obj.properties[i].as_object = objects[j].objHandle;
+                                    ImGui::CloseCurrentPopup();
+                                }
+                            }
+                            ImGui::EndPopup();
+                        } 
+                    }
+                } break;
+                case BaseType::FLOAT: {
+                    ImGui::DragFloat("", &obj.properties[i].as_float);
+                } break;
+                case BaseType::INT: {
+                    ImGui::DragInt("", &obj.properties[i].as_int);
+                } break;
+                case BaseType::BOOL: {
+                    ImGui::Checkbox("", &obj.properties[i].as_bool);
+                } break;
+                case BaseType::COLOR_RGBA: {
+                    ImGui::ColorEdit4("", obj.properties[i].as_colorRGBA);
+                } break;
+                default: {
+                    ImGui::Text("");
+                } break;
+                }
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+}
 
 
 extern "C" __declspec(dllexport)
@@ -1089,54 +1323,156 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
     int WINDOW_HEIGHT = 1080;
 
     static ObjectDatabase* objDatabase = nullptr;
-    static TypeHandle fooType;
-    static ObjectHandle foo;
 
     if (objDatabase == nullptr) {
         objDatabase = GT_NEW(ObjectDatabase, editor->applicationArena);
 
-        static const size_t blockMemorySize = 1024 * 1024;
+        static const size_t blockMemorySize = 1024 * 1024 * 5;
         void* blockMemory = editor->applicationArena->Allocate(blockMemorySize, 4, GT_SOURCE_INFO);
         objDatabase->blockAllocator = GT_NEW(fnd::memory::TLSFAllocator, editor->applicationArena)(blockMemory, blockMemorySize);
         objDatabase->objectIndex.Initialize(1024, editor->applicationArena);
         objDatabase->typeIndex.Initialize(1024, editor->applicationArena);
      
+        static ObjectHandle rootGameObj = 0;
+
         GT_LOG_DEBUG("Object Database", "Created");
     
-        PropertyDesc fooProperties[] = {
-            { BaseType::FLOAT3, "position" }, 
-            { BaseType::STRING, "name" },
-            { BaseType::OBJECT, "parent" }
-        };
-        ObjectTypeDesc fooTypeDesc;
-        fooTypeDesc.name = "foo";
-        fooTypeDesc.numProperties = 3;
-        fooTypeDesc.properties = fooProperties;
+        {
+            PropertyDesc gameObjectProperties[] = {
+                { BaseType::FLOAT3, "position" },
+                { BaseType::FLOAT3, "rotation" },
+                { BaseType::FLOAT3, "scale" },
 
-        fooType = objDatabase->RegisterType(&fooTypeDesc);
-        
-        objDatabase->PrintTypeInfo(fooType);
+                { BaseType::STRING, "description" },
+                { BaseType::OBJECT, "parent"}
 
-        foo = objDatabase->CreateObjectWithType("foo_instance", fooType);
+            };
+            ObjectTypeDesc gameObjectTypeDesc;
+            gameObjectTypeDesc.name = "GameObject";
+            gameObjectTypeDesc.numProperties = 5;
+            gameObjectTypeDesc.properties = gameObjectProperties;
+            rootGameObj = objDatabase->CreateObjectWithType("Root", objDatabase->RegisterType(&gameObjectTypeDesc));
+        }
+
+        {
+            PropertyDesc doorProperties[] = {
+                { BaseType::BOOL, "open" },
+                { BaseType::BOOL, "locked" },
+
+            };
+            ObjectTypeDesc doorTypeDesc;
+            doorTypeDesc.name = "Door";
+            doorTypeDesc.numProperties = 2;
+            doorTypeDesc.properties = doorProperties;
+            objDatabase->RegisterType(&doorTypeDesc);
+        }
+
+        {
+            PropertyDesc healthComponentProperties[] = {
+                { BaseType::INT, "value" },
+                { BaseType::BOOL, "isEnabled" },
+                { BaseType::OBJECT, "owner" }
+            };
+            ObjectTypeDesc healthComponentTypeDesc;
+            healthComponentTypeDesc.name = "HealthComponent";
+            healthComponentTypeDesc.numProperties = 3;
+            healthComponentTypeDesc.properties = healthComponentProperties;
+            auto healthComponentType = objDatabase->RegisterType(&healthComponentTypeDesc);
+
+            auto healthComponentPrototype = objDatabase->GetObject(objDatabase->CreateObjectWithType("health_component_prototype", healthComponentType));
+            objDatabase->SetPrototype(healthComponentType, healthComponentPrototype.objHandle);
+            healthComponentPrototype.properties[2].as_object = rootGameObj;
+        }
+
+
+        {
+            PropertyDesc blendNodeProperties[] = {
+                { BaseType::OBJECT, "inputA" },
+                { BaseType::OBJECT, "inputB" },
+                { BaseType::OBJECT, "output" }
+            };
+            ObjectTypeDesc blendNodeTypeDesc;
+            blendNodeTypeDesc.name = "BlendNode";
+            blendNodeTypeDesc.numProperties = 3;
+            blendNodeTypeDesc.properties = blendNodeProperties;
+            objDatabase->RegisterType(&blendNodeTypeDesc);
+        }
+
+        {
+            PropertyDesc colorNodeProperties[] = {
+                { BaseType::COLOR_RGBA, "color"},
+                { BaseType::OBJECT, "output" }
+            };
+            ObjectTypeDesc colorNodeTypeDesc;
+            colorNodeTypeDesc.name = "ColorNode";
+            colorNodeTypeDesc.numProperties = 2;
+            colorNodeTypeDesc.properties = colorNodeProperties;
+            objDatabase->RegisterType(&colorNodeTypeDesc);
+        }
+
+        {
+            PropertyDesc constantFloatNodeProperties[] = {
+                { BaseType::FLOAT, "value" },
+                { BaseType::OBJECT, "output" }
+            };
+            ObjectTypeDesc typeDesc;
+            typeDesc.name = "ConstantFloatNode";
+            typeDesc.numProperties = 2;
+            typeDesc.properties = constantFloatNodeProperties;
+            objDatabase->RegisterType(&typeDesc);
+        }
     }
     else {
         if (ImGui::Begin("Object Database")) {
-
-            bool nodeOpen = false;
-            objDatabase->VisitObject(foo, 
-                [](size_t numProperties, const char* name, void* user) {
-                    auto nodeOpen = (bool*)user;
-                    *nodeOpen = ImGui::TreeNode(name, "TYPE ( name = '%s', num_properties = %llu)", name, numProperties);
-                }, &nodeOpen,
-                [](PropertyDesc* property, void* user) {
-                    auto nodeOpen = (bool*)user;
-                    if (*nodeOpen) {
-                        ImGui::Text("PROPERTY ( type = %s, name = '%s' )\n", g_typeNameTable[(int)property->type], property->name);
+            
+            size_t numTypes = 0;
+            objDatabase->GetAllTypeInfos(nullptr, &numTypes);
+            ObjectDatabase::TypeInfo* typeInfos = GT_NEW_ARRAY(ObjectDatabase::TypeInfo, numTypes, frameAllocator);
+            objDatabase->GetAllTypeInfos(typeInfos, &numTypes);
+            ImGui::Text("Types");
+            ImGui::BeginChild("##typeList", ImVec2(ImGui::GetContentRegionAvailWidth(), 200), true);
+            for (size_t i = 0; i < numTypes; ++i) {
+                ImGui::Text("%s", typeInfos[i].name);
+                if (ImGui::IsItemHovered()) {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("%s", typeInfos[i].name);
+                    ImGui::Separator();
+                    for (size_t j = 0; j < typeInfos[i].numProperties; ++j) {
+                        ImGui::Text(ICON_FA_ARROW_RIGHT "  %s", typeInfos[i].properties[j].name);
+                        ImGui::SameLine(150);
+                        ImGui::Text("%s", g_typeNameTable[(int)typeInfos[i].properties[j].type]);
                     }
-                }, &nodeOpen
-            );
-            if (nodeOpen) { ImGui::TreePop(); }
+                    ImGui::EndTooltip();
+                }
+                ImGui::SameLine(150);
+                ImGui::PushID((int)i);
 
+                if (ImGui::Button(ICON_FA_USER_PLUS "  Create Instance")) {
+                    objDatabase->CreateObjectWithType(typeInfos[i].name, typeInfos[i].typeHandle);
+                }
+                
+                ImGui::PopID();
+            }
+            ImGui::EndChild();
+
+            size_t numObjects = 0;
+            objDatabase->GetAllObjects(nullptr, &numObjects);
+            ObjectDatabase::Object* objects = GT_NEW_ARRAY(ObjectDatabase::Object, numObjects, frameAllocator);
+            objDatabase->GetAllObjects(objects, &numObjects);
+
+            ImGui::Text("Objects");
+            ImGui::BeginChild("##properties", ImGui::GetContentRegionAvail(), true);
+            for (size_t i = 0; i < numObjects; ++i) {
+                auto fooObj = objects[i];
+                ImGui::PushID((int)i);
+                if (ImGui::Button(ICON_FA_USER_TIMES "  Remove")) {
+                    objDatabase->DestroyObject(objects[i].objHandle);
+                }
+                ImGui::PopID();
+                ImGui::SameLine();
+                PropertyView(fooObj, objDatabase, objects, numObjects);
+            }
+            ImGui::EndChild();
         } ImGui::End();
     }
 

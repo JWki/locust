@@ -12,7 +12,7 @@ namespace fnd
 
         void* TLSFAllocator::Allocate(size_t size, size_t alignment, size_t offset)
         {
-            size_t totalSize = size + alignment + sizeof(AllocationHeader);
+            size_t totalSize = size + offset + alignment + sizeof(AllocationHeader);
             char* memory = static_cast<char*>(tlsf_malloc(m_internal, totalSize));
             if (memory == nullptr) { return nullptr; }
             char* alignedMemory = static_cast<char*>(fnd::pointerUtil::AlignAddress(memory + offset + sizeof(AllocationHeader), alignment)) - offset;
