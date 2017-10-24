@@ -975,7 +975,7 @@ struct PropertyDesc
     const char* name = "";
     TypeHandle objType = 0;
     
-    size_t arraySize = 1;   // > 1 if this IS an array, simple stuff
+    bool isArray = false;
 };
 
 
@@ -993,7 +993,7 @@ struct ObjectTypeDesc
 struct Property
 {
     PropertyType    type;
-    size_t          arraySize   = 1;
+    bool            isArray     = false;
     const char*     name        = nullptr;
 
     union {
@@ -1009,6 +1009,10 @@ struct Property
         struct {
             char buf[STRING_PROPERTY_SIZE];
         } as_string;
+        struct {
+            uint32_t        size;
+            Property*       elements;
+        } as_array;
     } data;
 };
 
@@ -1157,11 +1161,6 @@ struct ObjectDatabase
         }
 
         size_t blockSize = sizeof(NodeHeader) + sizeof(Property) * source.as_header->numProperties;
-        auto properties = (PropertyDesc*)(source.as_header + 1);
-        for (size_t i = 0; i < source.as_header->numProperties; ++i) {
-            assert(properties[i].arraySize > 0);
-            blockSize += sizeof(Property) * (properties[i].arraySize - 1);
-        }
 
         union {
             void* as_void;
@@ -1172,10 +1171,6 @@ struct ObjectDatabase
         target.as_void = objIndexEntry->ptr = blockAllocator->Allocate(blockSize + sizeof(uint64_t), 4);
         memset(target.as_char + blockSize, 0xdeadbeef, sizeof(uint64_t));
         size_t numProperties = target.as_header->numProperties = source.as_header->numProperties;
-        for (size_t i = 0; i < source.as_header->numProperties; ++i) {
-            assert(properties[i].arraySize > 0);
-            target.as_header->numProperties += (uint32_t)properties[i].arraySize - 1;
-        }
         target.as_header->name = name;
         target.as_header->typeHandle = type;
         target.as_header->objectHandle = handle;
@@ -1206,25 +1201,33 @@ struct ObjectDatabase
         auto props = target.as_property;
 
         for (int i = 0; i < numProperties; ++i) {
-            for (size_t j = 0; j < source.as_property->arraySize; ++j) {
-                target.as_property->arraySize = source.as_property->arraySize - j;
-                target.as_property->type = source.as_property->type;
-                target.as_property->name = source.as_property->name;
-                if (prototype.objHandle == 0) {
-                    memset(&target.as_property->data, 0x0, sizeof(target.as_property->data));
-                }
-                else {
-                    memcpy(target.as_property, &prototype.properties[i + j], sizeof(Property));
-                }
 
-                if (source.as_property->type == PropertyType::OBJECT) {
-                    target.as_property->data.as_object.type = source.as_property->objType;
-                }
-                target.as_property++;
+            target.as_property->isArray = source.as_property->isArray;
+            target.as_property->type = source.as_property->type;
+            target.as_property->name = source.as_property->name;
+            if (prototype.objHandle == 0) {
+                memset(&target.as_property->data, 0x0, sizeof(target.as_property->data));
             }
+            else {
+                memcpy(target.as_property, &prototype.properties[i], sizeof(Property));
+            }
+
+            if (source.as_property->type == PropertyType::OBJECT) {
+                target.as_property->data.as_object.type = source.as_property->objType;
+            }
+            if (target.as_property->isArray) {
+                //if (prototype.objHandle == 0) {
+                    target.as_property->data.as_array.size = 1;
+                    target.as_property->data.as_array.elements = (Property*)blockAllocator->Allocate(sizeof(Property), alignof(Property));
+                    target.as_property->data.as_array.elements[0].type = target.as_property->type;
+                    target.as_property->data.as_array.elements[0].name = target.as_property->name;
+                    memset(&target.as_property->data.as_array.elements[0].data, 0x0, sizeof(target.as_property->data.as_array.elements[0].data));
+                //}
+            }
+                
+            target.as_property++;
             source.as_property++;
         }
-        auto guard = *((uint64_t*)target.as_property);
         return handle;
     }
 
@@ -1264,26 +1267,86 @@ struct ObjectDatabase
         const char*     name = nullptr;
         Property*       properties = nullptr;
         size_t          numProperties = 0;
+
+        ObjectDatabase* db = nullptr;
     
-        int            GetInt(const char* name)
+        Property* GetPropertyWithName(const char* name)
         {
             Property* property = properties;
             for (size_t i = 0; i < numProperties; ++i) {
                 if (!strcmp(property->name, name)) {
-                    if (property->type != PropertyType::INT) {
-                        return 0;
-                    }
-                    else {
-                        return property->data.as_int;
-                    }
+                    return property;
                 }
-                property += property->arraySize;
+                property++;
+            }
+            return nullptr;
+        }
+
+        int GetInt(const char* name, size_t index = 0)
+        {
+            Property* property = GetPropertyWithName(name);
+            if (property != nullptr) {
+                if (!property->isArray) {
+                    return property->data.as_int;
+                }
+                else {
+                    return property->data.as_array.elements[index].data.as_int;
+                }
             }
             return 0;
         }
-    };
 
-    
+        const char* GetString(const char* name, size_t index = 0)
+        {
+            Property* property = GetPropertyWithName(name);
+            if (property != nullptr) {
+                if (!property->isArray) {
+                    return property->data.as_string.buf;
+                }
+                else {
+                    return property->data.as_array.elements[index].data.as_string.buf;
+                }
+            }
+            return 0;
+        }
+
+        void SetArraySize(size_t propertyIndex, size_t size)
+        {
+            assert(db);
+            Property* property = properties + propertyIndex;
+
+            property->data.as_array.size = (uint32_t)size;
+            Property* newBuf = (Property*)db->blockAllocator->Allocate(sizeof(Property) * size, alignof(Property));
+            size_t copySize = size <= property->data.as_array.size ? size : property->data.as_array.size;
+            memcpy(newBuf, property->data.as_array.elements, sizeof(Property) * copySize);
+            for(auto i = copySize; i < (size - copySize); ++i) {
+                auto prop = newBuf + i;
+                prop->type = property->type;
+                prop->name = property->name;
+                memset(&prop->data, 0x0, sizeof(prop->data));
+            }
+            db->blockAllocator->Free(property->data.as_array.elements);
+            property->data.as_array.elements = newBuf;
+                   
+        }
+
+        void SetArraySize(const char* name, size_t size)
+        {
+            assert(db);
+            Property* property = properties;
+            for (size_t i = 0; i < numProperties; ++i) {
+                if (!strcmp(property->name, name)) {
+                    if (property->isArray) {
+                        return;
+                    }
+                    else {
+                        SetArraySize(i, size);
+                    }
+                }
+                property++;
+            }
+        }
+    };
 
     void ResetProperty(Object object, size_t propertyIndex)
     {
@@ -1380,6 +1443,7 @@ struct ObjectDatabase
         result.numProperties = numProperties;
         result.objHandle = handle;
         result.type = as_header->typeHandle;
+        result.db = this;
         as_header++;
         result.properties = as_property;
         return result;
@@ -1402,6 +1466,7 @@ struct ObjectDatabase
                 result.numProperties = numProperties;
                 result.type = as_header->typeHandle;
                 result.objHandle = as_header->objectHandle;
+                result.db = this;
                 as_header++;
                 result.properties = as_property;
                 outObject[numObjects] = result;
@@ -1466,79 +1531,85 @@ void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, Objec
         for (size_t i = 0; i < typeInfo.numProperties; ++i) {
             ImGui::PushID((int)i);
 
-            if (typeInfo.properties[i].arraySize == 1) {
+            auto properties = obj.properties;
+            size_t index = i;
+
+            if (!typeInfo.properties[i].isArray) {
                 ImGui::Text("%s", typeInfo.properties[i].name);
                 ImGui::SameLine(150.0f + level * 20.0f);
             }
             else {
-                ImGui::Text("%s [%llu]", typeInfo.properties[i].name, typeInfo.properties[i].arraySize);
-
+                ImGui::Text("%s [%llu]", typeInfo.properties[i].name, obj.properties[i].data.as_array.size);
+    
                 ImGui::PushID((int)i);
-                ImGui::BeginChild("##arrayView", ImVec2(ImGui::GetContentRegionAvailWidth(), 200), true);
-            }
-            static size_t propIndex = 0;
-            for (size_t k = 0; k < typeInfo.properties[i].arraySize; ++k) {
-                size_t index = i + k;
-                
-                if(typeInfo.properties[i].arraySize > 1) {
-                    ImGui::Text("%llu : ", k);
-                    ImGui::SameLine(150.0f + level * 20.0f);
+                ImGui::SameLine();
+                if (ImGui::InputInt("", (int*)&obj.properties[i].data.as_array.size)) {
+                    obj.SetArraySize(i, obj.properties[i].data.as_array.size);
                 }
-                switch (obj.properties[index].type) {
-                    case PropertyType::FLOAT3: {
-                        ImGui::DragFloat3("", obj.properties[index].data.as_float3);
-                    } break;
-                    case PropertyType::STRING: {
-                        ImGui::InputText("", obj.properties[index].data.as_string.buf, STRING_PROPERTY_SIZE);
-                    } break;
-                    case PropertyType::OBJECT: {
-                        if (obj.properties[index].data.as_object.handle != 0) {
-                            if (ImGui::Button(ICON_FA_CHAIN_BROKEN "  Break Tie")) {
-                                obj.properties[index].data.as_object.handle = 0;
-                            }
-                            auto handle = objDatabase->GetObject(obj.properties[index].data.as_object.handle);
-                            if (handle.objHandle != 0) {
-                                ImGui::SameLine();
-                                ImGui::Text("%lu", handle);
-                                //PropertyView(handle, objDatabase, objects, numObjects, level + 1);
-                            }
-                            else {
-                                obj.properties[index].data.as_object.handle = 0;
-                            }
+
+                ImGui::BeginChild("##arrayView", ImVec2(ImGui::GetContentRegionAvailWidth(), 200), true);
+
+                properties = obj.properties[i].data.as_array.elements;
+                index = 0;
+            }
+            // @NOTE REALLY hacky now
+            beginloop:
+
+            switch (properties[index].type) {
+                case PropertyType::FLOAT3: {
+                    ImGui::DragFloat3("", properties[index].data.as_float3);
+                } break;
+                case PropertyType::STRING: {
+                    ImGui::InputText("", properties[index].data.as_string.buf, STRING_PROPERTY_SIZE);
+                } break;
+                case PropertyType::OBJECT: {
+                    if (properties[index].data.as_object.handle != 0) {
+                        if (ImGui::Button(ICON_FA_CHAIN_BROKEN "  Break Tie")) {
+                            properties[index].data.as_object.handle = 0;
+                        }
+                        auto handle = objDatabase->GetObject(properties[index].data.as_object.handle);
+                        if (handle.objHandle != 0) {
+                            ImGui::SameLine();
+                            ImGui::Text("%lu", handle);
+                            //PropertyView(handle, objDatabase, objects, numObjects, level + 1);
                         }
                         else {
-                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.6f));
-                            ImGui::Text("null");
-                            if (ImGui::IsItemClicked()) {
-                                ImGui::OpenPopup("##objectSelector");
-                                propIndex = index;
-                            }
-                            ImGui::PopStyleColor();
+                            properties[index].data.as_object.handle = 0;
                         }
-                    } break;
-                    case PropertyType::FLOAT: {
-                        ImGui::DragFloat("", &obj.properties[index].data.as_float);
-                    } break;
-                    case PropertyType::INT: {
-                        ImGui::InputInt("", &obj.properties[index].data.as_int);
-                    } break;
-                    case PropertyType::BOOL: {
-                        ImGui::Checkbox("", &obj.properties[index].data.as_bool);
-                    } break;
-                    case PropertyType::COLOR_RGBA: {
-                        ImGui::ColorEdit4("", obj.properties[index].data.as_colorRGBA);
-                    } break;
-                    default: {
-                        ImGui::Text("invalid type");
-                    } break;
-                }
-                //ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 150.0f);
-                //ImGui::PushID((int)index);
-                //if (ImGui::Button(ICON_FA_UNDO "  Reset", ImVec2(150.0f, 0.0f))) {
-                //    objDatabase->ResetProperty(obj, index);
-                //}
-                //ImGui::PopID();
+                    }
+                    else {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.6f));
+                        ImGui::Text("null");
+                        /*if (ImGui::IsItemClicked()) {
+                            ImGui::OpenPopup("##objectSelector");
+                            propIndex = index;
+                        }*/
+                        ImGui::PopStyleColor();
+                    }
+                } break;
+                case PropertyType::FLOAT: {
+                    ImGui::DragFloat("", &properties[index].data.as_float);
+                } break;
+                case PropertyType::INT: {
+                    ImGui::InputInt("", &properties[index].data.as_int);
+                } break;
+                case PropertyType::BOOL: {
+                    ImGui::Checkbox("", &properties[index].data.as_bool);
+                } break;
+                case PropertyType::COLOR_RGBA: {
+                    ImGui::ColorEdit4("", properties[index].data.as_colorRGBA);
+                } break;
+                default: {
+                    ImGui::Text("invalid type");
+                } break;
             }
+            //ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 150.0f);
+            //ImGui::PushID((int)index);
+            //if (ImGui::Button(ICON_FA_UNDO "  Reset", ImVec2(150.0f, 0.0f))) {
+            //    objDatabase->ResetProperty(obj, index);
+            //}
+            //ImGui::PopID();
+   /*
             if (ImGui::BeginPopup("##objectSelector")) {
                 for (size_t j = 0; j < numObjects; ++j) {
                     if (obj.properties[propIndex].data.as_object.type == 0 || objDatabase->IsTypeDerivedFromOrEqual(objects[j].type, obj.properties[propIndex].data.as_object.type)) {
@@ -1549,8 +1620,13 @@ void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, Objec
                     }
                 }
                 ImGui::EndPopup();
-            }
-            if (typeInfo.properties[i].arraySize > 1) {
+            }*/
+            if (typeInfo.properties[i].isArray) {
+                index++;
+                if(index < obj.properties[i].data.as_array.size) {
+                    goto beginloop;
+                }
+
                 ImGui::EndChild();
                 ImGui::PopID();
             }
@@ -1570,6 +1646,7 @@ static inline ImVec2 operator-(const ImVec2& lhs, const ImVec2& rhs) { return Im
 static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandle baseNodeType, fnd::memory::LinearAllocator* frameAllocator)
 {
     ImGui::SetNextWindowSize(ImVec2(700, 600), ImGuiSetCond_FirstUseEver);
+   
     if (!ImGui::Begin("Example: Custom Node Graph"))
     {
         ImGui::End();
@@ -1635,7 +1712,7 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
     bool open_context_menu = false;
     int node_hovered_in_list = -1;
     int node_hovered_in_scene = -1;
-    ImGui::BeginChild("node_list", ImVec2(100, 0));
+    ImGui::BeginChild("node_list", ImVec2(100, ImGui::GetContentRegionAvail().y * 0.75f));
     ImGui::Text("Nodes");
     ImGui::SameLine();
     if (ImGui::Button("Clear")) {
@@ -1680,7 +1757,10 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1, 1));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::PushStyleColor(ImGuiCol_ChildWindowBg, ImVec4(0, 0, 0, 1));
-    ImGui::BeginChild("scrolling_region", ImVec2(0, 0), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
+
+    ImVec2 scrollingRegionSize = ImGui::GetContentRegionAvail();
+    scrollingRegionSize.y *= 0.75f;
+    ImGui::BeginChild("scrolling_region", scrollingRegionSize, true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
     ImGui::PushItemWidth(120.0f);
 
     ImVec2 offset = ImGui::GetCursorScreenPos() - scrolling;
@@ -1708,16 +1788,16 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
         NodeLink* link = &links[link_idx];
         Node* node_inp = &nodes[link->InputIdx];
         Node* node_out = &nodes[link->OutputIdx];
-        ImVec2 p1 = offset + node_inp->GetInputSlotPos(link->InputSlot);
-        ImVec2 p2 = offset + node_out->GetOutputSlotPos(link->OutputSlot);
-        draw_list->AddBezierCurve(p1, p1 + ImVec2(-50, 0), p2 + ImVec2(+50, 0), p2, ImColor(200, 200, 100), 3.0f);
+        ImVec2 p2 = offset + node_inp->GetInputSlotPos(link->InputSlot);
+        ImVec2 p1 = offset + node_out->GetOutputSlotPos(link->OutputSlot);
+        draw_list->AddBezierCurve(p1, p1 + ImVec2(50, 0), p2 + ImVec2(-50, 0), p2, ImColor(200, 200, 100), 3.0f);
     }
 
     if (drag.hasEndpointInput) {
         Node* node_inp = &nodes[drag.endpoint.Idx];
-        ImVec2 p1 = offset + node_inp->GetInputSlotPos(drag.endpoint.Slot);
-        ImVec2 p2 = ImGui::GetMousePos();
-        draw_list->AddBezierCurve(p1, p1 + ImVec2(-50, 0), p2 + ImVec2(+50, 0), p2, ImColor(200, 200, 100), 3.0f);
+        ImVec2 p2 = offset + node_inp->GetInputSlotPos(drag.endpoint.Slot);
+        ImVec2 p1 = ImGui::GetMousePos();
+        draw_list->AddBezierCurve(p1, p1 + ImVec2(50, 0), p2 + ImVec2(-50, 0), p2, ImColor(200, 200, 100), 3.0f);
     }
     if (drag.hasEndpointOutput) {
         Node* node_inp = &nodes[drag.endpoint.Idx];
@@ -1935,6 +2015,86 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
     ImGui::PopStyleVar(2);
     ImGui::EndGroup();
 
+
+    /// code output
+    static const size_t codeBufSize = 1024 * 1024 * 5;
+    char* codeBuf = (char*)frameAllocator->Allocate(codeBufSize, 4);
+    memset(codeBuf, 0x0, codeBufSize);
+
+    ImGui::Text("Code Output");
+    
+
+    char* writePtr = codeBuf;
+    size_t writeBufSize = codeBufSize;
+    auto WriteVariable = [](char* buffer, size_t bufferSize, const char* variableName, const char* variableType) -> size_t {
+        auto numCharsWritten = snprintf(buffer, bufferSize, "%s %s;\n", variableType, variableName);
+        return numCharsWritten > 0 && numCharsWritten < bufferSize ? numCharsWritten : 0;
+    };
+    auto BeginFunctionCall = [](char* buffer, size_t bufferSize, const char* funcName) -> size_t {
+        auto numCharsWritten = snprintf(buffer, bufferSize, "%s ( ", funcName);
+        numCharsWritten = numCharsWritten > 0 ? numCharsWritten : 0;
+        buffer += numCharsWritten;
+        bufferSize -= numCharsWritten;
+
+        return (size_t)numCharsWritten;
+    };
+
+    auto EndFunctionCall = [](char* buffer, size_t bufferSize) -> size_t {
+        auto numCharsWritten = snprintf(buffer, bufferSize, "%s", " );\n");
+        return numCharsWritten > 0 ? (size_t)numCharsWritten : 0;
+    };
+
+    auto AddFunctionArgument = [](char* buffer, size_t bufferSize, const char* arg, bool isLast) -> size_t {
+        auto numCharsWritten = snprintf(buffer, bufferSize, isLast ? "%s" : "%s, ", arg);
+        numCharsWritten = numCharsWritten > 0 ? numCharsWritten : 0;
+        buffer += numCharsWritten;
+        bufferSize -= numCharsWritten;
+
+        return (size_t)numCharsWritten;
+    };
+
+    char nameBuf[512];
+    for (int node_idx = 0; node_idx < nodes.Size; node_idx++)
+    {
+        auto node = &nodes[node_idx];
+        for (int input_idx = 0; input_idx < node->InputsCount; ++input_idx) {
+            snprintf(nameBuf, 512, "node%i_in%i", node_idx, input_idx);
+            size_t charsWritten = WriteVariable(writePtr, writeBufSize, nameBuf, "float");
+            writePtr += charsWritten;
+            writeBufSize -= charsWritten;
+        }
+        for (int output_idx = 0; output_idx < node->OutputsCount; ++output_idx) {
+            snprintf(nameBuf, 512, "node%i_out%i", node_idx, output_idx);
+            size_t charsWritten = WriteVariable(writePtr, writeBufSize, nameBuf, "float");
+            writePtr += charsWritten;
+            writeBufSize -= charsWritten;
+        }
+    }
+
+    Node** evaluatedNodes = GT_NEW_ARRAY(Node*, nodes.Size, frameAllocator);
+    size_t numEvaluatedNodes = 0;
+
+    auto FindNodeInList = [](Node* node, Node** list, size_t listSize) -> int {
+        for (size_t i = 0; i < listSize; ++i) {
+            if (node == list[i]) {
+                return (int)i;
+            }
+        }
+        return -1;
+    };
+
+    while (numEvaluatedNodes < nodes.Size) {
+        for (int link_idx = 0; link_idx < links.Size; ++link_idx) {
+            auto link = &links[link_idx];
+
+
+        }
+    }
+
+    ImGui::BeginChild("##code", ImVec2(0, 0), true);
+    ImGui::InputTextMultiline("", codeBuf, codeBufSize, ImVec2(0, 0), ImGuiInputTextFlags_ReadOnly);
+    ImGui::EndChild();
+
     ImGui::End();
 }
 
@@ -1998,7 +2158,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
         {
             PropertyDesc rootProperties[] = {
-                { PropertyType::OBJECT, "scene_root", 0, 1 }
+                { PropertyType::OBJECT, "scene_root", 0, false }
             };
             ObjectTypeDesc typeDesc;
             typeDesc.name = "RootType";
@@ -2007,88 +2167,16 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
             auto rootType = objDatabase->RegisterType(&typeDesc);
             objDatabase->CreateRoot(rootType);
         }
-    
-        {
-            PropertyDesc gameObjectProperties[] = {
-                { PropertyType::FLOAT3, "position", 0, 1 },
-                { PropertyType::FLOAT3, "rotation", 0, 1 },
-                { PropertyType::FLOAT3, "scale", 0, 1 },
 
-                { PropertyType::STRING, "description", 0, 1 },
-                { PropertyType::OBJECT, "parent", 0, 1 }
-
-            };
-            ObjectTypeDesc gameObjectTypeDesc;
-            gameObjectTypeDesc.name = "GameObject";
-            gameObjectTypeDesc.numProperties = 5;
-            gameObjectTypeDesc.properties = gameObjectProperties;
-            gameObjType = objDatabase->RegisterType(&gameObjectTypeDesc);
-            auto got = objDatabase->GetTypeInfo(gameObjType);
-            got.properties[4].objType = gameObjType;
-        }
-
-        static TypeHandle doorType = 0;
-        {
-            PropertyDesc doorProperties[] = {
-                { PropertyType::BOOL, "open", 0, 1 },
-                { PropertyType::BOOL, "locked", 0, 1 },
-
-            };
-            ObjectTypeDesc doorTypeDesc;
-            doorTypeDesc.name = "Door";
-            doorTypeDesc.numProperties = 2;
-            doorTypeDesc.properties = doorProperties;
-            doorTypeDesc.baseType = gameObjType;
-            doorType = objDatabase->RegisterType(&doorTypeDesc);
-        }
-
-        {
-            PropertyDesc doorProperties[] = {
-                { PropertyType::FLOAT, "angle", 0, 1 }
-            };
-            ObjectTypeDesc doorTypeDesc;
-            doorTypeDesc.name = "RevoltingDoor";
-            doorTypeDesc.numProperties = 1;
-            doorTypeDesc.properties = doorProperties;
-            doorTypeDesc.baseType = gameObjType;
-            doorTypeDesc.baseType = doorType;
-            objDatabase->RegisterType(&doorTypeDesc);
-        }
-
-        static TypeHandle baseComponentType = 0;
-        {
-            PropertyDesc baseComponentProperties[] = {
-                { PropertyType::OBJECT, "owner", gameObjType, 1 }
-            };
-            ObjectTypeDesc baseComponentTypeDesc;
-            baseComponentTypeDesc.name = "BaseComponent";
-            baseComponentTypeDesc.numProperties = 1;
-            baseComponentTypeDesc.properties = baseComponentProperties;
-            baseComponentType = objDatabase->RegisterType(&baseComponentTypeDesc);
-        }
-
-        {
-            PropertyDesc healthComponentProperties[] = {
-                { PropertyType::INT, "value", 0, 1 }
-            };
-            ObjectTypeDesc healthComponentTypeDesc;
-            healthComponentTypeDesc.name = "HealthComponent";
-            healthComponentTypeDesc.numProperties = 1;
-            healthComponentTypeDesc.properties = healthComponentProperties;
-            healthComponentTypeDesc.baseType = baseComponentType;
-            auto healthComponentType = objDatabase->RegisterType(&healthComponentTypeDesc);
-
-        }
-
-        
         {
             PropertyDesc properties[] = {
-                { PropertyType::INT, "num_inputs", 0, 1 },
-                { PropertyType::INT, "num_outputs", 0, 1 }
+                { PropertyType::INT, "num_inputs", 0, false },
+                { PropertyType::INT, "num_outputs", 0, false },
+                { PropertyType::STRING, "func_name", 0, false }
             };
             ObjectTypeDesc blendNodeTypeDesc;
             blendNodeTypeDesc.name = "BaseNode";
-            blendNodeTypeDesc.numProperties = 2;
+            blendNodeTypeDesc.numProperties = 3;
             blendNodeTypeDesc.properties = properties;
             baseNodeType = objDatabase->RegisterType(&blendNodeTypeDesc);
         }
@@ -2096,10 +2184,10 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
         {
             ObjectTypeDesc nodeConnectionTypeDesc;
             PropertyDesc nodeConnectionProperties[] = {
-                { PropertyType::OBJECT, "a", baseNodeType, 1 },
-                { PropertyType::INT, "a_index", 0, 1},
-                { PropertyType::OBJECT, "b", baseNodeType, 1 },
-                { PropertyType::INT, "b_index", 0, 1 }
+                { PropertyType::OBJECT, "a", baseNodeType, false },
+                { PropertyType::INT, "a_index", 0, false },
+                { PropertyType::OBJECT, "b", baseNodeType, false },
+                { PropertyType::INT, "b_index", 0, false }
             };
             nodeConnectionTypeDesc.name = "NodeConnection";
             nodeConnectionTypeDesc.numProperties = 4;
@@ -2107,11 +2195,10 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
             objDatabase->RegisterType(&nodeConnectionTypeDesc);
         }
 
-
         {
             PropertyDesc blendNodeProperties[] = {
-                { PropertyType::OBJECT, "input", 0, 1 },
-                { PropertyType::OBJECT, "output", 0, 1 }
+                { PropertyType::OBJECT, "input", 0, false },
+                { PropertyType::OBJECT, "output", 0, false }
             };
             ObjectTypeDesc blendNodeTypeDesc;
             blendNodeTypeDesc.name = "BlendNode";
@@ -2123,8 +2210,8 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
         {
             PropertyDesc colorNodeProperties[] = {
-                { PropertyType::COLOR_RGBA, "color", 0, 1 },
-                { PropertyType::OBJECT, "output", 0, 1 }
+                { PropertyType::COLOR_RGBA, "color", 0, false },
+                { PropertyType::OBJECT, "output", 0, false }
             };
             ObjectTypeDesc colorNodeTypeDesc;
             colorNodeTypeDesc.name = "ColorConstantNode";
@@ -2136,7 +2223,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
         {
             PropertyDesc intConstantNodeProperties[] = {
-                { PropertyType::INT, "value", 0, 1 }
+                { PropertyType::INT, "value", 0, false }
             };
             ObjectTypeDesc colorNodeTypeDesc;
             colorNodeTypeDesc.name = "IntConstantNode";
@@ -2148,8 +2235,8 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
         {
             PropertyDesc constantFloatNodeProperties[] = {
-                { PropertyType::FLOAT, "value", 0, 1 },
-                { PropertyType::OBJECT, "output", 0, 1 }
+                { PropertyType::FLOAT, "value", 0, false },
+                { PropertyType::OBJECT, "output", 0, false }
             };
             ObjectTypeDesc typeDesc;
             typeDesc.name = "FloatConstantNode";
@@ -2159,33 +2246,6 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
             objDatabase->RegisterType(&typeDesc);
         }
 
-        static TypeHandle assetType = 0;
-        {
-            PropertyDesc assetProperties[] = {
-                { PropertyType::INT, "guid", 0, 1 },
-                { PropertyType::STRING, "display_name", 0, 1 },
-                { PropertyType::INT, "version", 0, 1 }
-            };
-            ObjectTypeDesc typeDesc;
-            typeDesc.name = "Asset";
-            typeDesc.numProperties = 3;
-            typeDesc.properties = assetProperties;
-            assetType = objDatabase->RegisterType(&typeDesc);
-        }
-
-
-        {
-            PropertyDesc meshAssetProperties[] = {
-                { PropertyType::INT, "numVertices", 0, 1 },
-                { PropertyType::INT, "vertex_data_guid", 0, 1 }
-            };
-            ObjectTypeDesc typeDesc;
-            typeDesc.name = "MeshAsset";
-            typeDesc.numProperties = 2;
-            typeDesc.properties = meshAssetProperties;
-            typeDesc.baseType = assetType;
-            objDatabase->RegisterType(&typeDesc);
-        }
     }
     else {
         if (ImGui::Begin("Object Database")) {
