@@ -561,9 +561,6 @@ void ImGui_Style_SetDark(float alpha_)
         ImGui::ShowStyleEditor();
     }
 
-    ImGui::Begin("Style Stuff");
-    //ImGui::Checkbox("", &setStyle);
-    ImGui::End();
 }
 
 struct Project
@@ -995,8 +992,9 @@ struct ObjectTypeDesc
 #define STRING_PROPERTY_SIZE 1024
 struct Property
 {
-    PropertyType type;
-    size_t       arraySize = 1;
+    PropertyType    type;
+    size_t          arraySize   = 1;
+    const char*     name        = nullptr;
 
     union {
         struct {
@@ -1011,7 +1009,7 @@ struct Property
         struct {
             char buf[STRING_PROPERTY_SIZE];
         } as_string;
-    };
+    } data;
 };
 
 
@@ -1211,15 +1209,16 @@ struct ObjectDatabase
             for (size_t j = 0; j < source.as_property->arraySize; ++j) {
                 target.as_property->arraySize = source.as_property->arraySize - j;
                 target.as_property->type = source.as_property->type;
+                target.as_property->name = source.as_property->name;
                 if (prototype.objHandle == 0) {
-                    memset(&target.as_property->as_object, 0x0, sizeof(*target.as_property) - (sizeof(target.as_property->type) + sizeof(target.as_property->arraySize)));
+                    memset(&target.as_property->data, 0x0, sizeof(target.as_property->data));
                 }
                 else {
-                    memcpy(target.as_property, &prototype.properties[j], sizeof(Property));
+                    memcpy(target.as_property, &prototype.properties[i + j], sizeof(Property));
                 }
 
                 if (source.as_property->type == PropertyType::OBJECT) {
-                    target.as_property->as_object.type = source.as_property->objType;
+                    target.as_property->data.as_object.type = source.as_property->objType;
                 }
                 target.as_property++;
             }
@@ -1231,7 +1230,7 @@ struct ObjectDatabase
 
     void DestroyObject(ObjectHandle handle)
     {
-        if (handle == 0) { return; }
+        if (handle == 0 || handle == root) { return; }
         auto indexEntry = objectIndex.Get(handle);
         if (!indexEntry) { return; }
 
@@ -1265,7 +1264,45 @@ struct ObjectDatabase
         const char*     name = nullptr;
         Property*       properties = nullptr;
         size_t          numProperties = 0;
+    
+        int            GetInt(const char* name)
+        {
+            Property* property = properties;
+            for (size_t i = 0; i < numProperties; ++i) {
+                if (!strcmp(property->name, name)) {
+                    if (property->type != PropertyType::INT) {
+                        return 0;
+                    }
+                    else {
+                        return property->data.as_int;
+                    }
+                }
+                property += property->arraySize;
+            }
+            return 0;
+        }
     };
+
+    
+
+    void ResetProperty(Object object, size_t propertyIndex)
+    {
+        auto typeIndexEntry = typeIndex.Get(object.type);
+        if (!typeIndexEntry) { return; }
+        union {
+            void* as_void;
+            NodeHeader* as_header;
+            PropertyDesc* as_property;
+        };
+        as_void = typeIndexEntry->ptr;
+        if (as_header->prototypeHandle != 0) {
+            auto prototype = GetObject(as_header->prototypeHandle);
+            memcpy(&object.properties[propertyIndex], &prototype.properties[propertyIndex], sizeof(Property));
+        }
+        else {
+            memset(&object.properties[propertyIndex].data, 0x0, sizeof(object.properties[propertyIndex].data));
+        }
+    }
 
     TypeInfo GetTypeInfo(TypeHandle handle)
     {
@@ -1376,7 +1413,7 @@ struct ObjectDatabase
     }
 
     // true -> a is derived from b somehow
-    bool IsTypeDerivedFrom(TypeHandle a, TypeHandle b)
+    bool IsTypeDerivedFromOrEqual(TypeHandle a, TypeHandle b)
     {
         if (a == b) { return true; }
         auto nodeA = (NodeHeader*)typeIndex.Get(a)->ptr;
@@ -1386,6 +1423,29 @@ struct ObjectDatabase
             it = it->parent;
         }
         return false;
+    }
+
+    bool IsTypeDerivedFrom(TypeHandle a, TypeHandle b)
+    {
+        if (a == b) { return false; }
+        auto nodeA = (NodeHeader*)typeIndex.Get(a)->ptr;
+        auto it = nodeA->parent;
+        while (it != nullptr) {
+            if (it->typeHandle == b) { return true; }
+            it = it->parent;
+        }
+        return false;
+    }
+
+    template <class T>
+    void ForEachType(T func)
+    {
+        auto it = firstType;
+        size_t numTypes = 0;
+        while (it != nullptr) {
+            func(it);
+            it = it->next;
+        }
     }
 };
 
@@ -1419,64 +1479,71 @@ void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, Objec
             static size_t propIndex = 0;
             for (size_t k = 0; k < typeInfo.properties[i].arraySize; ++k) {
                 size_t index = i + k;
+                
                 if(typeInfo.properties[i].arraySize > 1) {
                     ImGui::Text("%llu : ", k);
                     ImGui::SameLine(150.0f + level * 20.0f);
                 }
                 switch (obj.properties[index].type) {
-                case PropertyType::FLOAT3: {
-                    ImGui::DragFloat3("", obj.properties[index].as_float3);
-                } break;
-                case PropertyType::STRING: {
-                    ImGui::InputText("", obj.properties[index].as_string.buf, STRING_PROPERTY_SIZE);
-                } break;
-                case PropertyType::OBJECT: {
-                    if (obj.properties[index].as_object.handle != 0) {
-                        if (ImGui::Button(ICON_FA_CHAIN_BROKEN "  Break Tie")) {
-                            obj.properties[index].as_object.handle = 0;
-                        }
-                        auto handle = objDatabase->GetObject(obj.properties[index].as_object.handle);
-                        if (handle.objHandle != 0) {
-                            ImGui::SameLine();
-                            ImGui::Text("%lu", handle);
-                            //PropertyView(handle, objDatabase, objects, numObjects, level + 1);
+                    case PropertyType::FLOAT3: {
+                        ImGui::DragFloat3("", obj.properties[index].data.as_float3);
+                    } break;
+                    case PropertyType::STRING: {
+                        ImGui::InputText("", obj.properties[index].data.as_string.buf, STRING_PROPERTY_SIZE);
+                    } break;
+                    case PropertyType::OBJECT: {
+                        if (obj.properties[index].data.as_object.handle != 0) {
+                            if (ImGui::Button(ICON_FA_CHAIN_BROKEN "  Break Tie")) {
+                                obj.properties[index].data.as_object.handle = 0;
+                            }
+                            auto handle = objDatabase->GetObject(obj.properties[index].data.as_object.handle);
+                            if (handle.objHandle != 0) {
+                                ImGui::SameLine();
+                                ImGui::Text("%lu", handle);
+                                //PropertyView(handle, objDatabase, objects, numObjects, level + 1);
+                            }
+                            else {
+                                obj.properties[index].data.as_object.handle = 0;
+                            }
                         }
                         else {
-                            obj.properties[index].as_object.handle = 0;
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.6f));
+                            ImGui::Text("null");
+                            if (ImGui::IsItemClicked()) {
+                                ImGui::OpenPopup("##objectSelector");
+                                propIndex = index;
+                            }
+                            ImGui::PopStyleColor();
                         }
-                    }
-                    else {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.6f));
-                        ImGui::Text("null");
-                        if (ImGui::IsItemClicked()) {
-                            ImGui::OpenPopup("##objectSelector");
-                            propIndex = index;
-                        }
-                        ImGui::PopStyleColor();
-                    }
-                } break;
-                case PropertyType::FLOAT: {
-                    ImGui::DragFloat("", &obj.properties[index].as_float);
-                } break;
-                case PropertyType::INT: {
-                    ImGui::DragInt("", &obj.properties[index].as_int);
-                } break;
-                case PropertyType::BOOL: {
-                    ImGui::Checkbox("", &obj.properties[index].as_bool);
-                } break;
-                case PropertyType::COLOR_RGBA: {
-                    ImGui::ColorEdit4("", obj.properties[index].as_colorRGBA);
-                } break;
-                default: {
-                    ImGui::Text("");
-                } break;
+                    } break;
+                    case PropertyType::FLOAT: {
+                        ImGui::DragFloat("", &obj.properties[index].data.as_float);
+                    } break;
+                    case PropertyType::INT: {
+                        ImGui::InputInt("", &obj.properties[index].data.as_int);
+                    } break;
+                    case PropertyType::BOOL: {
+                        ImGui::Checkbox("", &obj.properties[index].data.as_bool);
+                    } break;
+                    case PropertyType::COLOR_RGBA: {
+                        ImGui::ColorEdit4("", obj.properties[index].data.as_colorRGBA);
+                    } break;
+                    default: {
+                        ImGui::Text("invalid type");
+                    } break;
                 }
+                //ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 150.0f);
+                //ImGui::PushID((int)index);
+                //if (ImGui::Button(ICON_FA_UNDO "  Reset", ImVec2(150.0f, 0.0f))) {
+                //    objDatabase->ResetProperty(obj, index);
+                //}
+                //ImGui::PopID();
             }
             if (ImGui::BeginPopup("##objectSelector")) {
                 for (size_t j = 0; j < numObjects; ++j) {
-                    if (obj.properties[propIndex].as_object.type == 0 || objDatabase->IsTypeDerivedFrom(objects[j].type, obj.properties[propIndex].as_object.type)) {
+                    if (obj.properties[propIndex].data.as_object.type == 0 || objDatabase->IsTypeDerivedFromOrEqual(objects[j].type, obj.properties[propIndex].data.as_object.type)) {
                         if (ImGui::Selectable(objects[j].name, false)) {
-                            obj.properties[propIndex].as_object.handle = objects[j].objHandle;
+                            obj.properties[propIndex].data.as_object.handle = objects[j].objHandle;
                             ImGui::CloseCurrentPopup();
                         }
                     }
@@ -1491,6 +1558,384 @@ void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, Objec
         }
         ImGui::PopID();
     }
+}
+
+// NB: You can use math functions/operators on ImVec2 if you #define IMGUI_DEFINE_MATH_OPERATORS and #include "imgui_internal.h"
+// Here we only declare simple +/- operators so others don't leak into the demo code.
+static inline ImVec2 operator+(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2(lhs.x + rhs.x, lhs.y + rhs.y); }
+static inline ImVec2 operator-(const ImVec2& lhs, const ImVec2& rhs) { return ImVec2(lhs.x - rhs.x, lhs.y - rhs.y); }
+
+// Really dumb data structure provided for the example.
+// Note that we storing links are INDICES (not ID) to make example code shorter, obviously a bad idea for any general purpose code.
+static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandle baseNodeType, fnd::memory::LinearAllocator* frameAllocator)
+{
+    ImGui::SetNextWindowSize(ImVec2(700, 600), ImGuiSetCond_FirstUseEver);
+    if (!ImGui::Begin("Example: Custom Node Graph"))
+    {
+        ImGui::End();
+        return;
+    }
+
+    // Dummy
+    struct Node
+    {
+        int     ID;
+        char    Name[32];
+        ImVec2  Pos, Size;
+        float   Value;
+        ImVec4  Color;
+        int     InputsCount, OutputsCount;
+
+        TypeHandle      type;
+        ObjectHandle    obj;
+
+        Node(ObjectHandle o, TypeHandle t, int id, const char* name, const ImVec2& pos, float value, const ImVec4& color, int inputs_count, int outputs_count) { obj = o; type = t; ID = id; strncpy_s(Name, name, 31); Name[31] = 0; Pos = pos; Value = value; Color = color; InputsCount = inputs_count; OutputsCount = outputs_count; }
+
+        ImVec2 GetInputSlotPos(int slot_no) const { return ImVec2(Pos.x, Pos.y + Size.y * ((float)slot_no + 1) / ((float)InputsCount + 1)); }
+        ImVec2 GetOutputSlotPos(int slot_no) const { return ImVec2(Pos.x + Size.x, Pos.y + Size.y * ((float)slot_no + 1) / ((float)OutputsCount + 1)); }
+    };
+    struct NodeLink
+    {
+        int     InputIdx, InputSlot, OutputIdx, OutputSlot;
+
+        NodeLink(int input_idx, int input_slot, int output_idx, int output_slot) { InputIdx = input_idx; InputSlot = input_slot; OutputIdx = output_idx; OutputSlot = output_slot; }
+    };
+
+    struct NodeLinkEndpoint
+    {
+        int Idx, Slot;
+    };
+
+    static ImVector<Node> nodes;
+    static ImVector<NodeLink> links;
+    static bool inited = false;
+    static ImVec2 scrolling = ImVec2(0.0f, 0.0f);
+    static bool show_grid = true;
+    static int node_selected = -1;
+    
+    static struct {
+        NodeLinkEndpoint endpoint;
+
+        bool hasEndpointInput;
+        bool hasEndpointOutput;
+    } drag;
+
+    if (!inited)
+    {
+       /*nodes.push_back(Node(0, "MainTex", ImVec2(40, 50), 0.5f, ImColor(255, 100, 100), 1, 1));
+        nodes.push_back(Node(1, "BumpMap", ImVec2(40, 150), 0.42f, ImColor(200, 100, 200), 1, 1));
+        nodes.push_back(Node(2, "Combine", ImVec2(270, 80), 1.0f, ImColor(0, 200, 100), 2, 2));
+        links.push_back(NodeLink(0, 0, 2, 0));
+        links.push_back(NodeLink(1, 0, 2, 1));
+        */
+        inited = true;
+    }
+
+    // Draw a list of nodes on the left side
+    bool open_context_menu = false;
+    int node_hovered_in_list = -1;
+    int node_hovered_in_scene = -1;
+    ImGui::BeginChild("node_list", ImVec2(100, 0));
+    ImGui::Text("Nodes");
+    ImGui::SameLine();
+    if (ImGui::Button("Clear")) {
+        for (auto& node : nodes) {
+            objDatabase->DestroyObject(node.obj);
+        }
+        nodes.clear();
+        links.clear();
+    }
+    ImGui::Separator();
+    for (int node_idx = 0; node_idx < nodes.Size; node_idx++)
+    {
+        Node* node = &nodes[node_idx];
+
+        ObjectDatabase::TypeInfo typeInfo = objDatabase->GetTypeInfo(node->type);
+
+        ImGui::PushID(node->ID);
+        if (ImGui::Selectable(node->Name, node->ID == node_selected))
+            node_selected = node->ID;
+        if (ImGui::IsItemHovered())
+        {
+            node_hovered_in_list = node->ID;
+            open_context_menu |= ImGui::IsMouseClicked(1);
+        }
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.5f));
+        ImGui::Text("%s", typeInfo.name);
+        ImGui::PopStyleColor();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+
+    const float NODE_SLOT_RADIUS = 4.0f;
+    const ImVec2 NODE_WINDOW_PADDING(8.0f, 8.0f);
+
+    // Create our child canvas
+    ImGui::Text("Hold middle mouse button to scroll (%.2f,%.2f)", scrolling.x, scrolling.y);
+    ImGui::SameLine(ImGui::GetWindowWidth() - 100);
+    ImGui::Checkbox("Show grid", &show_grid);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(1, 1));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ChildWindowBg, ImVec4(0, 0, 0, 1));
+    ImGui::BeginChild("scrolling_region", ImVec2(0, 0), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
+    ImGui::PushItemWidth(120.0f);
+
+    ImVec2 offset = ImGui::GetCursorScreenPos() - scrolling;
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    draw_list->ChannelsSplit(2);
+
+    // Display grid
+    if (show_grid)
+    {
+        ImVec2 gridOffset = ImGui::GetCursorPos() - scrolling;
+        ImU32 GRID_COLOR = ImColor(200, 200, 200, 40);
+        float GRID_SZ = 64.0f;
+        ImVec2 win_pos = ImGui::GetCursorScreenPos();
+        ImVec2 canvas_sz = ImGui::GetWindowSize();
+        for (float x = fmodf(gridOffset.x, GRID_SZ); x < canvas_sz.x; x += GRID_SZ)
+            draw_list->AddLine(ImVec2(x, 0.0f) + win_pos, ImVec2(x, canvas_sz.y) + win_pos, GRID_COLOR);
+        for (float y = fmodf(gridOffset.y, GRID_SZ); y < canvas_sz.y; y += GRID_SZ)
+            draw_list->AddLine(ImVec2(0.0f, y) + win_pos, ImVec2(canvas_sz.x, y) + win_pos, GRID_COLOR);
+    }
+
+    // Display links
+    draw_list->ChannelsSetCurrent(0); // Background
+    for (int link_idx = 0; link_idx < links.Size; link_idx++)
+    {
+        NodeLink* link = &links[link_idx];
+        Node* node_inp = &nodes[link->InputIdx];
+        Node* node_out = &nodes[link->OutputIdx];
+        ImVec2 p1 = offset + node_inp->GetInputSlotPos(link->InputSlot);
+        ImVec2 p2 = offset + node_out->GetOutputSlotPos(link->OutputSlot);
+        draw_list->AddBezierCurve(p1, p1 + ImVec2(-50, 0), p2 + ImVec2(+50, 0), p2, ImColor(200, 200, 100), 3.0f);
+    }
+
+    if (drag.hasEndpointInput) {
+        Node* node_inp = &nodes[drag.endpoint.Idx];
+        ImVec2 p1 = offset + node_inp->GetInputSlotPos(drag.endpoint.Slot);
+        ImVec2 p2 = ImGui::GetMousePos();
+        draw_list->AddBezierCurve(p1, p1 + ImVec2(-50, 0), p2 + ImVec2(+50, 0), p2, ImColor(200, 200, 100), 3.0f);
+    }
+    if (drag.hasEndpointOutput) {
+        Node* node_inp = &nodes[drag.endpoint.Idx];
+        ImVec2 p1 = offset + node_inp->GetOutputSlotPos(drag.endpoint.Slot);
+        ImVec2 p2 = ImGui::GetMousePos();
+        draw_list->AddBezierCurve(p1, p1 + ImVec2(+50, 0), p2 + ImVec2(-50, 0), p2, ImColor(200, 200, 100), 3.0f);
+    }
+
+    size_t numObjects = 0;
+    objDatabase->GetAllObjects(nullptr, &numObjects);
+    ObjectDatabase::Object* objects = GT_NEW_ARRAY(ObjectDatabase::Object, numObjects, frameAllocator);
+    objDatabase->GetAllObjects(objects, &numObjects);
+
+    // Display nodes
+    for (int node_idx = 0; node_idx < nodes.Size; node_idx++)
+    {
+        Node* node = &nodes[node_idx];
+        ImGui::PushID(node->ID);
+        ImVec2 node_rect_min = offset + node->Pos;
+
+        ObjectDatabase::TypeInfo typeInfo = objDatabase->GetTypeInfo(node->type);
+
+
+        // Display node contents first
+        draw_list->ChannelsSetCurrent(1); // Foreground
+        bool old_any_active = ImGui::IsAnyItemActive();
+        ImGui::SetCursorScreenPos(node_rect_min + NODE_WINDOW_PADDING);
+        ImGui::BeginGroup(); // Lock horizontal position
+        /*ImGui::Text("%s", node->Name);
+        ImGui::SliderFloat("##value", &node->Value, 0.0f, 1.0f, "Alpha %.2f");
+        ImGui::ColorEdit3("##color", &node->Color.x);
+        */
+        ImGui::Text("%s", node->Name);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.5f));
+        ImGui::Text("%s", typeInfo.name);
+        ImGui::PopStyleColor();   
+        ImGui::Spacing();
+        PropertyView(objDatabase->GetObject(node->obj), objDatabase, objects, numObjects);
+        ImGui::EndGroup();
+
+        // Save the size of what we have emitted and whether any of the widgets are being used
+        bool node_widgets_active = (!old_any_active && ImGui::IsAnyItemActive());
+        node->Size = ImGui::GetItemRectSize() + NODE_WINDOW_PADDING + NODE_WINDOW_PADDING;
+        ImVec2 node_rect_max = node_rect_min + node->Size;
+
+        // Display node box
+        draw_list->ChannelsSetCurrent(0); // Background
+        ImGui::SetCursorScreenPos(node_rect_min);
+        ImGui::InvisibleButton("node", node->Size);
+        if (ImGui::IsItemHovered())
+        {
+            node_hovered_in_scene = node->ID;
+            open_context_menu |= ImGui::IsMouseClicked(1);
+        }
+        bool node_moving_active = ImGui::IsItemActive();
+        if (node_widgets_active || node_moving_active)
+            node_selected = node->ID;
+        if (node_moving_active && ImGui::IsMouseDragging(0))
+            node->Pos = node->Pos + ImGui::GetIO().MouseDelta;
+
+        ImU32 node_bg_color = (node_hovered_in_list == node->ID || node_hovered_in_scene == node->ID || (node_hovered_in_list == -1 && node_selected == node->ID)) ? ImColor(75, 75, 75) : ImColor(60, 60, 60);
+        draw_list->AddRectFilled(node_rect_min, node_rect_max, node_bg_color, 4.0f);
+        draw_list->AddRect(node_rect_min, node_rect_max, ImColor(100, 100, 100), 4.0f);
+        for (int slot_idx = 0; slot_idx < node->InputsCount; slot_idx++) {
+            draw_list->AddCircleFilled(offset + node->GetInputSlotPos(slot_idx), NODE_SLOT_RADIUS, ImColor(150, 150, 150, 150));
+            ImGui::SetCursorScreenPos(offset + node->GetInputSlotPos(slot_idx) - ImVec2(NODE_SLOT_RADIUS, NODE_SLOT_RADIUS));
+            ImGui::PushID(slot_idx);
+
+            NodeLink* connection = nullptr;
+            for (int link_idx = 0; link_idx < links.Size; link_idx++)
+            {
+                NodeLink* link = &links[link_idx];
+                if (link->InputIdx == node->ID && link->InputSlot == slot_idx) {
+                    connection = link;
+                }
+            }
+
+            if (ImGui::Button("", ImVec2(NODE_SLOT_RADIUS * 2, NODE_SLOT_RADIUS * 2))) {
+                
+            }
+            if (ImGui::IsItemClicked(MOUSE_RIGHT)) {
+                links.erase(connection);
+            }
+            if (!ImGui::IsItemActive() && ImGui::IsItemHoveredRect()) {
+                if (drag.hasEndpointOutput) {
+                    if (connection) {
+                        links.erase(connection);
+                    }
+
+                    ImGui::SetTooltip("Connect to node #%i, slot #%i", drag.endpoint.Idx, drag.endpoint.Slot);
+
+                    if (ImGui::IsMouseReleased(MOUSE_LEFT)) {
+                            links.push_back(NodeLink(node->ID, slot_idx, drag.endpoint.Idx, drag.endpoint.Slot));
+                            drag.hasEndpointOutput = false;
+                        }
+                    }
+            }
+            if (ImGui::IsItemActive() && !ImGui::IsItemHoveredRect()) {
+                if (connection) {
+                    links.erase(connection);
+                }
+                drag.hasEndpointInput = true;
+                drag.endpoint.Idx = node->ID;
+                drag.endpoint.Slot = slot_idx;
+            }
+            ImGui::PopID();
+        }
+        for (int slot_idx = 0; slot_idx < node->OutputsCount; slot_idx++) {
+            draw_list->AddCircleFilled(offset + node->GetOutputSlotPos(slot_idx), NODE_SLOT_RADIUS, ImColor(150, 150, 150, 150));
+            ImGui::SetCursorScreenPos(offset + node->GetOutputSlotPos(slot_idx) - ImVec2(NODE_SLOT_RADIUS, NODE_SLOT_RADIUS));
+            ImGui::PushID(node->InputsCount + slot_idx);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+            if (ImGui::Button("", ImVec2(NODE_SLOT_RADIUS * 2, NODE_SLOT_RADIUS * 2))) {
+
+            }
+            ImGui::PopStyleColor();
+            if (!ImGui::IsItemActive() && ImGui::IsItemHoveredRect()) {
+                if (drag.hasEndpointInput) {
+                    ImGui::SetTooltip("Connect to node #%i, slot #%i", drag.endpoint.Idx, drag.endpoint.Slot);
+
+                    if (ImGui::IsMouseReleased(MOUSE_LEFT)) {
+                        links.push_back(NodeLink(drag.endpoint.Idx, drag.endpoint.Slot, node->ID, slot_idx));
+                        drag.hasEndpointInput = false;
+                    }
+                }
+            }
+            if (ImGui::IsItemActive() && !ImGui::IsItemHoveredRect()) {
+                drag.hasEndpointOutput = true;
+                drag.endpoint.Idx = node->ID;
+                drag.endpoint.Slot= slot_idx;
+            }
+            
+            ImGui::PopID();
+        }
+
+        ImGui::PopID();
+    }
+    draw_list->ChannelsMerge();
+
+    if (!ImGui::IsMouseDragging(MOUSE_LEFT)) {
+        drag.hasEndpointInput = drag.hasEndpointOutput = false;
+    }
+
+    // Open context menu
+    if (!ImGui::IsAnyItemHovered() && ImGui::IsMouseHoveringWindow() && ImGui::IsMouseClicked(1))
+    {
+        node_selected = node_hovered_in_list = node_hovered_in_scene = -1;
+        open_context_menu = true;
+    }
+    if (open_context_menu)
+    {
+        ImGui::OpenPopup("context_menu");
+        if (node_hovered_in_list != -1)
+            node_selected = node_hovered_in_list;
+        if (node_hovered_in_scene != -1)
+            node_selected = node_hovered_in_scene;
+    }
+
+    // Draw context menu
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+    if (ImGui::BeginPopup("context_menu"))
+    {
+        Node* node = node_selected != -1 ? &nodes[node_selected] : NULL;
+        ImVec2 scene_pos = ImGui::GetMousePosOnOpeningCurrentPopup() - offset;
+        if (node)
+        {
+            ImGui::Text("Node '%s'", node->Name);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Rename..", NULL, false, false)) {}
+            if (ImGui::MenuItem("Delete", NULL, false, false)) {
+                NodeLink* connection = nullptr;
+                for (int link_idx = 0; link_idx < links.Size; link_idx++)
+                {
+                    NodeLink* link = &links[link_idx];
+                    if (link->InputIdx == node->ID || link->OutputIdx == node->ID) {
+                        connection = link;
+                    }
+                }
+                if (connection) {
+                    links.erase(connection);
+                }
+                nodes.erase(node);
+                node_selected = -1;
+            }
+            if (ImGui::MenuItem("Copy", NULL, false, false)) {}
+        }
+        else
+        {
+            if (ImGui::BeginMenu("Add")) { 
+                TypeHandle selectedType = 0;
+                objDatabase->ForEachType([&selectedType, scene_pos, objDatabase, baseNodeType](ObjectDatabase::NodeHeader* header) {
+                    if (!objDatabase->IsTypeDerivedFrom(header->typeHandle, baseNodeType)) { return; }
+                    if (ImGui::Selectable(header->name)) {
+                        selectedType = header->typeHandle;
+                        auto obj = objDatabase->CreateObjectWithType("New node", selectedType);
+                        auto object = objDatabase->GetObject(obj);
+                        nodes.push_back(Node(obj, selectedType, nodes.Size, "New node", scene_pos, 0.5f, ImColor(100, 100, 200), object.GetInt("num_inputs"), object.GetInt("num_outputs"))); 
+                    }
+                });
+                ImGui::EndMenu();
+            }
+            if (ImGui::MenuItem("Paste", NULL, false, false)) {}
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar();
+
+    // Scrolling
+    if (ImGui::IsWindowHovered() && !ImGui::IsAnyItemActive() && ImGui::IsMouseDragging(2, 0.0f))
+        scrolling = scrolling - ImGui::GetIO().MouseDelta;
+
+    ImGui::PopItemWidth();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+    ImGui::EndGroup();
+
+    ImGui::End();
 }
 
 
@@ -1530,11 +1975,13 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
     ImGuizmo::BeginFrame();
 
+    ImGui::ShowTestWindow();
+
     int WINDOW_WIDTH = 1920;
     int WINDOW_HEIGHT = 1080;
 
     static ObjectDatabase* objDatabase = nullptr;
-
+    static TypeHandle baseNodeType = 0;
     if (objDatabase == nullptr) {
         objDatabase = GT_NEW(ObjectDatabase, editor->applicationArena);
 
@@ -1633,21 +2080,38 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
         }
 
-        static TypeHandle baseNodeType = 0;
+        
         {
-
+            PropertyDesc properties[] = {
+                { PropertyType::INT, "num_inputs", 0, 1 },
+                { PropertyType::INT, "num_outputs", 0, 1 }
+            };
             ObjectTypeDesc blendNodeTypeDesc;
             blendNodeTypeDesc.name = "BaseNode";
-            blendNodeTypeDesc.numProperties = 0;
-            blendNodeTypeDesc.properties = nullptr;
+            blendNodeTypeDesc.numProperties = 2;
+            blendNodeTypeDesc.properties = properties;
             baseNodeType = objDatabase->RegisterType(&blendNodeTypeDesc);
+        }
+
+        {
+            ObjectTypeDesc nodeConnectionTypeDesc;
+            PropertyDesc nodeConnectionProperties[] = {
+                { PropertyType::OBJECT, "a", baseNodeType, 1 },
+                { PropertyType::INT, "a_index", 0, 1},
+                { PropertyType::OBJECT, "b", baseNodeType, 1 },
+                { PropertyType::INT, "b_index", 0, 1 }
+            };
+            nodeConnectionTypeDesc.name = "NodeConnection";
+            nodeConnectionTypeDesc.numProperties = 4;
+            nodeConnectionTypeDesc.properties = nodeConnectionProperties;
+            objDatabase->RegisterType(&nodeConnectionTypeDesc);
         }
 
 
         {
             PropertyDesc blendNodeProperties[] = {
-                { PropertyType::OBJECT, "input", baseNodeType, 8 },
-                { PropertyType::OBJECT, "output", baseNodeType, 1 }
+                { PropertyType::OBJECT, "input", 0, 1 },
+                { PropertyType::OBJECT, "output", 0, 1 }
             };
             ObjectTypeDesc blendNodeTypeDesc;
             blendNodeTypeDesc.name = "BlendNode";
@@ -1660,7 +2124,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
         {
             PropertyDesc colorNodeProperties[] = {
                 { PropertyType::COLOR_RGBA, "color", 0, 1 },
-                { PropertyType::OBJECT, "output", baseNodeType, 1 }
+                { PropertyType::OBJECT, "output", 0, 1 }
             };
             ObjectTypeDesc colorNodeTypeDesc;
             colorNodeTypeDesc.name = "ColorConstantNode";
@@ -1671,9 +2135,21 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
         }
 
         {
+            PropertyDesc intConstantNodeProperties[] = {
+                { PropertyType::INT, "value", 0, 1 }
+            };
+            ObjectTypeDesc colorNodeTypeDesc;
+            colorNodeTypeDesc.name = "IntConstantNode";
+            colorNodeTypeDesc.numProperties = 1;
+            colorNodeTypeDesc.properties = intConstantNodeProperties;
+            colorNodeTypeDesc.baseType = baseNodeType;
+            objDatabase->RegisterType(&colorNodeTypeDesc);
+        }
+
+        {
             PropertyDesc constantFloatNodeProperties[] = {
                 { PropertyType::FLOAT, "value", 0, 1 },
-                { PropertyType::OBJECT, "output", baseNodeType, 1 }
+                { PropertyType::OBJECT, "output", 0, 1 }
             };
             ObjectTypeDesc typeDesc;
             typeDesc.name = "FloatConstantNode";
@@ -1793,7 +2269,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
                 ImGui::PopStyleColor();
                 ImGui::EndGroup();
                
-                ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 155);
+                ImGui::SameLine(ImGui::GetContentRegionAvailWidth() - 150);
 
                 ImGui::BeginGroup();
                 ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.0f, 0.0f));
@@ -1816,6 +2292,8 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
             ImGui::EndChild();
         } ImGui::End();
     }
+
+    ShowExampleAppCustomNodeGraph(objDatabase, baseNodeType, frameAllocator);
 
     auto canvasFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoInputs;
     ImGui::SetNextWindowSize(ImVec2((float)WINDOW_WIDTH, (float)WINDOW_HEIGHT));
@@ -1902,7 +2380,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
                 return true;
             };
-
+            
             int numMipMapLevels = cro_GetMipMapLevels(width, height);
             uint8_t** mipmaps = (uint8_t**)allocator->Allocate(sizeof(uint8_t*) * numMipMapLevels, alignof(uint8_t*));
             int w = width;
