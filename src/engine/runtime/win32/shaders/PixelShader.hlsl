@@ -136,9 +136,9 @@ float4 main(PixelInput input) : SV_TARGET
     //float3 paintN = paintNormal.Sample(sampler8, input.uv).rgb;
 
     // @HACK uncomment back in
-    N = normalMap.Sample(sampler6, input.uv).rgb;
-    N = N * 2.0f - 1.0f;
-    N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
+    //N = normalMap.Sample(sampler6, input.uv).rgb;
+    //N = N * 2.0f - 1.0f;
+    //N = normalize(mul(input.TBN, float4(N, 0.0f)).xyz); 
 
     //return float4(N * 0.5f + 0.5f, 1.0f);
 

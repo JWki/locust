@@ -487,6 +487,77 @@ struct SumType
 };
 
 
+void VectorayGenStyle() {
+    auto& style = ImGui::GetStyle();
+
+    style.Alpha = 1.0f; // Global alpha applies to everything in ImGui
+    style.WindowPadding = ImVec2(8, 8); // Padding within a window
+    style.WindowMinSize = ImVec2(32, 32); // Minimum window size
+    style.WindowRounding = 0.0f; // Radius of window corners rounding. Set to 0.0f to have rectangular windows
+    //style.WindowTitleAlign = ; // Alignment for title bar text
+    style.ChildWindowRounding = 0.0f; // Radius of child window corners rounding. Set to 0.0f to have rectangular child windows
+    style.FramePadding = ImVec2(4, 3); // Padding within a framed rectangle (used by most widgets)
+    style.FrameRounding = 0.0f; // Radius of frame corners rounding. Set to 0.0f to have rectangular frames (used by most widgets).
+    style.ItemSpacing = ImVec2(8, 4); // Horizontal and vertical spacing between widgets/lines
+    style.ItemInnerSpacing = ImVec2(4, 4); // Horizontal and vertical spacing between within elements of a composed widget (e.g. a slider and its label)
+    style.TouchExtraPadding = ImVec2(0, 0); // Expand reactive bounding box for touch-based system where touch position is not accurate enough. Unfortunately we don't sort widgets so priority on overlap will always be given to the first widget. So don't grow this too much!
+    style.IndentSpacing = 21.0f; // Horizontal spacing when e.g. entering a tree node. Generally == (FontSize + FramePadding.x*2).
+    style.ColumnsMinSpacing = 6.0f; // Minimum horizontal spacing between two columns
+    style.ScrollbarSize = 16.0f; // Width of the vertical scrollbar, Height of the horizontal scrollbar
+    style.ScrollbarRounding = 9.0f; // Radius of grab corners rounding for scrollbar
+    style.GrabMinSize = 10.0f; // Minimum width/height of a grab box for slider/scrollbar
+    style.GrabRounding = 0.0f; // Radius of grabs corners rounding. Set to 0.0f to have rectangular slider grabs.
+    style.DisplayWindowPadding = ImVec2(22, 22); // Window positions are clamped to be visible within the display area by at least this amount. Only covers regular windows.
+    style.DisplaySafeAreaPadding = ImVec2(4, 4); // If you cannot see the edge of your screen (e.g. on a TV) increase the safe area padding. Covers popups/tooltips as well regular windows.
+    style.AntiAliasedLines = true; // Enable anti-aliasing on lines/borders. Disable if you are really short on CPU/GPU.
+    style.AntiAliasedShapes = true; // Enable anti-aliasing on filled shapes (rounded rectangles, circles, etc.)
+    style.CurveTessellationTol = 1.25f; // Tessellation tolerance. Decrease for highly tessellated curves (higher quality, more polygons), increase to reduce quality.
+
+    style.Colors[ImGuiCol_Text] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f); // Fine
+    style.Colors[ImGuiCol_TextDisabled] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f); // Fine
+    style.Colors[ImGuiCol_WindowBg] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f); // Fine
+    style.Colors[ImGuiCol_ChildWindowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f); // Fine
+    style.Colors[ImGuiCol_PopupBg] = ImVec4(0.05f, 0.05f, 0.10f, 1.00f); // Maybe?
+    style.Colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f); // Fine
+    style.Colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f); // Fine
+    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f); // Background of checkbox, radio button, plot, slider, text input
+    style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f); // Little box hover color
+    style.Colors[ImGuiCol_FrameBgActive] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_TitleBg] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f); //Title bar
+    style.Colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.12f, 0.12f, 0.12f, 1.00f); //Title Bar
+    style.Colors[ImGuiCol_TitleBgActive] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f); //Title bar active (ORANGE) 1.00f, 0.47f, 0.00f, 1.00f
+    style.Colors[ImGuiCol_MenuBarBg] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f); //Scroll bar background
+    style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f); //Scroll Bar Color
+    style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f); //Scroll bar click color
+    style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.40f, 0.40f, 0.40f, 1.00f); //Scroll bar drag color
+    style.Colors[ImGuiCol_ComboBg] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f); // Drop down menus
+    style.Colors[ImGuiCol_CheckMark] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f); //Check Box
+    style.Colors[ImGuiCol_SliderGrab] = ImVec4(0.80f, 0.80f, 0.80f, 0.25f); //Slider/Float Slider color
+    style.Colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f); //Slider/Float Slider Active Color
+    style.Colors[ImGuiCol_Button] = ImVec4(1.00f, 0.47f, 0.10f, 1.00f); //Button Color *FIX THIS*
+    style.Colors[ImGuiCol_ButtonHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_ButtonActive] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_Header] = ImVec4(0.25f, 0.25f, 0.25f, 1.00f);
+    style.Colors[ImGuiCol_HeaderHovered] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_HeaderActive] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_Column] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+    style.Colors[ImGuiCol_ColumnHovered] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_ColumnActive] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_ResizeGrip] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style.Colors[ImGuiCol_ResizeGripHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style.Colors[ImGuiCol_ResizeGripActive] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style.Colors[ImGuiCol_CloseButton] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_CloseButtonHovered] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style.Colors[ImGuiCol_CloseButtonActive] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style.Colors[ImGuiCol_PlotLines] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    style.Colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_PlotHistogram] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_TextSelectedBg] = ImVec4(1.00f, 0.47f, 0.00f, 1.00f);
+    style.Colors[ImGuiCol_ModalWindowDarkening] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
+}
+
 void ImGui_Style_SetDark(float alpha_)
 {
     ImGuiStyle& style = ImGui::GetStyle();
@@ -976,6 +1047,9 @@ struct PropertyDesc
     TypeHandle objType = 0;
     
     bool isArray = false;
+
+    struct Property*   attributes = nullptr;   // hackkyyyyy
+    size_t      numAttributes = 0;
 };
 
 
@@ -996,6 +1070,35 @@ struct Property
     bool            isArray     = false;
     const char*     name        = nullptr;
 
+    Property() = default;
+
+    explicit Property(const char* name, bool boolValue)
+        : name(name), type(PropertyType::BOOL)
+    {
+        data.as_bool = boolValue;
+    }
+
+    explicit Property(const char* name, float floatValue)
+        : name(name), type(PropertyType::FLOAT)
+    {
+        data.as_float = floatValue;
+    }
+
+    explicit Property(const char* name, int intValue)
+        : name(name), type(PropertyType::INT)
+    {
+        data.as_int = intValue;
+    }
+    
+    explicit Property(const char* name, const char* stringValue)
+        : name(name), type(PropertyType::STRING)
+    {
+        memset(data.as_string.buf, 0x0, STRING_PROPERTY_SIZE);
+        size_t len = strlen(stringValue);
+        len = len < STRING_PROPERTY_SIZE ? len : STRING_PROPERTY_SIZE - 1;
+        memcpy(data.as_string.buf, stringValue, len);
+    }
+
     union {
         struct {
             ObjectHandle handle;
@@ -1014,6 +1117,18 @@ struct Property
             Property*       elements;
         } as_array;
     } data;
+
+    static Property* GetPropertyWithName(const char* name, Property* properties, size_t numProperties)
+    {
+        Property* property = properties;
+        for (size_t i = 0; i < numProperties; ++i) {
+            if (!strcmp(property->name, name)) {
+                return property;
+            }
+            property++;
+        }
+        return nullptr;
+    }
 };
 
 
@@ -1094,7 +1209,7 @@ struct ObjectDatabase
         as_header->prev = nullptr;
         as_header->parent = parent;
 
-
+            
         auto it = firstType;
         while (it != nullptr && it->next != nullptr) {
             it = it->next;
@@ -1123,6 +1238,11 @@ struct ObjectDatabase
         }
         for (size_t i = 0; i < numProperties - numInheritedProperties; ++i) {
             *as_property = typeDesc->properties[i];
+
+            if (as_property->numAttributes > 0) {
+                as_property->attributes = GT_NEW_ARRAY(Property, as_property->numAttributes, blockAllocator);
+                memcpy(as_property->attributes, typeDesc->properties[i].attributes, sizeof(Property) * as_property->numAttributes);
+            }
             as_property++;
         }
         return handle;
@@ -1258,6 +1378,7 @@ struct ObjectDatabase
         const char*     name        = nullptr;
         PropertyDesc*   properties  = nullptr;
         size_t          numProperties = 0;
+        size_t          numInheritedProperties = 0;
     };
 
     struct Object
@@ -1269,22 +1390,10 @@ struct ObjectDatabase
         size_t          numProperties = 0;
 
         ObjectDatabase* db = nullptr;
-    
-        Property* GetPropertyWithName(const char* name)
-        {
-            Property* property = properties;
-            for (size_t i = 0; i < numProperties; ++i) {
-                if (!strcmp(property->name, name)) {
-                    return property;
-                }
-                property++;
-            }
-            return nullptr;
-        }
 
         int GetInt(const char* name, size_t index = 0)
         {
-            Property* property = GetPropertyWithName(name);
+            Property* property = Property::GetPropertyWithName(name, properties, numProperties);
             if (property != nullptr) {
                 if (!property->isArray) {
                     return property->data.as_int;
@@ -1298,7 +1407,7 @@ struct ObjectDatabase
 
         const char* GetString(const char* name, size_t index = 0)
         {
-            Property* property = GetPropertyWithName(name);
+            Property* property = Property::GetPropertyWithName(name, properties, numProperties);
             if (property != nullptr) {
                 if (!property->isArray) {
                     return property->data.as_string.buf;
@@ -1382,6 +1491,7 @@ struct ObjectDatabase
         auto numProperties = as_header->numProperties;
         result.name = as_header->name;
         result.numProperties = numProperties;
+        result.numInheritedProperties = as_header->numInheritedProperties;
         result.typeHandle = handle;
         if (as_header->parent != nullptr) {
             result.baseType = as_header->parent->typeHandle;
@@ -1409,6 +1519,7 @@ struct ObjectDatabase
                 auto numProperties = as_header->numProperties;
                 result.name = as_header->name;
                 result.numProperties = numProperties;
+                result.numInheritedProperties = as_header->numInheritedProperties;
                 result.typeHandle = it->typeHandle;
                 if (as_header->parent != nullptr) {
                     result.baseType = as_header->parent->typeHandle;
@@ -1514,7 +1625,7 @@ struct ObjectDatabase
     }
 };
 
-void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, ObjectDatabase::Object* objects, size_t numObjects, int level = 0) 
+void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, ObjectDatabase::Object* objects, size_t numObjects, int level = 0, bool showInheritedProperties = true) 
 {
     //@NOTE: HACK
     if (level > 5) {
@@ -1529,6 +1640,8 @@ void PropertyView(ObjectDatabase::Object obj, ObjectDatabase* objDatabase, Objec
     if (obj.objHandle != 0) {
         ImGui::PushID(level);
         for (size_t i = 0; i < typeInfo.numProperties; ++i) {
+            if (!showInheritedProperties && i < typeInfo.numInheritedProperties) { continue; }
+
             ImGui::PushID((int)i);
 
             auto properties = obj.properties;
@@ -1662,14 +1775,16 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
         float   Value;
         ImVec4  Color;
         int     InputsCount, OutputsCount;
+        float   InputSlotY[32];
+        float   OutputSlotY[32];
 
         TypeHandle      type;
         ObjectHandle    obj;
 
-        Node(ObjectHandle o, TypeHandle t, int id, const char* name, const ImVec2& pos, float value, const ImVec4& color, int inputs_count, int outputs_count) { obj = o; type = t; ID = id; strncpy_s(Name, name, 31); Name[31] = 0; Pos = pos; Value = value; Color = color; InputsCount = inputs_count; OutputsCount = outputs_count; }
+        Node(ObjectHandle o, TypeHandle t, int id, const char* name, const ImVec2& pos) { obj = o; type = t; ID = id; strncpy_s(Name, name, 31); Name[31] = 0; Pos = pos; }
 
-        ImVec2 GetInputSlotPos(int slot_no) const { return ImVec2(Pos.x, Pos.y + Size.y * ((float)slot_no + 1) / ((float)InputsCount + 1)); }
-        ImVec2 GetOutputSlotPos(int slot_no) const { return ImVec2(Pos.x + Size.x, Pos.y + Size.y * ((float)slot_no + 1) / ((float)OutputsCount + 1)); }
+        ImVec2 GetInputSlotPos(int slot_no) const { return ImVec2(Pos.x, InputSlotY[slot_no]); }
+        ImVec2 GetOutputSlotPos(int slot_no) const { return ImVec2(Pos.x + Size.x, OutputSlotY[slot_no]); }
     };
     struct NodeLink
     {
@@ -1692,6 +1807,8 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
     
     static struct {
         NodeLinkEndpoint endpoint;
+
+        PropertyType type;
 
         bool hasEndpointInput;
         bool hasEndpointOutput;
@@ -1788,20 +1905,20 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
         NodeLink* link = &links[link_idx];
         Node* node_inp = &nodes[link->InputIdx];
         Node* node_out = &nodes[link->OutputIdx];
-        ImVec2 p2 = offset + node_inp->GetInputSlotPos(link->InputSlot);
-        ImVec2 p1 = offset + node_out->GetOutputSlotPos(link->OutputSlot);
+        ImVec2 p2 = ImVec2(offset.x, 0.0f) + node_inp->GetInputSlotPos(link->InputSlot);
+        ImVec2 p1 = ImVec2(offset.x, 0.0f) + node_out->GetOutputSlotPos(link->OutputSlot);
         draw_list->AddBezierCurve(p1, p1 + ImVec2(50, 0), p2 + ImVec2(-50, 0), p2, ImColor(200, 200, 100), 3.0f);
     }
 
     if (drag.hasEndpointInput) {
         Node* node_inp = &nodes[drag.endpoint.Idx];
-        ImVec2 p2 = offset + node_inp->GetInputSlotPos(drag.endpoint.Slot);
+        ImVec2 p2 = ImVec2(offset.x, 0.0f) + node_inp->GetInputSlotPos(drag.endpoint.Slot);
         ImVec2 p1 = ImGui::GetMousePos();
         draw_list->AddBezierCurve(p1, p1 + ImVec2(50, 0), p2 + ImVec2(-50, 0), p2, ImColor(200, 200, 100), 3.0f);
     }
     if (drag.hasEndpointOutput) {
         Node* node_inp = &nodes[drag.endpoint.Idx];
-        ImVec2 p1 = offset + node_inp->GetOutputSlotPos(drag.endpoint.Slot);
+        ImVec2 p1 = ImVec2(offset.x, 0.0f) + node_inp->GetOutputSlotPos(drag.endpoint.Slot);
         ImVec2 p2 = ImGui::GetMousePos();
         draw_list->AddBezierCurve(p1, p1 + ImVec2(+50, 0), p2 + ImVec2(-50, 0), p2, ImColor(200, 200, 100), 3.0f);
     }
@@ -1835,7 +1952,109 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
         ImGui::Text("%s", typeInfo.name);
         ImGui::PopStyleColor();   
         ImGui::Spacing();
-        PropertyView(objDatabase->GetObject(node->obj), objDatabase, objects, numObjects);
+        
+        PropertyDesc* inputSlots = GT_NEW_ARRAY(PropertyDesc, typeInfo.numProperties, frameAllocator);
+        PropertyDesc* outputSlots = GT_NEW_ARRAY(PropertyDesc, typeInfo.numProperties, frameAllocator);
+        bool* isConstantOutput = GT_NEW_ARRAY(bool, typeInfo.numProperties, frameAllocator);
+
+        node->InputsCount = 0;
+        node->OutputsCount = 0;
+
+        for (size_t i = 0; i < typeInfo.numProperties; ++i) {
+            auto propertyDesc = &typeInfo.properties[i];
+            if (propertyDesc->numAttributes == 0) { continue; }
+            auto isInputAttrib = Property::GetPropertyWithName("IsInput", propertyDesc->attributes, propertyDesc->numAttributes);
+            auto isOutputAttrib = Property::GetPropertyWithName("IsOutput", propertyDesc->attributes, propertyDesc->numAttributes);
+            
+            if (isInputAttrib && isInputAttrib->data.as_bool == true) {
+                inputSlots[node->InputsCount] = *propertyDesc;
+                node->InputsCount++;
+            }
+            else {
+                if (isOutputAttrib && isOutputAttrib->data.as_bool == true) {
+                    auto isConstantAttrib = Property::GetPropertyWithName("IsConstant", propertyDesc->attributes, propertyDesc->numAttributes);
+                    if (isConstantAttrib && isConstantAttrib->data.as_bool == true) {
+                        isConstantOutput[node->OutputsCount] = true;
+                    }
+                    else {
+                        isConstantOutput[node->OutputsCount] = false;
+                    }
+
+                    outputSlots[node->OutputsCount] = *propertyDesc;
+                    node->OutputsCount++;
+                }
+            }
+        }
+
+        // draw inputs
+        ImGui::BeginGroup();
+        for (size_t i = 0; i < node->InputsCount; ++i) {
+            if ((drag.hasEndpointOutput && drag.type != inputSlots[i].type) || drag.hasEndpointInput) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
+            }
+            else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+            }
+            ImGui::Text(inputSlots[i].name);
+            ImGui::PopStyleColor();
+
+            node->InputSlotY[i] = ImGui::GetCursorScreenPos().y - ImGui::GetItemRectSize().y * 0.5f;
+        }
+        ImGui::EndGroup();
+        auto groupWidth = ImGui::GetItemRectSize().x;
+        
+        ImGui::SameLine();
+        // draw outputs
+        ImGui::BeginGroup();
+        auto obj = objDatabase->GetObject(node->obj);
+        for (size_t i = 0; i < node->OutputsCount; ++i) {
+            if (groupWidth > 0) {
+                ImGui::Dummy(ImVec2(groupWidth, 0));
+                ImGui::SameLine();
+            }
+            if ((drag.hasEndpointInput && drag.type != outputSlots[i].type) || drag.hasEndpointOutput) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.2f));
+            }
+            else {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+            }
+            ImGui::Text(outputSlots[i].name);
+            ImGui::PopStyleColor();
+            
+            node->OutputSlotY[i] = ImGui::GetCursorScreenPos().y - ImGui::GetItemRectSize().y * 0.5f;
+           // ImGui::SameLine();
+            if (isConstantOutput[i]) {
+                Property* editProperty = Property::GetPropertyWithName(outputSlots[i].name, obj.properties, obj.numProperties);
+                ImGui::PushID((int)i);
+                switch (editProperty->type) {
+                    case PropertyType::FLOAT3: {
+                        ImGui::DragFloat3("", editProperty->data.as_float3);
+                    } break;
+                    case PropertyType::STRING: {
+                        ImGui::InputText("", editProperty->data.as_string.buf, STRING_PROPERTY_SIZE);
+                    } break;
+                    case PropertyType::FLOAT: {
+                        ImGui::DragFloat("", &editProperty->data.as_float, 1.0f);
+                    } break;
+                    case PropertyType::INT: {
+                        ImGui::InputInt("", &editProperty->data.as_int);
+                    } break;
+                    case PropertyType::BOOL: {
+                        ImGui::Checkbox("", &editProperty->data.as_bool);
+                    } break;
+                    case PropertyType::COLOR_RGBA: {
+                        ImGuiColorEditFlags flags = ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview |ImGuiColorEditFlags_PickerHueBar | ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
+                        ImGui::ColorPicker4("", editProperty->data.as_colorRGBA, flags);
+                    } break;
+                    default: {
+                        ImGui::Text("invalid type");
+                    } break;
+                }
+                ImGui::PopID();
+            }
+        }
+        ImGui::EndGroup();
+
         ImGui::EndGroup();
 
         // Save the size of what we have emitted and whether any of the widgets are being used
@@ -1861,9 +2080,9 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
         ImU32 node_bg_color = (node_hovered_in_list == node->ID || node_hovered_in_scene == node->ID || (node_hovered_in_list == -1 && node_selected == node->ID)) ? ImColor(75, 75, 75) : ImColor(60, 60, 60);
         draw_list->AddRectFilled(node_rect_min, node_rect_max, node_bg_color, 4.0f);
         draw_list->AddRect(node_rect_min, node_rect_max, ImColor(100, 100, 100), 4.0f);
+        auto buttonColor = ImGui::GetStyle().Colors[ImGuiCol_Button];
         for (int slot_idx = 0; slot_idx < node->InputsCount; slot_idx++) {
-            draw_list->AddCircleFilled(offset + node->GetInputSlotPos(slot_idx), NODE_SLOT_RADIUS, ImColor(150, 150, 150, 150));
-            ImGui::SetCursorScreenPos(offset + node->GetInputSlotPos(slot_idx) - ImVec2(NODE_SLOT_RADIUS, NODE_SLOT_RADIUS));
+            ImGui::SetCursorScreenPos(ImVec2(offset.x, 0.0f) + node->GetInputSlotPos(slot_idx) - ImVec2(NODE_SLOT_RADIUS, NODE_SLOT_RADIUS));
             ImGui::PushID(slot_idx);
 
             NodeLink* connection = nullptr;
@@ -1875,25 +2094,38 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
                 }
             }
 
-            if (ImGui::Button("", ImVec2(NODE_SLOT_RADIUS * 2, NODE_SLOT_RADIUS * 2))) {
-                
+            auto isValidInput = !drag.hasEndpointInput && !(drag.hasEndpointOutput && drag.type != inputSlots[slot_idx].type);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(buttonColor.x, buttonColor.y, buttonColor.z, isValidInput ? 1.0f : 0.4f));
+            if (ImGui::Button("##slot", ImVec2(NODE_SLOT_RADIUS * 2, NODE_SLOT_RADIUS * 2))) {
+
             }
+            ImGui::PopStyleColor();
             if (ImGui::IsItemClicked(MOUSE_RIGHT)) {
                 links.erase(connection);
             }
             if (!ImGui::IsItemActive() && ImGui::IsItemHoveredRect()) {
                 if (drag.hasEndpointOutput) {
-                    if (connection) {
-                        links.erase(connection);
-                    }
+                    
+                    if (drag.type == inputSlots[slot_idx].type) {
+                        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.0f, 1.0f, 0.0f, 0.6f));
+                        ImGui::SetTooltip("Connect to node #%i, slot #%i", drag.endpoint.Idx, drag.endpoint.Slot);
 
-                    ImGui::SetTooltip("Connect to node #%i, slot #%i", drag.endpoint.Idx, drag.endpoint.Slot);
+                        if (ImGui::IsMouseReleased(MOUSE_LEFT)) {
+                            if (connection) {
+                                links.erase(connection);
+                            }
 
-                    if (ImGui::IsMouseReleased(MOUSE_LEFT)) {
                             links.push_back(NodeLink(node->ID, slot_idx, drag.endpoint.Idx, drag.endpoint.Slot));
                             drag.hasEndpointOutput = false;
                         }
                     }
+                    else {
+                        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(1.0f, 0.0f, 0.0f, 0.6f));
+                        ImGui::SetTooltip("%s", "Can't connect here");
+                    }
+                    ImGui::PopStyleColor();
+                }
+                
             }
             if (ImGui::IsItemActive() && !ImGui::IsItemHoveredRect()) {
                 if (connection) {
@@ -1902,15 +2134,17 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
                 drag.hasEndpointInput = true;
                 drag.endpoint.Idx = node->ID;
                 drag.endpoint.Slot = slot_idx;
+                drag.type = inputSlots[slot_idx].type;
             }
             ImGui::PopID();
         }
         for (int slot_idx = 0; slot_idx < node->OutputsCount; slot_idx++) {
-            draw_list->AddCircleFilled(offset + node->GetOutputSlotPos(slot_idx), NODE_SLOT_RADIUS, ImColor(150, 150, 150, 150));
-            ImGui::SetCursorScreenPos(offset + node->GetOutputSlotPos(slot_idx) - ImVec2(NODE_SLOT_RADIUS, NODE_SLOT_RADIUS));
+            ImGui::SetCursorScreenPos(ImVec2(offset.x, 0.0f) + node->GetOutputSlotPos(slot_idx) - ImVec2(NODE_SLOT_RADIUS, NODE_SLOT_RADIUS));
             ImGui::PushID(node->InputsCount + slot_idx);
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
-            if (ImGui::Button("", ImVec2(NODE_SLOT_RADIUS * 2, NODE_SLOT_RADIUS * 2))) {
+
+            auto isValidOutput = !drag.hasEndpointOutput && !(drag.hasEndpointOutput && drag.type != outputSlots[slot_idx].type);
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(buttonColor.x, buttonColor.y, buttonColor.z, isValidOutput ? 1.0f : 0.4f));
+            if (ImGui::Button("##slot", ImVec2(NODE_SLOT_RADIUS * 2, NODE_SLOT_RADIUS * 2))) {
 
             }
             ImGui::PopStyleColor();
@@ -1918,16 +2152,24 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
                 if (drag.hasEndpointInput) {
                     ImGui::SetTooltip("Connect to node #%i, slot #%i", drag.endpoint.Idx, drag.endpoint.Slot);
 
-                    if (ImGui::IsMouseReleased(MOUSE_LEFT)) {
-                        links.push_back(NodeLink(drag.endpoint.Idx, drag.endpoint.Slot, node->ID, slot_idx));
-                        drag.hasEndpointInput = false;
+                    if (drag.type == outputSlots[slot_idx].type) {
+                        ImGui::SetTooltip("Connect to node #%i, slot #%i", drag.endpoint.Idx, drag.endpoint.Slot);
+
+                        if (ImGui::IsMouseReleased(MOUSE_LEFT)) {
+                            links.push_back(NodeLink(drag.endpoint.Idx, drag.endpoint.Slot, node->ID, slot_idx));
+                            drag.hasEndpointInput = false;
+                        }
+                    }
+                    else {
+                        ImGui::SetTooltip("Can't connect here");
                     }
                 }
             }
             if (ImGui::IsItemActive() && !ImGui::IsItemHoveredRect()) {
                 drag.hasEndpointOutput = true;
                 drag.endpoint.Idx = node->ID;
-                drag.endpoint.Slot= slot_idx;
+                drag.endpoint.Slot = slot_idx;
+                drag.type = outputSlots[slot_idx].type;
             }
             
             ImGui::PopID();
@@ -1940,7 +2182,7 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
     if (!ImGui::IsMouseDragging(MOUSE_LEFT)) {
         drag.hasEndpointInput = drag.hasEndpointOutput = false;
     }
-
+    
     // Open context menu
     if (!ImGui::IsAnyItemHovered() && ImGui::IsMouseHoveringWindow() && ImGui::IsMouseClicked(1))
     {
@@ -1994,7 +2236,7 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
                         selectedType = header->typeHandle;
                         auto obj = objDatabase->CreateObjectWithType("New node", selectedType);
                         auto object = objDatabase->GetObject(obj);
-                        nodes.push_back(Node(obj, selectedType, nodes.Size, "New node", scene_pos, 0.5f, ImColor(100, 100, 200), object.GetInt("num_inputs"), object.GetInt("num_outputs"))); 
+                        nodes.push_back(Node(obj, selectedType, nodes.Size, "New node", scene_pos)); 
                     }
                 });
                 ImGui::EndMenu();
@@ -2083,7 +2325,7 @@ static void ShowExampleAppCustomNodeGraph(ObjectDatabase* objDatabase, TypeHandl
         return -1;
     };
 
-    while (numEvaluatedNodes < nodes.Size) {
+    while (false && numEvaluatedNodes < nodes.Size) {
         for (int link_idx = 0; link_idx < links.Size; ++link_idx) {
             auto link = &links[link_idx];
 
@@ -2131,11 +2373,12 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
     //if (editor->frameIndex == 0) {
         ImGui_Style_SetDark(0.8f);
+        VectorayGenStyle();
     //}
 
     ImGuizmo::BeginFrame();
 
-    ImGui::ShowTestWindow();
+    //ImGui::ShowTestWindow();
 
     int WINDOW_WIDTH = 1920;
     int WINDOW_HEIGHT = 1080;
@@ -2158,7 +2401,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
         {
             PropertyDesc rootProperties[] = {
-                { PropertyType::OBJECT, "scene_root", 0, false }
+                { PropertyType::OBJECT, "scene_root", 0, false, nullptr }
             };
             ObjectTypeDesc typeDesc;
             typeDesc.name = "RootType";
@@ -2168,26 +2411,37 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
             objDatabase->CreateRoot(rootType);
         }
 
+        const size_t numNodeInputAttribs = 1;
+        Property nodeInputAttribs[numNodeInputAttribs] = {
+            Property("IsInput", true)
+        };
+
+        const size_t numNodeOutputAttribs = 1;
+        Property nodeOutputAttribs[numNodeOutputAttribs] = {
+            Property("IsOutput", true)
+        };
+
+        const size_t numNodeConstantOutputAttribs = 2;
+        Property nodeConstantOutputAttribs[numNodeConstantOutputAttribs] = {
+            Property("IsOutput", true),
+            Property("IsConstant", true)
+        };
+
         {
-            PropertyDesc properties[] = {
-                { PropertyType::INT, "num_inputs", 0, false },
-                { PropertyType::INT, "num_outputs", 0, false },
-                { PropertyType::STRING, "func_name", 0, false }
-            };
             ObjectTypeDesc blendNodeTypeDesc;
             blendNodeTypeDesc.name = "BaseNode";
-            blendNodeTypeDesc.numProperties = 3;
-            blendNodeTypeDesc.properties = properties;
+            blendNodeTypeDesc.numProperties = 0;
+            blendNodeTypeDesc.properties = nullptr;
             baseNodeType = objDatabase->RegisterType(&blendNodeTypeDesc);
         }
 
         {
             ObjectTypeDesc nodeConnectionTypeDesc;
             PropertyDesc nodeConnectionProperties[] = {
-                { PropertyType::OBJECT, "a", baseNodeType, false },
-                { PropertyType::INT, "a_index", 0, false },
-                { PropertyType::OBJECT, "b", baseNodeType, false },
-                { PropertyType::INT, "b_index", 0, false }
+                { PropertyType::OBJECT, "a", baseNodeType, false, nullptr, 0 },
+                { PropertyType::INT, "a_index", 0, false, nullptr, 0 },
+                { PropertyType::OBJECT, "b", baseNodeType, false, nullptr, 0 },
+                { PropertyType::INT, "b_index", 0, false, nullptr, 0 }
             };
             nodeConnectionTypeDesc.name = "NodeConnection";
             nodeConnectionTypeDesc.numProperties = 4;
@@ -2197,33 +2451,82 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
 
         {
             PropertyDesc blendNodeProperties[] = {
-                { PropertyType::OBJECT, "input", 0, false },
-                { PropertyType::OBJECT, "output", 0, false }
+                { PropertyType::COLOR_RGBA, "inputA", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::COLOR_RGBA, "inputB", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "alpha", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::COLOR_RGBA, "output", 0, false, nodeOutputAttribs, numNodeOutputAttribs }
             };
             ObjectTypeDesc blendNodeTypeDesc;
-            blendNodeTypeDesc.name = "BlendNode";
-            blendNodeTypeDesc.numProperties = 2;
+            blendNodeTypeDesc.name = "ColorBlendNode";
+            blendNodeTypeDesc.numProperties = 4;
             blendNodeTypeDesc.properties = blendNodeProperties;
             blendNodeTypeDesc.baseType = baseNodeType;
             objDatabase->RegisterType(&blendNodeTypeDesc);
         }
 
         {
+            PropertyDesc addFloatNodeProperties[] = {
+                { PropertyType::FLOAT, "inputA", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "inputB", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "output", 0, false, nodeOutputAttribs, numNodeOutputAttribs }
+            };
+            ObjectTypeDesc blendNodeTypeDesc;
+            blendNodeTypeDesc.name = "AddFloat";
+            blendNodeTypeDesc.numProperties = 3;
+            blendNodeTypeDesc.properties = addFloatNodeProperties;
+            blendNodeTypeDesc.baseType = baseNodeType;
+            objDatabase->RegisterType(&blendNodeTypeDesc);
+        }
+
+        {
+            PropertyDesc subFloatNodeProperties[] = {
+                { PropertyType::FLOAT, "inputA", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "inputB", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "output", 0, false, nodeOutputAttribs, numNodeOutputAttribs }
+            };
+            ObjectTypeDesc blendNodeTypeDesc;
+            blendNodeTypeDesc.name = "SubFloat";
+            blendNodeTypeDesc.numProperties = 3;
+            blendNodeTypeDesc.properties = subFloatNodeProperties;
+            blendNodeTypeDesc.baseType = baseNodeType;
+            objDatabase->RegisterType(&blendNodeTypeDesc);
+        }
+
+        {
+            PropertyDesc mulFloatNodeProperties[] = {
+                { PropertyType::FLOAT, "inputA", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "inputB", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "output", 0, false, nodeOutputAttribs, numNodeOutputAttribs }
+            };
+            ObjectTypeDesc blendNodeTypeDesc;
+            blendNodeTypeDesc.name = "MulFloat";
+            blendNodeTypeDesc.numProperties = 3;
+            blendNodeTypeDesc.properties = mulFloatNodeProperties;
+            blendNodeTypeDesc.baseType = baseNodeType;
+            objDatabase->RegisterType(&blendNodeTypeDesc);
+        }
+
+        {
             PropertyDesc colorNodeProperties[] = {
-                { PropertyType::COLOR_RGBA, "color", 0, false },
-                { PropertyType::OBJECT, "output", 0, false }
+                { PropertyType::COLOR_RGBA, "value", 0, false, nodeConstantOutputAttribs, numNodeConstantOutputAttribs },
+                { PropertyType::FLOAT, "r", 0, false, nodeOutputAttribs, numNodeOutputAttribs },
+                { PropertyType::FLOAT, "g", 0, false, nodeOutputAttribs, numNodeOutputAttribs },
+                { PropertyType::FLOAT, "b", 0, false, nodeOutputAttribs, numNodeOutputAttribs },
+                { PropertyType::FLOAT, "a", 0, false, nodeOutputAttribs, numNodeOutputAttribs }
+
             };
             ObjectTypeDesc colorNodeTypeDesc;
             colorNodeTypeDesc.name = "ColorConstantNode";
-            colorNodeTypeDesc.numProperties = 2;
+            colorNodeTypeDesc.numProperties = 5;
             colorNodeTypeDesc.properties = colorNodeProperties;
             colorNodeTypeDesc.baseType = baseNodeType;
             objDatabase->RegisterType(&colorNodeTypeDesc);
         }
 
+    
         {
             PropertyDesc intConstantNodeProperties[] = {
-                { PropertyType::INT, "value", 0, false }
+                { PropertyType::INT, "value", 0, false, nodeConstantOutputAttribs, numNodeConstantOutputAttribs },
             };
             ObjectTypeDesc colorNodeTypeDesc;
             colorNodeTypeDesc.name = "IntConstantNode";
@@ -2234,18 +2537,59 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
         }
 
         {
+            PropertyDesc float3ConstantNodeProperties[] = {
+                { PropertyType::FLOAT3, "value", 0, false, nodeConstantOutputAttribs, numNodeConstantOutputAttribs },
+            };
+            ObjectTypeDesc colorNodeTypeDesc;
+            colorNodeTypeDesc.name = "Float3ConstantNode";
+            colorNodeTypeDesc.numProperties = 1;
+            colorNodeTypeDesc.properties = float3ConstantNodeProperties;
+            colorNodeTypeDesc.baseType = baseNodeType;
+            objDatabase->RegisterType(&colorNodeTypeDesc);
+        }
+
+        {
             PropertyDesc constantFloatNodeProperties[] = {
-                { PropertyType::FLOAT, "value", 0, false },
-                { PropertyType::OBJECT, "output", 0, false }
+                { PropertyType::FLOAT, "value", 0, false, nodeConstantOutputAttribs, numNodeConstantOutputAttribs },
             };
             ObjectTypeDesc typeDesc;
             typeDesc.name = "FloatConstantNode";
-            typeDesc.numProperties = 2;
+            typeDesc.numProperties = 1;
             typeDesc.properties = constantFloatNodeProperties;
             typeDesc.baseType = baseNodeType;
             objDatabase->RegisterType(&typeDesc);
         }
 
+        {
+            PropertyDesc float3NodeProperties[] = {
+                { PropertyType::FLOAT, "x", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "y", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "z", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT3, "value", 0, false, nodeOutputAttribs, numNodeOutputAttribs}
+            };
+            ObjectTypeDesc typeDesc;
+            typeDesc.name = "Float3Node";
+            typeDesc.numProperties = 4;
+            typeDesc.properties = float3NodeProperties;
+            typeDesc.baseType = baseNodeType;
+            objDatabase->RegisterType(&typeDesc);
+        }
+
+        {
+            PropertyDesc pbsNodeProperties[] = {
+                { PropertyType::COLOR_RGBA, "albedo", 0, false, nodeInputAttribs, numNodeInputAttribs },
+                { PropertyType::FLOAT, "roughness", 0, false, nodeInputAttribs, numNodeOutputAttribs },
+                { PropertyType::FLOAT, "metallic", 0, false, nodeInputAttribs, numNodeOutputAttribs },
+                { PropertyType::FLOAT3, "normal", 0, false, nodeInputAttribs, numNodeOutputAttribs },
+                { PropertyType::FLOAT3, "ao", 0, false, nodeInputAttribs, numNodeOutputAttribs }
+            };
+            ObjectTypeDesc typeDesc;
+            typeDesc.name = "PBSNode";
+            typeDesc.numProperties = 5;
+            typeDesc.properties = pbsNodeProperties;
+            typeDesc.baseType = baseNodeType;
+            objDatabase->RegisterType(&typeDesc);
+        }
     }
     else {
         if (ImGui::Begin("Object Database")) {
@@ -2442,6 +2786,7 @@ void Update(void* userData, ImGuiContext* imguiContext, runtime::UIContext* uiCt
             };
             
             int numMipMapLevels = cro_GetMipMapLevels(width, height);
+            numMipMapLevels = numMipMapLevels > 0 ? numMipMapLevels : 1;
             uint8_t** mipmaps = (uint8_t**)allocator->Allocate(sizeof(uint8_t*) * numMipMapLevels, alignof(uint8_t*));
             int w = width;
             int h = height;

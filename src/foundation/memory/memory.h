@@ -307,3 +307,9 @@ fnd::internal::Delete(objectAsPtr, arenaAsPtr)
 
 #define GT_DELETE_ARRAY(array, arenaAsPtr) \
 fnd::internal::DeleteArray(array, arenaAsPtr) 
+
+#define KILOBYTES(n) (n * 1024)
+#define MEGABYTES(n) (KILOBYTES(n) * 1024)
+#define GIGABYTES(n) (MEGABYTES(n) * (size_t)1024)
+
+static_assert(GIGABYTES(8) > MEGABYTES(4), "some size type is wrong");

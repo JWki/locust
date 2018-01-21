@@ -36,12 +36,14 @@
 int WINDOW_WIDTH = 1920;
 int WINDOW_HEIGHT = 1080;
 
+
 class SimpleMemoryTracker
 {
     size_t m_usedMemory = 0;
 public:
     ~SimpleMemoryTracker()
     {
+        
         if (m_usedMemory > 0) {
             GT_LOG_INFO("Memory", "Too much memory used!");
         }
@@ -295,12 +297,6 @@ public:
 typedef fnd::logging::Logger<SimpleFilterPolicy, SimpleFormatPolicy, ConsoleWriter> SimpleLogger;
 typedef fnd::logging::Logger<SimpleFilterPolicy, IDEConsoleFormatter, IDEConsoleWriter> IDEConsoleLogger;
 
-
-#define KILOBYTES(n) (n * 1024)
-#define MEGABYTES(n) (KILOBYTES(n) * 1024)
-#define GIGABYTES(n) (MEGABYTES(n) * (size_t)1024)
-
-static_assert(GIGABYTES(8) > MEGABYTES(4), "some size type is wrong");
 
 
 /*
